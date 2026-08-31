@@ -413,3 +413,69 @@ describe('version routes', () => {
     assert.equal(versions['no-version-app'].status, 'unknown');
   });
 });
+
+describe('the combined dashboard route', () => {
+  let db;
+  let app;
+
+  before(async () => {
+    db = freshDb();
+    app = await serverWith(db);
+    createApp(db, appFixture({ id: 'dash-a', category: 'media', version: null }));
+    createApp(db, appFixture({ id: 'dash-b', category: 'tools', version: null }));
+  });
+
+  after(async () => {
+    await app.close();
+    db.close();
+  });
+
+  /**
+   * The widget host's contract is ONE request descriptor per widget, so the
+   * apps widget cannot fetch the registry and the version map separately. If
+   * this route stops returning both, the widget silently loses its versions.
+   */
+  test('returns apps and versions in a single response', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/apps/dashboard' });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.json();
+    assert.equal(body.apps.length, 2);
+    assert.ok(Object.hasOwn(body, 'versions'));
+    assert.ok(Object.hasOwn(body.versions, 'dash-a'));
+  });
+
+  test('filters by category', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/apps/dashboard?category=media' });
+
+    const body = response.json();
+    assert.equal(body.apps.length, 1);
+    assert.equal(body.apps[0].id, 'dash-a');
+  });
+
+  test('versions=false skips the version work entirely', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/apps/dashboard?versions=false',
+    });
+
+    const body = response.json();
+    assert.equal(body.apps.length, 2);
+    // No reason to warm a cache nobody is reading.
+    assert.deepEqual(body.versions, {});
+  });
+
+  test('an empty registry is an empty response rather than an error', async () => {
+    const emptyDb = freshDb();
+    const emptyApp = await serverWith(emptyDb);
+    try {
+      const response = await emptyApp.inject({ method: 'GET', url: '/api/apps/dashboard' });
+
+      assert.equal(response.statusCode, 200);
+      assert.deepEqual(response.json(), { apps: [], versions: {} });
+    } finally {
+      await emptyApp.close();
+      emptyDb.close();
+    }
+  });
+});

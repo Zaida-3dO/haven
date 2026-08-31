@@ -43,6 +43,7 @@
  */
 
 import { config } from '../config.js';
+import { getApp, listApps } from '../db/apps-store.js';
 
 /** A successful lookup is good for this long. Releases are not news. */
 export const LATEST_CACHE_MS = 6 * 60 * 60 * 1000;
@@ -253,8 +254,67 @@ export function compareVersions(current, latest) {
   return normalise(current) === normalise(latest) ? 'same' : 'differs';
 }
 
+/**
+ * The version pair for one already-loaded app row.
+ *
+ * Takes the app rather than an id so the three routes below can share it
+ * without each re-reading the row.
+ */
+async function versionPairFor(found, cache) {
+  const apiUrl = toReleasesApiUrl(found.version?.latestUrl);
+  const current = resolveCurrent(found.version?.currentContainerId);
+
+  // No usable latest URL is not an error — plenty of apps have no upstream
+  // release feed, and the card just shows the current version alone.
+  const latest = apiUrl ? await fetchLatest(apiUrl, { cache }) : { version: null };
+
+  return {
+    current,
+    latest: latest.version ?? null,
+    latestUrl: latest.url ?? null,
+    publishedAt: latest.publishedAt ?? null,
+    status: compareVersions(current, latest.version),
+    ...(latest.error ? { error: latest.error } : {}),
+  };
+}
+
+/** Every app's version pair, keyed by id. Cached upstream, so this is cheap. */
+async function versionMapFor(apps, cache) {
+  const entries = await Promise.all(
+    apps.map(async (found) => [found.id, await versionPairFor(found, cache)])
+  );
+  return Object.fromEntries(entries);
+}
+
 export async function registerVersionRoutes(app, { db, cache = new VersionCache() } = {}) {
   if (!db) throw new Error('registerVersionRoutes requires a database handle.');
+
+  /**
+   * `GET /api/apps/dashboard` — the apps widget's single request.
+   *
+   * The widget host's contract is one request descriptor per widget
+   * (`dataSource(config)` returns one `{ url }`, and `Dashboard.refresh`
+   * fetches exactly that). The apps widget needs the registry *and* the
+   * version pairs, so the join happens here rather than by extending the host.
+   *
+   * Combining them server-side is the better place for it regardless: the
+   * version map is served from the shared cache above, so folding it into this
+   * response costs nothing and saves the grid a second round trip on every
+   * refresh.
+   *
+   * `versions=false` skips the version work entirely for a widget configured
+   * with versions hidden — no reason to warm a cache nobody is reading.
+   */
+  app.get('/api/apps/dashboard', async (request) => {
+    const { category, versions } = request.query ?? {};
+    const apps = listApps(db, { category });
+    const wantVersions = versions !== 'false';
+
+    return {
+      apps,
+      versions: wantVersions ? await versionMapFor(apps, cache) : {},
+    };
+  });
 
   /**
    * `GET /api/versions/:id` — the version pair for one app.
@@ -265,7 +325,6 @@ export async function registerVersionRoutes(app, { db, cache = new VersionCache(
    * only to look up an app that an operator already added.
    */
   app.get('/api/versions/:id', async (request, reply) => {
-    const { getApp } = await import('../db/apps-store.js');
     const found = getApp(db, request.params.id);
     if (!found) {
       return reply
@@ -273,22 +332,7 @@ export async function registerVersionRoutes(app, { db, cache = new VersionCache(
         .send({ error: 'NOT_FOUND', message: `No app with id "${request.params.id}".` });
     }
 
-    const apiUrl = toReleasesApiUrl(found.version?.latestUrl);
-    const current = resolveCurrent(found.version?.currentContainerId);
-
-    // No usable latest URL is not an error — plenty of apps have no upstream
-    // release feed, and the card just shows the current version alone.
-    const latest = apiUrl ? await fetchLatest(apiUrl, { cache }) : { version: null };
-
-    return {
-      id: found.id,
-      current,
-      latest: latest.version ?? null,
-      latestUrl: latest.url ?? null,
-      publishedAt: latest.publishedAt ?? null,
-      status: compareVersions(current, latest.version),
-      ...(latest.error ? { error: latest.error } : {}),
-    };
+    return { id: found.id, ...(await versionPairFor(found, cache)) };
   });
 
   /**
@@ -299,32 +343,7 @@ export async function registerVersionRoutes(app, { db, cache = new VersionCache(
    * difference between a handful of upstream calls a day and a rate-limit
    * exhaustion.
    */
-  app.get('/api/versions', async () => {
-    const { listApps } = await import('../db/apps-store.js');
-    const apps = listApps(db);
-
-    const entries = await Promise.all(
-      apps.map(async (found) => {
-        const apiUrl = toReleasesApiUrl(found.version?.latestUrl);
-        const current = resolveCurrent(found.version?.currentContainerId);
-        const latest = apiUrl ? await fetchLatest(apiUrl, { cache }) : { version: null };
-
-        return [
-          found.id,
-          {
-            current,
-            latest: latest.version ?? null,
-            latestUrl: latest.url ?? null,
-            publishedAt: latest.publishedAt ?? null,
-            status: compareVersions(current, latest.version),
-            ...(latest.error ? { error: latest.error } : {}),
-          },
-        ];
-      })
-    );
-
-    return { versions: Object.fromEntries(entries) };
-  });
+  app.get('/api/versions', async () => ({ versions: await versionMapFor(listApps(db), cache) }));
 
   return { cache };
 }

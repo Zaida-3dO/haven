@@ -27,9 +27,12 @@ export {
   FIELD_TYPES,
 } from './schema.js';
 export { migrateConfig, MigrationError, VERSION_KEY } from './migrate.js';
+export { SearchIndex, scoreEntry, MATCH } from './search-index.js';
+export { SearchUI, SEARCH_UI_STATE, isOpenShortcut, defaultActionFor } from './search-ui.js';
 
 import { registry } from './registry.js';
 import { Dashboard } from './dashboard.js';
+import { SearchUI } from './search-ui.js';
 
 /**
  * Boot the shell into `root`.
@@ -38,7 +41,7 @@ import { Dashboard } from './dashboard.js';
  * runs — late registration is handled by the host, so load order does not
  * matter.
  */
-export function mountShell(root, { layout = [] } = {}) {
+export function mountShell(root, { layout = [], navigateToWidget = null } = {}) {
   if (!root) throw new Error('mountShell: no root element');
 
   root.replaceChildren();
@@ -54,5 +57,15 @@ export function mountShell(root, { layout = [] } = {}) {
     root.appendChild(empty);
   }
 
+  // Global search over the dashboard's in-memory index. `navigateToWidget` is
+  // the seam onto the grid's `#widget-id` scroll-and-highlight; left null it
+  // falls back to setting the hash, which is what the grid listens for.
+  const search = new SearchUI(dashboard.searchIndex, { navigateToWidget });
+  search.mount(root);
+  search.attachShortcut();
+
+  // Still the Dashboard, so existing callers are unaffected; the palette
+  // rides along on it rather than changing this function's return shape.
+  dashboard.search = search;
   return dashboard;
 }

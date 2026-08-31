@@ -8,8 +8,8 @@
  * at the host, not at a DOM emulation.
  *
  * Extended for the search UI with attributes, listeners, focus and
- * `querySelectorAll` — all additive, so the host and dashboard suites see
- * exactly the behaviour they saw before.
+ * `querySelectorAll`, and for the hero with `append` — all additive, so the
+ * host and dashboard suites see exactly the behaviour they saw before.
  */
 
 class FakeElement {
@@ -122,6 +122,11 @@ class FakeElement {
     child.parentNode = this;
     this.children.push(child);
     return child;
+  }
+
+  /** Variadic sibling of `appendChild`, which the widget elements use. */
+  append(...nodes) {
+    for (const node of nodes) this.appendChild(node);
   }
 
   replaceChildren(...nodes) {

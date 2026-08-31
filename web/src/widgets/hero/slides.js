@@ -56,7 +56,7 @@ export function coverSrc(slide) {
   const name = slide.cover.trim();
   // Defence in depth: the server already refuses to store one of these, but a
   // slide can also come from widget config, which the server never saw.
-  if (name.includes('/') || name.includes('\') || name.includes('..')) return null;
+  if (name.includes('/') || name.includes('\\') || name.includes('..')) return null;
   return COVER_BASE + encodeURIComponent(name);
 }
 

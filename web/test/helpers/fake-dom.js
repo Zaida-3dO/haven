@@ -26,6 +26,9 @@ class FakeElement {
     this.listeners = new Map();
     this.value = '';
     this.focused = false;
+    // A plain bag, which is all any widget needs of `style`: setting an
+    // inline property (a progress bar's width) and reading it back.
+    this.style = {};
   }
 
   setAttribute(name, value) {
@@ -118,7 +121,20 @@ class FakeElement {
     this.children = [];
   }
 
+  /**
+   * Append, MOVING the node if it is already somewhere.
+   *
+   * The real `appendChild` detaches first, which is precisely what lets a
+   * keyed list reorder itself by re-appending existing nodes instead of
+   * rebuilding them. A fake that merely pushed would duplicate the node and
+   * quietly report a diff-and-patch widget as broken (or, worse, as working).
+   */
   appendChild(child) {
+    if (child.parentNode) {
+      const siblings = child.parentNode.children;
+      const at = siblings.indexOf(child);
+      if (at >= 0) siblings.splice(at, 1);
+    }
     child.parentNode = this;
     this.children.push(child);
     return child;

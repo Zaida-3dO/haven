@@ -39,4 +39,40 @@ export const config = {
 
   /** Version reported by /api/health. Injected at image build time. */
   version: process.env.HAVEN_VERSION ?? 'dev',
+
+  /**
+   * GitHub token for the releases API, used by the version connector.
+   *
+   * Optional: public repos resolve unauthenticated, just at a much lower rate
+   * limit (60/hour per IP, shared by everyone behind it). It lives here and
+   * never leaves the server — the browser asks `/api/versions`, not GitHub.
+   */
+  githubToken: process.env.HAVEN_GITHUB_TOKEN ?? null,
+
+  /**
+   * Running container versions, as a JSON object of containerId -> version.
+   *
+   * The old dashboard shelled out to Docker for this. Haven does not mount the
+   * Docker socket — handing a web-facing container root-equivalent access to
+   * the host is a bad trade for displaying a string — so an operator supplies
+   * the map instead. Absent or malformed means "current version unknown",
+   * which the card renders quietly rather than as an error.
+   */
+  containerVersions: parseJsonObject(process.env.HAVEN_CONTAINER_VERSIONS),
 };
+
+/**
+ * Parses an env var holding a JSON object, tolerating anything else.
+ *
+ * A typo in this variable must not stop the server booting: an unparseable
+ * value degrades to "no known versions", exactly like an absent one.
+ */
+function parseJsonObject(raw) {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}

@@ -8,6 +8,7 @@
  */
 
 import { createWeatherConnector, STATUS } from '../connectors/weather.js';
+import { registerTorrentRoutes } from './torrents.js';
 import { loadSettings } from '../settings.js';
 
 export async function registerWidgetRoutes(app, opts = {}) {
@@ -52,6 +53,14 @@ export async function registerWidgetRoutes(app, opts = {}) {
     }
 
     return result;
+  });
+
+  // Torrents lives in its own module: unlike weather it holds a login
+  // session, so its retry and re-authentication logic is substantial enough
+  // to be worth reading on its own. It registers GET /api/widgets/torrents.
+  await registerTorrentRoutes(app, {
+    connector: opts.torrentConnector,
+    ...opts.torrentOptions,
   });
 
   /** Re-reads `config/settings.json` — for a future settings screen. */

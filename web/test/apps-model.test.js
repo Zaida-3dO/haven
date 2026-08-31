@@ -9,6 +9,7 @@ import {
   categoryTabs,
   filterByCategory,
   primaryUrl,
+  safeUrl,
   secondaryUrls,
   sortApps,
   versionPair,
@@ -385,5 +386,65 @@ describe('buildView', () => {
 
     assert.equal(view.empty, true);
     assert.equal(view.tabs.length, 1);
+  });
+});
+
+describe('safeUrl', () => {
+  /**
+   * A `javascript:` href executes on click. The API rejects these, but the
+   * seed path (`seedApps` -> `createApp`) does not go through `validateApp`,
+   * so the render boundary should not depend on which write path a row
+   * arrived by.
+   */
+  test('rejects a javascript: URL', () => {
+    assert.equal(safeUrl('javascript:alert(1)'), null);
+  });
+
+  test('rejects a data: URL', () => {
+    assert.equal(safeUrl('data:text/html,<script>alert(1)</script>'), null);
+  });
+
+  test('rejects other schemes', () => {
+    assert.equal(safeUrl('file:///etc/passwd'), null);
+    assert.equal(safeUrl('vbscript:msgbox(1)'), null);
+  });
+
+  test('allows http and https', () => {
+    assert.equal(safeUrl('https://example.invalid'), 'https://example.invalid');
+    assert.equal(safeUrl('http://example.invalid'), 'http://example.invalid');
+  });
+
+  test('is null for missing input', () => {
+    assert.equal(safeUrl(null), null);
+    assert.equal(safeUrl(''), null);
+    assert.equal(safeUrl('   '), null);
+  });
+
+  test('a dangerous primary URL never becomes an href', () => {
+    const app = appFixture({
+      urls: [{ title: 'Bad', url: 'javascript:alert(1)', primary: true }],
+    });
+    assert.equal(primaryUrl(app), null);
+    assert.equal(buildCard(app).href, null);
+  });
+
+  test('a dangerous secondary URL is dropped from the menu', () => {
+    const app = appFixture({
+      urls: [
+        { title: 'Good', url: 'https://good.invalid', primary: true },
+        { title: 'Bad', url: 'javascript:alert(1)' },
+      ],
+    });
+    assert.deepEqual(secondaryUrls(app, 'https://good.invalid'), []);
+  });
+
+  test('a dangerous resolved URL does not become the card href', () => {
+    const statuses = new Map([
+      ['example-service', { status: STATUS.REACHABLE, url: 'javascript:alert(1)' }],
+    ]);
+    const card = buildCard(appFixture(), { statuses });
+
+    assert.notEqual(card.href, 'javascript:alert(1)');
+    assert.equal(card.href, 'https://example.invalid');
   });
 });

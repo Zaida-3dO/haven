@@ -99,12 +99,38 @@ export function sortApps(apps = [], sort = SORT.VISITS, statuses = new Map()) {
 }
 
 /**
+ * Every URL that reaches an `href` passes through here first.
+ *
+ * `javascript:` in an href is script execution on click, and `data:` can carry
+ * a document. The API already rejects both (`server/src/routes/apps-schema.js`
+ * allows only http/https), so this is a second line rather than the only one —
+ * but it is worth having, because the API is not the only way a row is
+ * created: `seedApps` inserts `config/apps.json` through `createApp` directly,
+ * without going through `validateApp`. That file is operator-supplied rather
+ * than attacker-supplied, so this is defence in depth and not a live hole; the
+ * point is that the render boundary should not *depend* on which write path a
+ * row arrived by.
+ *
+ * Returns null for anything not http/https, which callers treat exactly like a
+ * missing URL.
+ */
+export function safeUrl(url) {
+  if (typeof url !== 'string' || !url.trim()) return null;
+  try {
+    const protocol = new URL(url, 'https://haven.invalid').protocol;
+    return protocol === 'http:' || protocol === 'https:' ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The primary URL — the one shown as the card's main action when nothing has
  * been probed yet, and the fallback if nothing answers.
  */
 export function primaryUrl(app) {
   const urls = Array.isArray(app?.urls) ? app.urls : [];
-  return (urls.find((u) => u?.primary) ?? urls[0])?.url ?? null;
+  return safeUrl((urls.find((u) => u?.primary) ?? urls[0])?.url) ?? null;
 }
 
 /**
@@ -125,11 +151,11 @@ export function secondaryUrls(app, resolvedUrl = null) {
       // entry's real position in the app's URL list rather than its position in
       // the menu — otherwise the same link is "Link 2" or "Link 1" depending on
       // which variant happened to resolve.
-      .map((entry, index) => ({ entry, index }))
-      .filter(({ entry }) => entry?.url && entry.url !== exclude)
-      .map(({ entry, index }) => ({
-        title: entry.title?.trim() || `Link ${index + 1}`,
-        url: entry.url,
+      .map((entry, index) => ({ url: safeUrl(entry?.url), title: entry?.title, index }))
+      .filter(({ url }) => url && url !== exclude)
+      .map(({ title, url, index }) => ({
+        title: title?.trim() || `Link ${index + 1}`,
+        url,
       }))
   );
 }
@@ -183,7 +209,9 @@ export function buildCard(app, { statuses = new Map(), versions = {} } = {}) {
     url: primaryUrl(app),
     checkedAt: null,
   };
-  const href = entry.url ?? primaryUrl(app);
+  // Guarded again here: the resolved URL comes back through the tracker, so
+  // this is the last point before it becomes an href.
+  const href = safeUrl(entry.url) ?? primaryUrl(app);
 
   return {
     id: app?.id,

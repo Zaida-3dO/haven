@@ -9,6 +9,7 @@
 
 import { createWeatherConnector, STATUS } from '../connectors/weather.js';
 import { registerTorrentRoutes } from './torrents.js';
+import { registerCalendarRoutes } from './calendar.js';
 import { loadSettings } from '../settings.js';
 
 export async function registerWidgetRoutes(app, opts = {}) {
@@ -61,6 +62,14 @@ export async function registerWidgetRoutes(app, opts = {}) {
   await registerTorrentRoutes(app, {
     connector: opts.torrentConnector,
     ...opts.torrentOptions,
+  });
+
+  // Calendar likewise: its connector holds ICS feed URLs, which are bearer
+  // credentials, so the redaction rules are worth reading in one place.
+  // It registers GET /api/widgets/calendar.
+  await registerCalendarRoutes(app, {
+    connector: opts.calendarConnector,
+    ...opts.calendarOptions,
   });
 
   /** Re-reads `config/settings.json` — for a future settings screen. */

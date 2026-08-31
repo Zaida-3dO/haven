@@ -13,8 +13,10 @@
  */
 
 class FakeElement {
-  constructor(tagName) {
-    this.tagName = tagName.toUpperCase();
+  // The tag defaults so a custom-element subclass can be constructed with
+  // `new Widget()`, which passes no arguments.
+  constructor(tagName = 'div') {
+    this.tagName = String(tagName).toUpperCase();
     this.children = [];
     this.dataset = {};
     this.className = '';
@@ -27,8 +29,28 @@ class FakeElement {
     this.value = '';
     this.focused = false;
     // A plain bag, which is all any widget needs of `style`: setting an
-    // inline property (a progress bar's width) and reading it back.
+    // inline property (a progress bar's width, a calendar feed's colour) and
+    // reading it back.
     this.style = {};
+    /**
+     * `classList` is a stand-in kept in sync with `className`, so
+     * `matches('.x')` and `querySelector('.x')` keep working exactly as
+     * before. Additive: suites that never touch it are unaffected.
+     */
+    this.classList = {
+      add: (...names) => {
+        const present = this.className.split(/\s+/).filter(Boolean);
+        for (const name of names) if (!present.includes(name)) present.push(name);
+        this.className = present.join(' ');
+      },
+      remove: (...names) => {
+        this.className = this.className
+          .split(/\s+/)
+          .filter((c) => c && !names.includes(c))
+          .join(' ');
+      },
+      contains: (name) => this.className.split(/\s+/).includes(name),
+    };
   }
 
   setAttribute(name, value) {
@@ -162,7 +184,10 @@ class FakeElement {
   querySelector(className) {
     const want = className.replace(/^\./, '');
     for (const child of this.children) {
-      if (child.className === want) return child;
+      // Token-aware: an element carrying `cal__event cal__event--allday` is
+      // still found by `.cal__event`. An exact-string compare would miss it.
+      const classes = (child.className ?? '').split(/\s+/).filter(Boolean);
+      if (child.className === want || classes.includes(want)) return child;
       const found = child.querySelector?.(className);
       if (found) return found;
     }

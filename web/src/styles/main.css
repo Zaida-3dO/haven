@@ -208,3 +208,95 @@ body {
   padding: 0.6rem;
   font-size: 0.8rem;
 }
+
+/* ── Subpages (DESIGN §6.9) ─────────────────────────────────────────────
+   A custom page renders here with the shell's chrome around it. The grid
+   stays mounted underneath, just hidden, so a trip to a page does not
+   reload every embed on the board. */
+
+.haven-page {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.haven-page[hidden] {
+  display: none;
+}
+
+.page__header {
+  margin-bottom: 1.5rem;
+}
+
+.page__back {
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+.page__title {
+  margin: 0.25rem 0 0;
+  font-size: 1.75rem;
+}
+
+.page__summary {
+  margin: 0.25rem 0 0;
+  opacity: 0.75;
+}
+
+.page__section {
+  margin-bottom: 2rem;
+}
+
+.page__section-title {
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.7;
+}
+
+.page__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 1rem;
+}
+
+.page__stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.page__stat-value {
+  font-size: 1.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.page__stat-label {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.page__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.page__th,
+.page__td {
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid rgb(255 255 255 / 12%);
+}
+
+.page__th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
+.page__empty,
+.page__missing,
+.page__error {
+  opacity: 0.8;
+}

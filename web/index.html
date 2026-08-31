@@ -9,6 +9,9 @@
   <body>
     <div id="haven-chrome">
       <div id="haven-grid" class="grid-stack"></div>
+      <!-- Subpages render here; the grid above stays mounted underneath so a
+           trip to a page does not reload every embed on the board. -->
+      <main id="haven-page" class="haven-page" hidden></main>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

@@ -1,5 +1,5 @@
 # ── Stage 1: build the web shell ─────────────────────────────────────────
-FROM node:24-slim AS web-build
+FROM node:26-slim AS web-build
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
@@ -19,7 +19,7 @@ COPY web/ web/
 RUN npm run build --workspace=web
 
 # ── Stage 2: production dependencies only ────────────────────────────────
-FROM node:24-slim AS deps
+FROM node:26-slim AS deps
 WORKDIR /app
 
 # better-sqlite3 is a native module — it needs a toolchain to build if no
@@ -34,7 +34,7 @@ COPY web/package.json web/
 RUN npm install --omit=dev --workspace=server --no-audit --no-fund
 
 # ── Stage 3: runtime ─────────────────────────────────────────────────────
-FROM node:24-slim
+FROM node:26-slim
 WORKDIR /app
 
 RUN apt-get update \

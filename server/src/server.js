@@ -5,6 +5,7 @@ import { seedApps } from './db/apps-store.js';
 import { registerAppRoutes } from './routes/apps.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerLayoutRoutes } from './routes/layout.js';
+import { registerVersionRoutes } from './routes/versions.js';
 
 /**
  * Builds the Fastify instance without starting it, so tests can drive it
@@ -46,6 +47,9 @@ export async function buildServer(opts = {}) {
   await registerHealthRoutes(app);
   await registerLayoutRoutes(app);
   await registerAppRoutes(app, { db, iconDir });
+  // The version connector holds the GitHub token and the shared release cache;
+  // the browser asks this server, never api.github.com directly.
+  await registerVersionRoutes(app, { db });
 
   return app;
 }

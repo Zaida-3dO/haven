@@ -8,7 +8,6 @@ import {
   configSchema,
   formatDate,
   formatTime,
-  getStubConfig,
   migrateConfig,
   timestampFrom,
 } from '../src/widgets/clock/clock.js';

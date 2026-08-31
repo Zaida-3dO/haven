@@ -19,6 +19,19 @@ export const config = {
   logLevel: process.env.HAVEN_LOG_LEVEL ?? 'info',
 
   /**
+   * Uploaded app icons. Lives on the data volume, never in the repo — an
+   * upload endpoint that writes into the checkout is how a public repo grows
+   * private assets.
+   */
+  iconDir: process.env.HAVEN_ICON_DIR ?? './data/icons',
+
+  /**
+   * Seed for the app registry. Read once, on first boot, when the table is
+   * empty; the database is the source of truth afterwards.
+   */
+  appsConfigPath: process.env.HAVEN_APPS_CONFIG ?? './config/apps.json',
+
+  /**
    * Key used to encrypt widget credentials at rest in SQLite. Absent in
    * development; required before any connector stores a credential.
    */

@@ -5,6 +5,7 @@ import {
   DEFAULT_COLUMNS,
   breakpointForWidth,
   extractLayout,
+  findWidgetElement,
   hasCachedLayout,
   nodeFromWidgetMeta,
   widgetIdFromHash,
@@ -150,5 +151,55 @@ describe('widgetIdFromHash', () => {
     assert.equal(widgetIdFromHash('#'), null);
     assert.equal(widgetIdFromHash(''), null);
     assert.equal(widgetIdFromHash(undefined), null);
+  });
+});
+
+describe('findWidgetElement', () => {
+  /**
+   * A DOM double covering the distinction that caused a real bug: an element
+   * carrying a live `id` versus one still carrying the `gs-id` attribute.
+   */
+  function fakeRoot({ ids = [], gsIds = [] } = {}) {
+    const tile = { className: 'grid-stack-item' };
+    const make = (value, kind) => ({
+      value,
+      kind,
+      closest: (selector) => (selector === '.grid-stack-item' ? tile : null),
+    });
+
+    const byId = new Map(ids.map((v) => [`#${v}`, make(v, 'id')]));
+    const byGs = new Map(gsIds.map((v) => [`[gs-id="${v}"]`, make(v, 'gs-id')]));
+
+    return {
+      tile,
+      querySelector: (selector) => byId.get(selector) ?? byGs.get(selector) ?? null,
+    };
+  }
+
+  test('finds a widget by the id the host sets on its tile', () => {
+    // GridStack CONSUMES the gs-id attribute when it adopts an element, so it
+    // is gone from the DOM once the grid is live. Selecting only on gs-id
+    // matched nothing and silently broke every deep link.
+    const root = fakeRoot({ ids: ['clock-1'] });
+
+    assert.equal(findWidgetElement(root, 'clock-1'), root.tile);
+  });
+
+  test('falls back to gs-id for an element the grid has not adopted yet', () => {
+    const root = fakeRoot({ gsIds: ['clock-1'] });
+
+    assert.equal(findWidgetElement(root, 'clock-1'), root.tile);
+  });
+
+  test('returns the grid item, not the inner element, so the highlight lands on the tile', () => {
+    const root = fakeRoot({ ids: ['clock-1'] });
+
+    assert.equal(findWidgetElement(root, 'clock-1').className, 'grid-stack-item');
+  });
+
+  test('returns null for a widget that is not on the grid', () => {
+    assert.equal(findWidgetElement(fakeRoot({ ids: ['clock-1'] }), 'missing'), null);
+    assert.equal(findWidgetElement(null, 'clock-1'), null);
+    assert.equal(findWidgetElement(fakeRoot(), ''), null);
   });
 });

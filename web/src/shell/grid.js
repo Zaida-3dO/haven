@@ -28,6 +28,7 @@ import {
   DEFAULT_COLUMNS,
   DEFAULT_MOBILE_BREAKPOINT,
   extractLayout,
+  findWidgetElement,
   hasCachedLayout,
   widgetIdFromHash,
 } from './grid-layout.js';
@@ -39,6 +40,7 @@ import {
 export {
   breakpointForWidth,
   extractLayout,
+  findWidgetElement,
   hasCachedLayout,
   nodeFromWidgetMeta,
   widgetIdFromHash,
@@ -97,7 +99,7 @@ export function installIframePointerShim(grid, root) {
 export function focusWidget(root, widgetId, { highlightMs = DEEP_LINK_HIGHLIGHT_MS } = {}) {
   if (!widgetId) return false;
 
-  const el = root.querySelector(`[gs-id="${CSS.escape(widgetId)}"]`);
+  const el = findWidgetElement(root, widgetId);
   if (!el) return false;
 
   el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -182,7 +184,9 @@ export function mountGrid({
       grid.batchUpdate();
       try {
         for (const node of nodes) {
-          const el = root.querySelector(`[gs-id="${CSS.escape(String(node.id))}"]`);
+          // Same lookup as the deep link, and for the same reason: GridStack
+          // eats the `gs-id` attribute once it adopts an element.
+          const el = findWidgetElement(root, String(node.id));
           if (el) grid.update(el, { x: node.x, y: node.y, w: node.w, h: node.h });
         }
       } finally {

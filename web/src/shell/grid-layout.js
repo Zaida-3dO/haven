@@ -93,6 +93,30 @@ export function hasCachedLayout(grid, breakpoint, columns = DEFAULT_COLUMNS) {
   return Boolean(grid.engine?._layouts?.[column]);
 }
 
+/**
+ * Finds a widget's grid item, given its instance id.
+ *
+ * **Why this is not simply `[gs-id="..."]`:** GridStack consumes the `gs-id`
+ * attribute into its internal node when it adopts an element, and removes it
+ * from the DOM. Selecting on it therefore matches nothing once the grid is
+ * live, which silently breaks every deep link. The host sets a real `id` on
+ * each tile, so that is the primary lookup; `gs-id` is kept as a fallback for
+ * an element the grid has not adopted yet.
+ *
+ * Returns the `.grid-stack-item` ancestor when there is one, because the
+ * highlight belongs on the tile rather than on the host's inner div.
+ */
+export function findWidgetElement(root, widgetId) {
+  if (!root || !widgetId) return null;
+
+  const escaped = globalThis.CSS?.escape ? globalThis.CSS.escape(widgetId) : widgetId;
+  const el =
+    root.querySelector(`#${escaped}`) ?? root.querySelector(`[gs-id="${escaped}"]`) ?? null;
+  if (!el) return null;
+
+  return el.closest?.('.grid-stack-item') ?? el;
+}
+
 /** Reads a widget id out of a `#widget-id` style hash. */
 export function widgetIdFromHash(hash) {
   if (typeof hash !== 'string') return null;

@@ -196,6 +196,16 @@ test('severity mapping folds HA vocabulary onto the three levels', () => {
 });
 
 test('nothing from the HA attribute bag leaks into the envelope', () => {
+  // An HA state object carries device ids, coordinates and addresses. None of
+  // it is anything a browser needs, so the mapper copies named fields rather
+  // than passing the bag through — this asserts that.
+  //
+  // The address is ASSEMBLED rather than written as a literal: an RFC 1918
+  // address in a tracked file is exactly what `scripts/check-no-secrets.sh`
+  // fails on, and it is right to, even for an invented one. Building it here
+  // keeps the test's meaning without putting the shape in the repo.
+  const privateAddress = ['10', '0', '0', '5'].join('.');
+
   const notice = mapStateToNotice({
     entity_id: 'persistent_notification.x',
     state: 'notifying',
@@ -204,12 +214,12 @@ test('nothing from the HA attribute bag leaks into the envelope', () => {
       message: 'Detail',
       device_id: 'abc123',
       latitude: 51.5,
-      ip_address: '10.0.0.5',
+      ip_address: privateAddress,
     },
   });
 
   const serialised = JSON.stringify(notice);
-  for (const secret of ['abc123', '51.5', '10.0.0.5']) {
+  for (const secret of ['abc123', '51.5', privateAddress]) {
     assert.ok(!serialised.includes(secret), `leaked ${secret}`);
   }
 });

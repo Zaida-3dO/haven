@@ -102,9 +102,9 @@ Non-secret preferences. Secrets belong in `.env`, never here.
   "version": 1,
   "weather": {
     "units": "metric",
-    "locationName": "Your City",
-    "latitude": 0.0,
-    "longitude": 0.0
+    "locationName": null,
+    "latitude": null,
+    "longitude": null
   },
   "grid": {
     "breakpoints": { "mobile": 768 },
@@ -112,6 +112,24 @@ Non-secret preferences. Secrets belong in `.env`, never here.
   }
 }
 ```
+
+### Weather
+
+`units` is `metric`, `imperial` or `standard`.
+
+`latitude` and `longitude` ship as `null` and are only used as a pair: set one
+without the other, or set either out of range, and the widget treats the
+location as unconfigured rather than sending it upstream. They are **not**
+defaulted to `0.0`, because 0,0 is a real place in the Atlantic — a copied
+example should say "set your location", not show you the weather at null
+island.
+
+`locationName` is only a label; it overrides the name OpenWeatherMap returns so
+the tile says what you call where you live.
+
+The API key is **not** here — it is `HAVEN_OPENWEATHER_API_KEY` in the
+environment, and it never reaches the browser. Without it the widget renders a
+"not configured" tile naming the variable to set.
 
 ## Layout
 

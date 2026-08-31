@@ -21,89 +21,31 @@
  */
 
 import { GridStack } from 'gridstack';
+
 import { BREAKPOINTS } from './layout-client.js';
+import {
+  DEEP_LINK_HIGHLIGHT_MS,
+  DEFAULT_COLUMNS,
+  DEFAULT_MOBILE_BREAKPOINT,
+  extractLayout,
+  hasCachedLayout,
+  widgetIdFromHash,
+} from './grid-layout.js';
 
-/** Column counts per breakpoint, matching `config/settings.example.json`. */
-export const DEFAULT_COLUMNS = Object.freeze({ desktop: 12, mobile: 4 });
-
-/** Viewport width at or below which the mobile breakpoint applies. */
-export const DEFAULT_MOBILE_BREAKPOINT = 768;
-
-/** How long a deep-linked widget stays highlighted. */
-export const DEEP_LINK_HIGHLIGHT_MS = 2000;
-
-/**
- * Which breakpoint a viewport width belongs to.
- *
- * Exported because both the grid and the edit-mode UI need to agree on it —
- * edit mode must save the breakpoint the user is actually looking at.
- */
-export function breakpointForWidth(width, mobileMaxWidth = DEFAULT_MOBILE_BREAKPOINT) {
-  return width <= mobileMaxWidth ? 'mobile' : 'desktop';
-}
-
-/**
- * Builds a GridStack node from a widget's static metadata.
- *
- * `minSize` maps to GridStack's `minW`/`minH`, which is what stops a widget
- * being resized below the size it can actually render at. `mobileSize` is used
- * in preference to `defaultSize` on the mobile breakpoint, per the contract.
- */
-export function nodeFromWidgetMeta(meta, breakpoint, overrides = {}) {
-  const size =
-    breakpoint === 'mobile' && meta?.mobileSize ? meta.mobileSize : (meta?.defaultSize ?? {});
-
-  const node = {
-    w: size.w ?? 2,
-    h: size.h ?? 2,
-    ...overrides,
-  };
-
-  if (meta?.minSize?.w !== undefined) node.minW = meta.minSize.w;
-  if (meta?.minSize?.h !== undefined) node.minH = meta.minSize.h;
-
-  return node;
-}
-
-/**
- * Extracts one breakpoint's layout from a live grid.
- *
- * **The sharp edge:** `save(..., column)` substitutes GridStack's cached
- * layout for that column *only if one exists*. If the user has never been at
- * that breakpoint there is no cached layout, and GridStack returns the
- * geometry of the column currently rendered instead. Writing that to the other
- * breakpoint would silently reflow desktop into mobile — the exact thing
- * DESIGN §3 rejects — so callers must not persist a breakpoint that was never
- * arranged. {@link hasCachedLayout} is how you tell.
- *
- * @returns {Array<object>} normalised nodes, geometry only.
- */
-export function extractLayout(grid, breakpoint, columns = DEFAULT_COLUMNS) {
-  const column = columns[breakpoint];
-  const saved = grid.save(false, false, undefined, column);
-  const nodes = Array.isArray(saved) ? saved : (saved?.children ?? []);
-
-  return nodes.map((n) => ({
-    id: String(n.id),
-    x: n.x ?? 0,
-    y: n.y ?? 0,
-    w: n.w ?? 1,
-    h: n.h ?? 1,
-    ...(n.widgetId !== undefined ? { widgetId: n.widgetId } : {}),
-  }));
-}
-
-/**
- * Whether GridStack holds a layout for a breakpoint's column count — i.e.
- * whether that breakpoint has ever actually been arranged.
- *
- * The currently-rendered column always counts: its layout is live, not cached.
- */
-export function hasCachedLayout(grid, breakpoint, columns = DEFAULT_COLUMNS) {
-  const column = columns[breakpoint];
-  if (grid.getColumn() === column) return true;
-  return Boolean(grid.engine?._layouts?.[column]);
-}
+// The pure layout logic lives in `grid-layout.js` so it can be tested under
+// `node --test`: GridStack's ESM uses extensionless imports that Vite resolves
+// and Node does not, so any module importing it is untestable there. Re-
+// exported here so callers have one import for the grid layer.
+export {
+  breakpointForWidth,
+  extractLayout,
+  hasCachedLayout,
+  nodeFromWidgetMeta,
+  widgetIdFromHash,
+  DEFAULT_COLUMNS,
+  DEFAULT_MOBILE_BREAKPOINT,
+  DEEP_LINK_HIGHLIGHT_MS,
+} from './grid-layout.js';
 
 /**
  * Installs the iframe pointer shim on a grid.
@@ -163,13 +105,6 @@ export function focusWidget(root, widgetId, { highlightMs = DEEP_LINK_HIGHLIGHT_
   globalThis.setTimeout(() => el.classList.remove('haven-widget--deep-linked'), highlightMs);
 
   return true;
-}
-
-/** Reads a widget id out of a `#widget-id` style hash. */
-export function widgetIdFromHash(hash) {
-  if (typeof hash !== 'string') return null;
-  const id = hash.replace(/^#/, '').trim();
-  return id === '' ? null : decodeURIComponent(id);
 }
 
 /**

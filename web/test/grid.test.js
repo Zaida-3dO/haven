@@ -8,7 +8,7 @@ import {
   hasCachedLayout,
   nodeFromWidgetMeta,
   widgetIdFromHash,
-} from '../src/shell/grid.js';
+} from '../src/shell/grid-layout.js';
 
 /**
  * A stand-in for a GridStack instance, modelling the one behaviour that

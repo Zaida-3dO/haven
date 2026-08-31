@@ -6,6 +6,10 @@
  * `attachShadow`, `replaceChildren`, and a `customElements` registry with a
  * real `whenDefined` promise. Keeping it this small means a test failure points
  * at the host, not at a DOM emulation.
+ *
+ * Extended for the search UI with attributes, listeners, focus and
+ * `querySelectorAll` — all additive, so the host and dashboard suites see
+ * exactly the behaviour they saw before.
  */
 
 class FakeElement {
@@ -18,6 +22,90 @@ class FakeElement {
     this._textContent = '';
     this.shadowRoot = null;
     this.parentNode = null;
+    this.attributes = new Map();
+    this.listeners = new Map();
+    this.value = '';
+    this.focused = false;
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+  }
+
+  getAttribute(name) {
+    return this.attributes.has(name) ? this.attributes.get(name) : null;
+  }
+
+  hasAttribute(name) {
+    return this.attributes.has(name);
+  }
+
+  removeAttribute(name) {
+    this.attributes.delete(name);
+  }
+
+  addEventListener(type, handler) {
+    const list = this.listeners.get(type) ?? [];
+    list.push(handler);
+    this.listeners.set(type, list);
+  }
+
+  removeEventListener(type, handler) {
+    const list = this.listeners.get(type) ?? [];
+    const i = list.indexOf(handler);
+    if (i >= 0) list.splice(i, 1);
+  }
+
+  /**
+   * Dispatch to this element's own listeners. Deliberately not a real
+   * bubbling implementation — the search UI listens directly on the elements
+   * it created, so anything more would be emulation for its own sake.
+   */
+  dispatchEvent(event) {
+    const list = this.listeners.get(event.type) ?? [];
+    for (const handler of [...list]) handler({ target: this, ...event });
+    return true;
+  }
+
+  focus() {
+    this.focused = true;
+    if (this.ownerDocument) this.ownerDocument.activeElement = this;
+  }
+
+  blur() {
+    this.focused = false;
+    if (this.ownerDocument?.activeElement === this) this.ownerDocument.activeElement = null;
+  }
+
+  /** Walk up looking for an ancestor matching a `[data-*]` or `.class` selector. */
+  closest(selector) {
+    let node = this;
+    while (node) {
+      if (node.matches?.(selector)) return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  matches(selector) {
+    const attr = selector.match(/^\[data-([\w-]+)\]$/);
+    if (attr) {
+      const key = attr[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      return this.dataset[key] !== undefined;
+    }
+    if (selector.startsWith('.')) return this.className.split(/\s+/).includes(selector.slice(1));
+    if (selector.startsWith('#')) return this.id === selector.slice(1);
+    return this.tagName === selector.toUpperCase();
+  }
+
+  /** Every descendant matching a class, `[data-*]`, `#id` or tag selector. */
+  querySelectorAll(selector) {
+    const found = [];
+    for (const child of this.children) {
+      if (child.matches?.(selector)) found.push(child);
+      if (child.querySelectorAll) found.push(...child.querySelectorAll(selector));
+    }
+    return found;
   }
 
   get textContent() {
@@ -67,12 +155,37 @@ class FakeElement {
 }
 
 export function createFakeDocument(elementFactories = new Map()) {
-  return {
+  const doc = {
+    activeElement: null,
+    listeners: new Map(),
+
     createElement(tag) {
       const factory = elementFactories.get(tag.toLowerCase());
-      return factory ? factory() : new FakeElement(tag);
+      const el = factory ? factory() : new FakeElement(tag);
+      // So `focus()` can report itself as the document's active element.
+      if (el && typeof el === 'object') el.ownerDocument = doc;
+      return el;
+    },
+
+    addEventListener(type, handler) {
+      const list = doc.listeners.get(type) ?? [];
+      list.push(handler);
+      doc.listeners.set(type, list);
+    },
+
+    removeEventListener(type, handler) {
+      const list = doc.listeners.get(type) ?? [];
+      const i = list.indexOf(handler);
+      if (i >= 0) list.splice(i, 1);
+    },
+
+    /** Fire a document-level event — how the tests press the global shortcut. */
+    dispatchEvent(event) {
+      for (const handler of [...(doc.listeners.get(event.type) ?? [])]) handler(event);
+      return true;
     },
   };
+  return doc;
 }
 
 /** A `customElements` double whose `whenDefined` really resolves on define. */

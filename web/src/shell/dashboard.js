@@ -16,6 +16,7 @@ import { Fetcher } from './fetcher.js';
 import { Scheduler } from './scheduler.js';
 import { WidgetHost } from './host.js';
 import { loadingData, doneData, errorData, staleData } from './panel-data.js';
+import { SearchIndex } from './search-index.js';
 
 export class Dashboard {
   #registry;
@@ -24,12 +25,25 @@ export class Dashboard {
   #hosts = new Map();
   #data = new Map();
   #container;
+  #searchIndex;
 
-  constructor({ registry = defaultRegistry, fetcher, scheduler, container = null } = {}) {
+  constructor({
+    registry = defaultRegistry,
+    fetcher,
+    scheduler,
+    container = null,
+    searchIndex,
+  } = {}) {
     this.#registry = registry;
     this.#fetcher = fetcher ?? new Fetcher();
     this.#scheduler = scheduler ?? new Scheduler();
     this.#container = container;
+    // In-memory only, and built fresh with the dashboard — see search-index.js.
+    this.#searchIndex = searchIndex ?? new SearchIndex();
+  }
+
+  get searchIndex() {
+    return this.#searchIndex;
   }
 
   get scheduler() {
@@ -75,6 +89,10 @@ export class Dashboard {
     if (definition.dataSource) {
       this.#push(host, loadingData());
       void this.#scheduler.runNow(host.id);
+    } else {
+      // A widget with no data source never reaches `#push`, but it can still
+      // contribute — a custom page offers its title — so index it on add.
+      this.#indexHost(host);
     }
     return host;
   }
@@ -84,6 +102,8 @@ export class Dashboard {
     this.#hosts.get(id)?.destroy();
     this.#hosts.delete(id);
     this.#data.delete(id);
+    // A removed widget takes its search entries with it.
+    this.#searchIndex.remove(id);
   }
 
   /**
@@ -118,6 +138,24 @@ export class Dashboard {
   #push(host, payload) {
     this.#data.set(host.id, payload);
     host.onData(payload);
+    // Widgets push to the index on data change — this is that push. The
+    // index replaces the widget's previous entries rather than appending, so
+    // a 30s refresh cannot make it grow without bound.
+    this.#indexHost(host);
+  }
+
+  /**
+   * Re-read one widget's search entries into the index.
+   *
+   * `host.getSearchEntries()` is already behind the error boundary and
+   * already stamps `widgetId`, so a throwing widget contributes nothing
+   * rather than breaking search.
+   */
+  #indexHost(host) {
+    const definition = this.#registry.get(host.type);
+    this.#searchIndex.setEntries(host.id, host.getSearchEntries(), {
+      label: definition?.name ?? host.type,
+    });
   }
 
   data(id) {
@@ -129,6 +167,13 @@ export class Dashboard {
     return this.hosts.flatMap((host) => host.getSearchEntries());
   }
 
+  /** Rebuild the whole index from the live hosts. */
+  reindexSearch() {
+    return this.#searchIndex.syncFromHosts(this.hosts, {
+      labelFor: (host) => this.#registry.get(host.type)?.name ?? host.type,
+    });
+  }
+
   start() {
     this.#scheduler.start();
   }
@@ -138,5 +183,7 @@ export class Dashboard {
     for (const host of this.#hosts.values()) host.destroy();
     this.#hosts.clear();
     this.#data.clear();
+    // The index dies with the session; nothing of it outlives the page.
+    this.#searchIndex.clear();
   }
 }

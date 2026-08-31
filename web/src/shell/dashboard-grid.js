@@ -104,7 +104,18 @@ export function connectGrid({
       onRemove: (id) => remove(id),
     });
 
-    const node = nodeFromWidgetMeta(definition, gridHandle.breakpoint(), geometry);
+    // `id` has to be in the options object, not only the `gs-id` attribute.
+    // GridStack reads `gs-id` off the element ONLY when `makeWidget` is called
+    // without options; given an explicit node it takes that node as the whole
+    // truth and the attribute is never consulted. Omitting it left every node
+    // with `id: undefined`, which `extractLayout` stringified to "undefined" —
+    // so Save PUT six identically-named nodes and the server rejected the lot
+    // with "Duplicate node id", and Discard looked up `#undefined`, found
+    // nothing and silently restored nothing.
+    const node = {
+      id: entry.id,
+      ...nodeFromWidgetMeta(definition, gridHandle.breakpoint(), geometry),
+    };
 
     // `makeWidget`, not `addWidget`: in GridStack v13 `addWidget` takes a
     // widget *definition* and builds the element itself, which would discard

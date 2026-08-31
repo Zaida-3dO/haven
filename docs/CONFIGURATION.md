@@ -28,6 +28,7 @@ cp config/settings.example.json config/settings.json
 | `HAVEN_DB_PATH` | `./data/haven.db` | SQLite file. `/data/haven.db` in Docker |
 | `HAVEN_ICON_DIR` | `./data/icons` | Uploaded app icons. On the data volume, never the repo |
 | `HAVEN_APPS_CONFIG` | `./config/apps.json` | App registry seed, read only when the registry is empty |
+| `HAVEN_INSTANCES_CONFIG` | `./config/instances.json` | Widget roster seed, read only when the roster is empty. Absent falls back to a built-in default roster |
 | `HAVEN_SECRET_KEY` | — | Encrypts widget credentials at rest. `openssl rand -base64 32` |
 | `HAVEN_VERSION` | `dev` | Reported by `/api/health`; set at image build |
 | `HAVEN_CONTAINER_VERSIONS_FILE` | `./config/container-versions.json` | Running container versions, re-read at request time. See below |

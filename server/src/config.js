@@ -32,6 +32,15 @@ export const config = {
   appsConfigPath: process.env.HAVEN_APPS_CONFIG ?? './config/apps.json',
 
   /**
+   * Seed for the widget roster. Like the app registry it is read once, when
+   * the table is empty, and the database is the source of truth afterwards.
+   * Absent is the normal case: `seedInstances` then falls back to the built-in
+   * default roster, so a fresh install shows a dashboard rather than a blank
+   * page.
+   */
+  instancesConfigPath: process.env.HAVEN_INSTANCES_CONFIG ?? './config/instances.json',
+
+  /**
    * Key used to encrypt widget credentials at rest in SQLite. Absent in
    * development; required before any connector stores a credential.
    */

@@ -1,0 +1,17 @@
+-- Migration 004 — an explicit ordering for widget instances.
+--
+-- The `widgets` table has existed since 001 with no reader and no writer; the
+-- roster lived in a hardcoded array in the shell. Persisting it revealed that
+-- the table has no way to express the order of that array — and the order is
+-- meaningful, not incidental: the hero is a banner across the top and the apps
+-- widget leads the grid below it.
+--
+-- Ordering by `created_at` looks like it would work and does not. Every row of
+-- a seed lands inside the same `datetime('now')` second, so the sort collapses
+-- to the tiebreaker and the roster comes back alphabetically — 'apps-main',
+-- 'calendar', 'clock-local', ... — which silently reorders the dashboard on a
+-- fresh install. `created_at` is a timestamp, not a sequence, and using one as
+-- the other only fails when writes are fast, which is exactly when a seed runs.
+--
+-- Mirrors `apps.sort_order`, which exists for the same reason.
+ALTER TABLE widgets ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;

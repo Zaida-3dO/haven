@@ -30,10 +30,19 @@ test('an empty hash is the dashboard', () => {
 
 test('a #widget-id deep link is NOT a route', () => {
   // Both live in location.hash. A route starts `#/`; a deep link does not.
-  // Without this rule a page called "torrents" and a widget with that id would
-  // be indistinguishable.
   assert.equal(parseRoute('#torrents').name, ROUTE.DASHBOARD);
   assert.equal(parseRoute('#clock-local').name, ROUTE.DASHBOARD);
+});
+
+test('a widget whose id collides with the route grammar is still a deep link', () => {
+  // The case that actually pins the rule. A widget with the id `page` — or
+  // `page/library-analytics`, which a hand-written link could produce — must
+  // not be parsed as a route just because it shares the first word. The
+  // leading slash is the ONLY thing separating the two namespaces, so this is
+  // the test that fails if `#/` is ever loosened to `#`.
+  assert.equal(parseRoute('#page').name, ROUTE.DASHBOARD);
+  assert.equal(parseRoute('#page/library-analytics').name, ROUTE.DASHBOARD);
+  assert.equal(parseRoute('#page/library-analytics').pageId, undefined);
 });
 
 test('an unknown route falls back to the dashboard rather than a blank screen', () => {

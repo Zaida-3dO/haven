@@ -80,6 +80,24 @@ export const config = {
    * which the card renders quietly rather than as an error.
    */
   containerVersions: parseJsonObject(process.env.HAVEN_CONTAINER_VERSIONS),
+
+  /**
+   * A file holding the same map, written by something that CAN see the
+   * containers, on the existing read-only `./config` mount.
+   *
+   * This is the path out of the drift the env map above suffers from: the map
+   * is only correct until the next upgrade, and nothing reminds anyone to
+   * edit it. A file that a refresher rewrites needs no config change per
+   * upgrade — and, unlike the env map, it carries a timestamp, so a refresher
+   * that dies is visible rather than silently serving old numbers forever.
+   *
+   * Only the PATH is resolved here. The file itself is read per request (see
+   * `container-versions.js`), because this module is evaluated once at import:
+   * anything read here would be frozen until the container restarts, which is
+   * the very problem being fixed.
+   */
+  containerVersionsFile:
+    process.env.HAVEN_CONTAINER_VERSIONS_FILE ?? './config/container-versions.json',
 };
 
 /**

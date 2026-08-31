@@ -487,3 +487,76 @@ test('a failing upstream action is reported rather than claiming success', async
   assert.equal(res.statusCode, 502);
   assert.equal((await get(app)).json().notices.length, 1, 'and the notice stays');
 });
+
+// ── Source spoofing ───────────────────────────────────────────────────────
+//
+// `source` decides whether a notice's actions are EXECUTABLE: the action route
+// calls `service`/`target` upstream only for notices sourced from Home
+// Assistant, using the server's long-lived token. So the source is a privilege
+// boundary, and it must not be a value the caller supplies.
+//
+// A reviewer reproduced the escalation end to end on 2026-08-31: an ingest
+// claiming `source: "home-assistant"` with an action of `lock/unlock`, then a
+// POST to that action, produced a real `POST /api/services/lock/unlock` at the
+// fake Home Assistant carrying the bearer token. Unauthenticated, from any
+// client that can reach the port. These tests are that reproduction, inverted.
+
+test('SECURITY: ingest refuses to let a caller claim the Home Assistant source', async (t) => {
+  const { app } = await appWith(t);
+
+  const res = await post(
+    app,
+    '/api/widgets/notices',
+    notice({ id: 'spoofed', source: 'home-assistant' })
+  );
+
+  assert.equal(res.statusCode, 403, 'claiming the reserved source must be refused');
+  assert.equal(res.json().error, 'RESERVED_SOURCE');
+});
+
+test('SECURITY: a spoofed notice cannot reach Home Assistant, and nothing is stored', async (t) => {
+  const { app, performed } = await appWith(t);
+
+  // The reviewer's payload, near-verbatim.
+  await post(
+    app,
+    '/api/widgets/notices',
+    notice({
+      id: 'attacker-notice',
+      source: 'home-assistant',
+      actions: [{ id: 'go', label: 'Go', service: 'lock/unlock', data: { entity_id: 'lock.x' } }],
+    })
+  );
+
+  const res = await post(
+    app,
+    '/api/widgets/notices/home-assistant%3Aattacker-notice/actions/go',
+    {}
+  );
+
+  assert.notEqual(res.statusCode, 200, 'the action must not succeed');
+  assert.deepEqual(performed, [], 'NO service call may reach Home Assistant');
+});
+
+test('a batch is rejected whole when any entry claims the reserved source', async (t) => {
+  const { app } = await appWith(t);
+
+  const res = await post(app, '/api/widgets/notices', [
+    notice({ id: 'honest', source: 'chores' }),
+    notice({ id: 'spoofed', source: 'home-assistant' }),
+  ]);
+
+  assert.equal(res.statusCode, 403);
+
+  // All-or-nothing, like the validation path: a partial write would leave the
+  // sender unsure what landed.
+  assert.equal((await get(app)).json().notices.length, 0);
+});
+
+test('an ordinary source is unaffected — the refusal is narrow', async (t) => {
+  const { app } = await appWith(t);
+
+  const res = await post(app, '/api/widgets/notices', notice({ source: 'chores' }));
+
+  assert.equal(res.statusCode, 201);
+});

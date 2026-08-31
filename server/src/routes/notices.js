@@ -17,7 +17,11 @@
  * backend at all.
  */
 
-import { createHomeAssistantConnector, HA_STATUS } from '../connectors/home-assistant.js';
+import {
+  createHomeAssistantConnector,
+  HA_SOURCE,
+  HA_STATUS,
+} from '../connectors/home-assistant.js';
 import {
   dismissNotice,
   getNotice,
@@ -159,6 +163,30 @@ export async function registerNoticeRoutes(app, opts = {}) {
       return reply.code(413).send({
         error: 'BATCH_TOO_LARGE',
         message: `At most ${MAX_BATCH} notices per request (got ${list.length}).`,
+      });
+    }
+
+    // `source` decides whether a notice's actions are EXECUTABLE — the action
+    // route below runs `service`/`target` upstream only for notices whose
+    // source is Home Assistant. That makes the source a privilege boundary,
+    // and a privilege boundary must never be a value the caller supplies.
+    //
+    // Without this, a POST to this route claiming `source: "home-assistant"`
+    // gets its actions treated as HA services, and the action route then calls
+    // them with the server's long-lived token. A reviewer reproduced that end
+    // to end against `lock/unlock`: an unauthenticated LAN client could unlock
+    // a door. The connector stamps HA_SOURCE on its own notices internally and
+    // never comes through here, so refusing the name outright costs nothing.
+    const claimed = list.filter(
+      (entry) => entry && typeof entry === 'object' && entry.source === HA_SOURCE
+    );
+    if (claimed.length > 0) {
+      return reply.code(403).send({
+        error: 'RESERVED_SOURCE',
+        message:
+          `"${HA_SOURCE}" is a reserved source: its notices carry executable ` +
+          'actions, so only the Home Assistant connector may produce them. ' +
+          'Use a source name of your own.',
       });
     }
 

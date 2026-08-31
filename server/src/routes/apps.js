@@ -30,10 +30,17 @@ import { validateApp } from './apps-schema.js';
  * the size cap are the security boundary, not a nicety.
  */
 const MAX_ICON_BYTES = 512 * 1024;
+//
+// SVG is deliberately NOT here. An SVG is a document, not a picture: it can
+// carry <script> and event handlers, and these files are served back inline
+// from this same origin — the origin that holds the dashboard and every
+// /api/* route. An uploaded icon would therefore be stored XSS with access to
+// every endpoint. The hero cover route already excluded SVG for exactly this
+// reason; icons are the endpoint users actually upload to, so leaving it
+// allowed here was the wrong half of that judgement.
 const ALLOWED_ICON_TYPES = new Map([
   ['image/png', '.png'],
   ['image/jpeg', '.jpg'],
-  ['image/svg+xml', '.svg'],
   ['image/webp', '.webp'],
   ['image/gif', '.gif'],
 ]);
@@ -290,6 +297,22 @@ export async function registerAppRoutes(app, { db, iconDir = config.iconDir } = 
       root: resolve(iconDir),
       prefix: '/api/apps/icons/',
       decorateReply: false,
+      // Defence in depth behind the type allow-list. These files are uploaded
+      // by a user and served from the origin that holds every /api/* route, so
+      // the cost of one of them being interpreted as a document is high:
+      //
+      //   nosniff  — a mislabelled file is not re-sniffed into something
+      //              executable, which is what makes a PNG-declared HTML
+      //              payload inert rather than merely unlikely.
+      //   CSP      — even if a scriptable file did land here, it can load and
+      //              run nothing.
+      //
+      // The allow-list is still the boundary; this is what holds if it is ever
+      // widened again by someone who has not read why SVG is absent from it.
+      setHeaders(reply) {
+        reply.setHeader('x-content-type-options', 'nosniff');
+        reply.setHeader('content-security-policy', "default-src 'none'; sandbox");
+      },
     });
   });
 }

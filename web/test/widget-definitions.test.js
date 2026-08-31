@@ -1,42 +1,32 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { WidgetRegistry } from '../src/shell/registry.js';
 import { greetingWidget } from '../src/widgets/greeting/definition.js';
 import { weatherWidget } from '../src/widgets/weather/definition.js';
 
 /**
- * The two widget definitions, asserted against the contract.
+ * The two widget definitions, asserted against the host's OWN registry — so a
+ * definition the shell would reject fails here rather than at boot.
  *
- * Where possible they are asserted against the host's OWN registry, so a
- * definition the shell would reject fails here rather than at boot. The widget
- * host is being built in parallel on its own branch, though, so
- * `src/shell/registry.js` may not be present yet — those tests skip rather
- * than fail while it is missing, and start running the moment the host lands.
- *
- * Skipping is deliberate. The alternative — hand-copying a stub of the
- * registry into this file — would pass happily while the real registry
- * rejected exactly the same definition, which is worse than no test at all.
+ * These run against the real `WidgetRegistry` rather than a hand-copied stub,
+ * deliberately: a stub would pass happily while the real registry rejected
+ * exactly the same definition, which is worse than no test at all.
  */
-const { WidgetRegistry } = await import('../src/shell/registry.js').catch(() => ({}));
-const hostPresent = typeof WidgetRegistry === 'function';
-const skipWithoutHost = hostPresent
-  ? false
-  : 'the widget host branch is not merged yet — src/shell/registry.js is absent';
-
 const widgets = [
   ['weather', weatherWidget],
   ['greeting', greetingWidget],
 ];
 
 for (const [name, definition] of widgets) {
-  test(`the ${name} widget registers against the real registry`, { skip: skipWithoutHost }, () => {
+  test(`the ${name} widget registers against the real registry`, () => {
     const registry = new WidgetRegistry();
 
     assert.doesNotThrow(() => registry.register(definition));
     assert.equal(registry.get(definition.type).type, definition.type);
   });
 
-  test(`the ${name} widget ships a stub config that validates`, { skip: skipWithoutHost }, () => {
+  test(`the ${name} widget ships a stub config that validates`, () => {
     // getStubConfig is what makes "Add widget" produce something that works
     // immediately instead of an error card.
     const registry = new WidgetRegistry();

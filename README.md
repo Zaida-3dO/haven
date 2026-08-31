@@ -15,9 +15,11 @@ off-the-shelf options don't do two things that turn out to matter a lot:
 Everything is a widget on a grid you arrange yourself — separately for desktop
 and mobile, because a phone layout nobody chose is worse than no phone layout.
 
-> **Status: early.** The scaffold and CI are in place; widgets are being built.
-> See [docs/DESIGN.md](docs/DESIGN.md) for the full design and
-> [the milestones](#roadmap) for where it's up to.
+> **Status: all widgets built; not yet deployed.** Every widget below is
+> implemented and tested, and `v0.1.0` is published to GHCR. What has *not*
+> happened is a real deployment — nothing has run against live services or
+> been checked in a browser. See [docs/DESIGN.md](docs/DESIGN.md) for the full
+> design and [the roadmap](#roadmap) for what remains.
 
 ---
 
@@ -145,17 +147,24 @@ wrong.
 
 Built in phases, each ending somewhere usable:
 
-| Phase | Delivers |
-|---|---|
-| 0 | Foundations — repo, backend skeleton, SQLite schema, CI, release pipeline |
-| 1 | Shell + grid — GridStack, edit/view toggle, per-breakpoint layout persistence |
-| 2 | Apps widget — full parity, reachability, status dots, versions |
-| 3 | Supporting widgets — weather, greeting, iframe, custom pages |
-| 4 | Global search across every widget |
-| 5 | Torrents |
-| 6 | Calendar |
-| 7 | Notices / alerts |
-| 8 | Cutover |
+| Phase | Delivers | |
+|---|---|---|
+| 0 | Foundations — repo, backend skeleton, SQLite schema, CI, release pipeline | ✅ |
+| 1 | Shell + grid — GridStack, edit/view toggle, per-breakpoint layout persistence | ✅ |
+| 2 | Apps widget — full parity, reachability, status dots, versions | ✅ |
+| 3 | Supporting widgets — weather, greeting | ✅ |
+| 4 | Global search across every widget | ✅ |
+| 5 | Torrents | ✅ |
+| 6 | Calendar | ✅ |
+| 7 | Notices / alerts | ✅ |
+| 8 | Hero | ✅ |
+| 9 | Cutover — deploy, verify from every network path | ⏳ |
+
+**Still to do beyond the cutover:** a settings panel (every widget declares a
+`configSchema` and the host validates it, but nothing renders one yet, so
+options are currently only reachable in the database), browser-level
+verification (all rendering is unit-tested against a fake DOM — nothing has
+been seen in a real browser), and the iframe/custom-page widgets from phase 3.
 
 ---
 

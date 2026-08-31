@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { WidgetRegistry } from '../src/shell/registry.js';
 import { greetingWidget } from '../src/widgets/greeting/definition.js';
@@ -110,34 +110,63 @@ test('neither widget requests a credentialed URL', () => {
 // ── the rule the contract calls the easiest one to get wrong ─────────────
 
 /**
- * Every widget source EXCEPT the two shared-tick modules — `greeting/clock.js`
- * (the one host-owned timer) and `hero/rotation.js` (which subscribes to it).
- * Both are excluded on purpose: they are the thing that lets the widgets
- * themselves stay timer-free.
+ * Every widget source, discovered by walking `src/widgets` — NOT a hand-kept
+ * list.
+ *
+ * **Why a glob.** This was a literal array of sixteen paths covering four
+ * widget directories, which meant the ten files under `apps/`, `calendar/`,
+ * `clock/` and `torrents/` were exempt from all three invariants below. They
+ * happened to comply, so nothing was broken — but enforcement was absent
+ * exactly where the next widget would be added, which is how the gap arose in
+ * the first place. A glob makes a new widget scanned by default, so forgetting
+ * to opt in is no longer possible.
  */
+const TIMER_EXEMPT = new Set([
+  // The two shared-tick modules, excluded on purpose: `greeting/clock.js` is
+  // the one host-owned timer and `hero/rotation.js` subscribes to it. They are
+  // the thing that lets every other widget module stay timer-free.
+  'greeting/clock.js',
+  'hero/rotation.js',
+]);
+
+/** Every `.js` file under `src/widgets`, as a `dir/file.js` relative path. */
+function widgetSourceFiles() {
+  const root = new URL('../src/widgets/', import.meta.url);
+  const files = [];
+  for (const dir of readdirSync(root, { withFileTypes: true })) {
+    if (!dir.isDirectory()) continue;
+    for (const entry of readdirSync(new URL(`${dir.name}/`, root), { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.js')) files.push(`${dir.name}/${entry.name}`);
+    }
+  }
+  return files.sort();
+}
+
 const sources = Object.fromEntries(
-  [
-    'weather/index.js',
-    'weather/element.js',
-    'weather/definition.js',
-    'weather/format.js',
-    'greeting/index.js',
-    'greeting/element.js',
-    'greeting/definition.js',
-    'greeting/phrases.js',
-    'hero/index.js',
-    'hero/element.js',
-    'hero/definition.js',
-    'hero/slides.js',
-    'notices/index.js',
-    'notices/element.js',
-    'notices/definition.js',
-    'notices/format.js',
-  ].map((file) => [
+  widgetSourceFiles().map((file) => [
     file,
     stripComments(readFileSync(new URL(`../src/widgets/${file}`, import.meta.url), 'utf8')),
   ])
 );
+
+test('the widget scan actually covers every widget directory', () => {
+  // Guards the glob itself: if `widgetSourceFiles` silently returned nothing
+  // (a bad URL, a rename), every invariant below would vacuously pass.
+  const dirs = new Set(Object.keys(sources).map((f) => f.split('/')[0]));
+  for (const expected of [
+    'apps',
+    'calendar',
+    'clock',
+    'greeting',
+    'hero',
+    'notices',
+    'torrents',
+    'weather',
+  ]) {
+    assert.ok(dirs.has(expected), `${expected}/ must be scanned`);
+  }
+  assert.ok(Object.keys(sources).length >= 25, 'expected the whole widget tree, not a subset');
+});
 
 /**
  * Strip comments before scanning.
@@ -152,11 +181,11 @@ function stripComments(source) {
 }
 
 for (const [file, source] of Object.entries(sources)) {
-  test(`${file} calls no timer of its own`, () => {
+  test(`${file} calls no timer of its own`, { skip: TIMER_EXEMPT.has(file) }, () => {
     // "A widget must never call setInterval" — the single easiest way to get
-    // this design wrong, so it is asserted rather than trusted. The shared
-    // ticker in greeting/clock.js is the one host-owned timer and is
-    // deliberately excluded from this list.
+    // this design wrong, so it is asserted rather than trusted. The two
+    // shared-tick modules in TIMER_EXEMPT are the host-owned timer and its
+    // subscriber, and are the only deliberate exceptions.
     assert.doesNotMatch(source, /\bsetInterval\b/, `${file} must not own a timer`);
     assert.doesNotMatch(source, /\bsetTimeout\b/, `${file} must not own a timer`);
   });
@@ -166,25 +195,36 @@ for (const [file, source] of Object.entries(sources)) {
     // a credential eventually appears.
     assert.doesNotMatch(source, /XMLHttpRequest/, `${file} must not fetch`);
 
-    if (file === 'notices/element.js') {
-      // The one file that calls fetch at all, and only ever to WRITE on a user
-      // gesture — a dismissal or an action button. That is not what this rule
-      // forbids: there is no timer behind it, it cannot run in a hidden tab,
-      // and it never fetches the widget's own data, which still arrives via
-      // onData. The no-timer assertion above is what holds the line here.
-      //
-      // So instead of exempting the file, this pins the two properties that
-      // make the exception safe: every call is a POST, and none is absolute.
-      const methods = [...source.matchAll(/method:\s*'(\w+)'/g)].map((m) => m[1]);
-      assert.ok(methods.length > 0, 'expected the write calls to still be present');
-      for (const method of methods) {
-        assert.equal(method, 'POST', 'a notices fetch must be a write, never a data read');
-      }
-      assert.doesNotMatch(source, /https?:\/\//, `${file} must never call an absolute URL`);
-      return;
-    }
+    // A widget may call `fetch` ONLY to write on a user gesture — a notices
+    // dismissal, an apps visit count. That is not what this rule forbids:
+    // there is no timer behind it, it cannot run in a hidden tab, and it never
+    // fetches the widget's own data, which still arrives via onData. The
+    // no-timer assertion above is what holds the line.
+    //
+    // **Counting the call sites is the whole point.** This previously
+    // collected `method:` literals and required each to be POST, without ever
+    // counting `fetch(` — so the two could diverge silently, and a bare
+    // `fetch(url)`, which defaults to GET, was invisible to it. Requiring one
+    // POST literal PER call site closes that: an unmethodded read can no
+    // longer hide behind a sibling write.
+    const calls = [...source.matchAll(/\bfetch\s*\(/g)].length;
+    if (calls === 0) return;
 
-    assert.doesNotMatch(source, /\bfetch\s*\(/, `${file} must not fetch — data arrives via onData`);
+    const posts = [...source.matchAll(/method:\s*'POST'/g)].length;
+    assert.equal(
+      posts,
+      calls,
+      `${file}: ${calls} fetch call site(s) but ${posts} POST(s) — every widget fetch ` +
+        'must be an explicit write; a fetch with no method is a GET, which is a data read'
+    );
+
+    // Scoped to files that actually fetch, deliberately. An absolute URL
+    // elsewhere is not a network call: `new URL(value, 'https://haven.invalid')`
+    // is a parser base, and weather/format.js builds an <img> src for the icon
+    // CDN. Asserting this tree-wide would fail all three for no defect.
+    for (const [, url] of source.matchAll(/\bfetch\s*\(\s*([^,)]*)/g)) {
+      assert.doesNotMatch(url, /https?:\/\//, `${file} must never fetch an absolute URL`);
+    }
   });
 
   test(`${file} sets no innerHTML`, () => {

@@ -6,6 +6,8 @@ import { greetingWidget } from '../src/widgets/greeting/definition.js';
 import { heroWidget } from '../src/widgets/hero/definition.js';
 import { noticesWidget } from '../src/widgets/notices/definition.js';
 import { weatherWidget } from '../src/widgets/weather/definition.js';
+import { iframeWidget } from '../src/widgets/iframe/definition.js';
+import { pageWidget } from '../src/widgets/page/definition.js';
 
 /**
  * The two widget definitions, asserted against the host's OWN registry — so a
@@ -20,7 +22,21 @@ const widgets = [
   ['greeting', greetingWidget],
   ['hero', heroWidget],
   ['notices', noticesWidget],
+  ['iframe', iframeWidget],
+  ['page', pageWidget],
 ];
+
+/**
+ * The subset that actually fetches.
+ *
+ * The iframe and page widgets declare no `dataSource` on purpose — an embed's
+ * framed document does its own loading, and a custom page renders authored
+ * content — so the endpoint and refresh-rate assertions below cannot apply to
+ * them. Splitting the list is the honest way to say that; asserting
+ * `refreshMs >= 60_000` against a widget whose `refreshMs` is `null` would
+ * either fail or have to be fudged.
+ */
+const fetchingWidgets = widgets.filter(([, definition]) => definition.dataSource);
 
 for (const [name, definition] of widgets) {
   test(`the ${name} widget registers against the real registry`, () => {
@@ -100,7 +116,7 @@ test('both widgets ask for the same endpoint under the same fetcher key', () => 
 });
 
 test('neither widget requests a credentialed URL', () => {
-  for (const [, definition] of widgets) {
+  for (const [, definition] of fetchingWidgets) {
     const request = definition.dataSource({});
     assert.ok(request.url.startsWith('/api/'), 'the shell only ever calls /api/*');
     assert.equal(request.options?.headers, undefined, 'no widget sets an auth header');
@@ -159,7 +175,9 @@ test('the widget scan actually covers every widget directory', () => {
     'clock',
     'greeting',
     'hero',
+    'iframe',
     'notices',
+    'page',
     'torrents',
     'weather',
   ]) {
@@ -247,7 +265,7 @@ test('no widget source mentions an API key or a credential', () => {
 test('refreshMs is the host schedule, and is not a per-second poll', () => {
   // A widget that asked the host to refetch every second would defeat the
   // server-side cache the connector exists to provide.
-  for (const [name, definition] of widgets) {
+  for (const [name, definition] of fetchingWidgets) {
     assert.ok(definition.refreshMs >= 60_000, `${name} refreshes too aggressively`);
   }
 });

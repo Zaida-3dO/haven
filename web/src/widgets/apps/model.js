@@ -167,10 +167,11 @@ export function secondaryUrls(app, resolvedUrl = null) {
  * available. Everything else — one side missing, both missing, an upstream
  * error — renders as whatever is known and NEVER as an error, per the brief.
  */
-export function versionPair(app, versions = {}) {
+export function versionPair(app, versions = {}, { now = Date.now } = {}) {
   const info = versions?.[app?.id] ?? null;
   const current = info?.current ?? null;
   const latest = info?.latest ?? null;
+  const age = versionAge(info?.currentAsOf ?? null, now);
 
   // `status` is computed on the server, but it is not trusted blindly: if the
   // field is missing (an older cached payload, say) the two strings are
@@ -189,6 +190,16 @@ export function versionPair(app, versions = {}) {
     (info?.status ? info.status === 'differs' : normalise(current) !== normalise(latest))
   );
 
+  const baseLabel = differs
+    ? `Update available: ${current} → ${latest}`
+    : current && latest
+      ? `Up to date (${current})`
+      : current
+        ? `Running ${current}`
+        : latest
+          ? `Latest release ${latest}`
+          : 'Version unknown';
+
   return {
     current,
     latest,
@@ -197,16 +208,56 @@ export function versionPair(app, versions = {}) {
     // Nothing at all to show: the card omits the row rather than drawing two
     // empty slots.
     known: Boolean(current || latest),
-    label: differs
-      ? `Update available: ${current} → ${latest}`
-      : current && latest
-        ? `Up to date (${current})`
-        : current
-          ? `Running ${current}`
-          : latest
-            ? `Latest release ${latest}`
-            : 'Version unknown',
+    currentAsOf: info?.currentAsOf ?? null,
+    currentAge: age.text,
+    currentStale: age.stale,
+    // The staleness warning is appended to the label rather than replacing it,
+    // so a screen reader gets the versions AND the caveat in one string.
+    label: age.stale ? `${baseLabel} — running version last checked ${age.text}` : baseLabel,
   };
+}
+
+/**
+ * How long ago the running-version reading was taken, and whether that is long
+ * enough to distrust it.
+ *
+ * This exists because the file this feature reads is written by a separate
+ * refresher, and **a refresher that dies fails silently**: the file simply
+ * stops changing, and Haven goes on showing a version that was true last month
+ * as though it were true now. That is the same lie as a hand-edited map, only
+ * automated. So the age is shown, and past the threshold it is shown as a
+ * warning rather than a footnote.
+ *
+ * `STALE_AFTER_MS` is a day because any refresher worth running runs at least
+ * daily; a reading older than that means something is broken, not that the
+ * schedule is slow.
+ */
+export const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
+export function versionAge(generatedAt, now = Date.now) {
+  if (typeof generatedAt !== 'string' || !generatedAt.trim()) {
+    return { text: null, stale: false, ms: null };
+  }
+
+  const at = Date.parse(generatedAt);
+  if (!Number.isFinite(at)) return { text: null, stale: false, ms: null };
+
+  // A timestamp in the future is a clock problem, not a fresh reading. Clamped
+  // to zero so it reads as "just now" rather than as a negative age.
+  const ms = Math.max(0, (typeof now === 'function' ? now() : now) - at);
+  return { text: relativeAge(ms), stale: ms >= STALE_AFTER_MS, ms };
+}
+
+/** `ms` as a coarse human phrase. Coarse on purpose: precision implies the
+ * reading is precise, and it is only as precise as the refresher's schedule. */
+function relativeAge(ms) {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 /**

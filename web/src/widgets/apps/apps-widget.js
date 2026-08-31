@@ -446,6 +446,21 @@ export class AppsWidget extends ElementBase {
       row.appendChild(badge);
     }
 
+    // When the running version was last read. Shown whenever it is known,
+    // because the number beside it is only as trustworthy as its age — a
+    // refresher that has stopped writing the file leaves a perfectly
+    // plausible-looking version behind, and this is the only thing that gives
+    // that away. Past a day it is styled as a warning rather than a footnote.
+    if (card.version.currentAge) {
+      const age = document.createElement('span');
+      age.className = `version__age${card.version.currentStale ? ' version__age--stale' : ''}`;
+      age.textContent = card.version.currentStale
+        ? `stale · ${card.version.currentAge}`
+        : card.version.currentAge;
+      age.title = `Running version last read ${card.version.currentAge}`;
+      row.appendChild(age);
+    }
+
     return row;
   }
 

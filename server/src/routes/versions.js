@@ -43,6 +43,7 @@
  */
 
 import { config } from '../config.js';
+import { createContainerVersionsReader } from '../container-versions.js';
 import { getApp, listApps } from '../db/apps-store.js';
 
 /** A successful lookup is good for this long. Releases are not news. */
@@ -222,15 +223,46 @@ export async function fetchLatest(
  * into a web-facing container is a root-equivalent escalation, which is a bad
  * trade for displaying a string.
  *
- * So this reads an operator-provided map (`HAVEN_CONTAINER_VERSIONS`, a JSON
- * object of containerId -> version) and returns null when it has nothing. Null
- * renders as "unknown" on the card, which is the quiet degradation the brief
- * asks for, and the route stays useful the moment the map is populated.
+ * So the map comes from outside. Two sources, in order:
+ *
+ *  1. **A file** (`HAVEN_CONTAINER_VERSIONS_FILE`) on the existing read-only
+ *     `config` mount, written by something that can see the containers. This
+ *     wins, because it is the source that can stay correct without anyone
+ *     editing configuration after every upgrade.
+ *  2. **`HAVEN_CONTAINER_VERSIONS`**, the operator-supplied env map, as the
+ *     fallback. It keeps working exactly as before, so a deployment with no
+ *     file behaves identically to one from before the file existed.
+ *
+ * Null when neither has an entry — which renders as "unknown" on the card, the
+ * quiet degradation the brief asks for.
  */
 export function resolveCurrent(containerId, { versions = config.containerVersions } = {}) {
   if (typeof containerId !== 'string' || !containerId.trim()) return null;
   const value = versions?.[containerId];
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/**
+ * The version map to resolve against, plus how old it is.
+ *
+ * The file's map is merged OVER the env map rather than replacing it, so a
+ * container the refresher does not know about still resolves from the env map
+ * instead of disappearing the moment a file appears. That makes adopting the
+ * file additive: nothing that worked stops working.
+ *
+ * `currentAsOf` is non-null only when the answer could have come from the
+ * file. An env-only deployment has no honest timestamp to report — the map is
+ * as old as whenever someone last edited it, which nothing here knows — and
+ * inventing "now" would claim a freshness that does not exist.
+ */
+export function currentVersionSource(reader, { envVersions = config.containerVersions } = {}) {
+  const file = reader?.read?.() ?? { versions: {}, generatedAt: null };
+  const fileVersions = file.versions ?? {};
+
+  return {
+    versions: { ...envVersions, ...fileVersions },
+    currentAsOf: Object.keys(fileVersions).length > 0 ? (file.generatedAt ?? null) : null,
+  };
 }
 
 /**
@@ -260,9 +292,11 @@ export function compareVersions(current, latest) {
  * Takes the app rather than an id so the three routes below can share it
  * without each re-reading the row.
  */
-async function versionPairFor(found, cache) {
+async function versionPairFor(found, cache, source) {
   const apiUrl = toReleasesApiUrl(found.version?.latestUrl);
-  const current = resolveCurrent(found.version?.currentContainerId);
+  const current = resolveCurrent(found.version?.currentContainerId, {
+    versions: source?.versions ?? config.containerVersions,
+  });
 
   // No usable latest URL is not an error — plenty of apps have no upstream
   // release feed, and the card just shows the current version alone.
@@ -270,6 +304,12 @@ async function versionPairFor(found, cache) {
 
   return {
     current,
+    // How old the running-version reading is. The widget shows it, because a
+    // refresher that has died leaves a plausible-looking version behind and
+    // the timestamp is the only thing that gives it away. Null when there is
+    // no current version, or when it came from the env map, which has no
+    // knowable age.
+    currentAsOf: current ? (source?.currentAsOf ?? null) : null,
     latest: latest.version ?? null,
     latestUrl: latest.url ?? null,
     publishedAt: latest.publishedAt ?? null,
@@ -278,15 +318,32 @@ async function versionPairFor(found, cache) {
   };
 }
 
-/** Every app's version pair, keyed by id. Cached upstream, so this is cheap. */
-async function versionMapFor(apps, cache) {
+/**
+ * Every app's version pair, keyed by id. Cached upstream, so this is cheap.
+ *
+ * The file is read ONCE per request and passed down, rather than once per
+ * card. Cards in one response must agree about what is running — and the
+ * reader's TTL would mostly collapse the repeats anyway, but "mostly" is not
+ * a property worth relying on when the alternative is one argument.
+ */
+async function versionMapFor(apps, cache, source) {
   const entries = await Promise.all(
-    apps.map(async (found) => [found.id, await versionPairFor(found, cache)])
+    apps.map(async (found) => [found.id, await versionPairFor(found, cache, source)])
   );
   return Object.fromEntries(entries);
 }
 
-export async function registerVersionRoutes(app, { db, cache = new VersionCache() } = {}) {
+export async function registerVersionRoutes(
+  app,
+  {
+    db,
+    cache = new VersionCache(),
+    versionsReader = createContainerVersionsReader({
+      path: config.containerVersionsFile,
+      logger: app?.log,
+    }),
+  } = {}
+) {
   if (!db) throw new Error('registerVersionRoutes requires a database handle.');
 
   /**
@@ -312,7 +369,9 @@ export async function registerVersionRoutes(app, { db, cache = new VersionCache(
 
     return {
       apps,
-      versions: wantVersions ? await versionMapFor(apps, cache) : {},
+      versions: wantVersions
+        ? await versionMapFor(apps, cache, currentVersionSource(versionsReader))
+        : {},
     };
   });
 
@@ -332,7 +391,10 @@ export async function registerVersionRoutes(app, { db, cache = new VersionCache(
         .send({ error: 'NOT_FOUND', message: `No app with id "${request.params.id}".` });
     }
 
-    return { id: found.id, ...(await versionPairFor(found, cache)) };
+    return {
+      id: found.id,
+      ...(await versionPairFor(found, cache, currentVersionSource(versionsReader))),
+    };
   });
 
   /**
@@ -343,7 +405,9 @@ export async function registerVersionRoutes(app, { db, cache = new VersionCache(
    * difference between a handful of upstream calls a day and a rate-limit
    * exhaustion.
    */
-  app.get('/api/versions', async () => ({ versions: await versionMapFor(listApps(db), cache) }));
+  app.get('/api/versions', async () => ({
+    versions: await versionMapFor(listApps(db), cache, currentVersionSource(versionsReader)),
+  }));
 
-  return { cache };
+  return { cache, versionsReader };
 }

@@ -13,6 +13,9 @@
     "latitude": null,
     "longitude": null
   },
+  "notices": {
+    "haEntities": []
+  },
   "grid": {
     "breakpoints": { "mobile": 768 },
     "columns": { "desktop": 12, "mobile": 4 }

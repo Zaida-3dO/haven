@@ -5,6 +5,7 @@ import { seedApps } from './db/apps-store.js';
 import { registerAppRoutes } from './routes/apps.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerLayoutRoutes } from './routes/layout.js';
+import { registerNoticeRoutes } from './routes/notices.js';
 import { registerVersionRoutes } from './routes/versions.js';
 import { registerWidgetRoutes } from './routes/widgets.js';
 
@@ -20,6 +21,8 @@ import { registerWidgetRoutes } from './routes/widgets.js';
  *   - `iconDir`: where uploaded icons are written.
  *   - `widgets`: connector overrides for the widget routes. Tests inject
  *     stubbed connectors here so no test needs a key or the network.
+ *   - `notices`: the same for the notice routes — a stubbed Home Assistant
+ *     connector, so no test needs a token or a Home Assistant.
  */
 export async function buildServer(opts = {}) {
   const {
@@ -28,6 +31,7 @@ export async function buildServer(opts = {}) {
     seedPath = config.appsConfigPath,
     iconDir = config.iconDir,
     widgets,
+    notices,
     ...fastifyOpts
   } = opts;
 
@@ -55,6 +59,7 @@ export async function buildServer(opts = {}) {
   // the browser asks this server, never api.github.com directly.
   await registerVersionRoutes(app, { db });
   await registerWidgetRoutes(app, widgets);
+  await registerNoticeRoutes(app, { db, ...notices });
 
   return app;
 }

@@ -95,15 +95,22 @@ export const configSchema = Object.freeze([
 ]);
 
 /**
- * Turns a config into a request for the host to fetch.
+ * The clock declares **no `dataSource`**, and that is a deliberate choice
+ * worth explaining, because it is the one place this widget looks like it is
+ * cheating the contract.
  *
- * The clock's "data" is the current time, which the host supplies rather than
- * the widget reading the clock itself — that is what keeps the widget a pure
- * render function and keeps the tick on the host's single scheduler.
+ * `dataSource(config)` describes an HTTP request for the host's `Fetcher` to
+ * make. The current time is not something to fetch over HTTP — there is no
+ * endpoint for it, and inventing one would put a network round-trip in front
+ * of a value the browser already has.
+ *
+ * What must NOT follow from that is the widget reading the clock itself on a
+ * timer. So the time is supplied by a **host-owned scheduler task** — see
+ * `startClockTicks` in `shell/clock-source.js` — which pushes a `PanelData`
+ * payload in through `onData` exactly as a fetched widget receives one. The
+ * widget stays a pure render function, the tick stays on the single scheduler
+ * that pauses with the tab, and nothing here schedules anything.
  */
-export function dataSource() {
-  return { kind: 'now' };
-}
 
 /**
  * Config a freshly added clock starts with.

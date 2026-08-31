@@ -6,7 +6,6 @@ import {
   ClockConfigError,
   assertUsableTimezone,
   configSchema,
-  dataSource,
   formatDate,
   formatTime,
   getStubConfig,
@@ -32,16 +31,18 @@ describe('clock metadata', () => {
     assert.equal(normalised.type, 'clock');
     assert.equal(normalised.name, 'Clock');
     assert.equal(normalised.searchable, true);
-    assert.equal(typeof normalised.dataSource, 'function');
   });
 
   test('declares a mobile size distinct from its desktop size', () => {
     assert.notDeepEqual(definition.mobileSize, definition.defaultSize);
   });
 
-  test('dataSource turns a config into a request for the host to fetch', () => {
-    // The widget never reads the clock itself; the host supplies the time.
-    assert.deepEqual(dataSource(getStubConfig()), { kind: 'now' });
+  test('declares no dataSource and no refreshMs — its time is pushed in', () => {
+    // The clock has nothing to fetch over HTTP. Its tick comes from a
+    // host-owned scheduler task (shell/clock-source.js), which is what lets
+    // it update every second while still owning no timer of its own.
+    assert.equal(definition.dataSource, undefined);
+    assert.equal(definition.refreshMs, null);
   });
 
   test('the widget ships no timer of its own', async () => {

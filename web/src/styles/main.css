@@ -1,3 +1,7 @@
+/* GridStack's own layout CSS. Without it the grid does not position anything.
+   Imported here rather than in JS so the shell keeps a single stylesheet. */
+@import 'gridstack/dist/gridstack.css';
+
 :root {
   color-scheme: light dark;
   --haven-bg: #f7f7f8;
@@ -25,4 +29,182 @@ body {
 .haven-boot {
   padding: 2rem;
   opacity: 0.7;
+}
+
+/* ---------------------------------------------------------------------------
+   The grid, edit mode and view mode.
+
+   The rules that carry design decisions rather than taste:
+
+   - Widget content is dimmed AND made non-interactive in edit mode, so a click
+     selects the tile rather than activating what is inside it. `inert` on the
+     body does the interaction half; these rules do the visible half, and the
+     two must agree or the dashboard looks editable while behaving otherwise.
+   - Edit controls and drag handles are hidden entirely in view mode, which is
+     what makes view mode feel like a dashboard instead of an editor.
+   - The deep-link highlight is deliberately brief and animated: a link that
+     only scrolls leaves you unsure which widget you were sent to.
+--------------------------------------------------------------------------- */
+
+#haven-chrome {
+  padding: 1rem;
+}
+
+.haven-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.haven-toolbar button {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--haven-fg) 20%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--haven-fg) 4%, transparent);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* A visible focus ring is what makes the toolbar usable without a mouse. */
+.haven-toolbar button:focus-visible,
+.haven-widget__control:focus-visible,
+.haven-add-panel__add:focus-visible {
+  outline: 2px solid #4c8dff;
+  outline-offset: 2px;
+}
+
+.haven-widget-tile {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+  border: 1px solid color-mix(in srgb, var(--haven-fg) 12%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--haven-fg) 3%, transparent);
+}
+
+.haven-widget__handle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--haven-fg) 10%, transparent);
+}
+
+.haven-widget__title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.haven-widget__body {
+  flex: 1;
+  min-height: 0;
+  transition: opacity 120ms ease;
+}
+
+/* View mode: nothing moves, and none of the editing affordances are shown. */
+.haven-widget__controls {
+  display: none;
+  gap: 0.25rem;
+}
+
+.haven-widget__handle {
+  cursor: default;
+}
+
+/* Edit mode. */
+.haven-grid--edit-mode .haven-widget__controls {
+  display: flex;
+}
+
+.haven-grid--edit-mode .haven-widget__handle {
+  cursor: move;
+}
+
+/* Dimmed and non-interactive — the visible half of `inert` on the body. */
+.haven-grid--edit-mode .haven-widget__body {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.haven-widget__control {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--haven-fg) 20%, transparent);
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+/* The add-widget panel. */
+.haven-add-panel {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--haven-fg) 15%, transparent);
+  border-radius: 10px;
+}
+
+.haven-add-panel[hidden] {
+  display: none;
+}
+
+.haven-add-panel__heading {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+}
+
+.haven-add-panel__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.haven-add-panel__add {
+  padding: 0.35rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--haven-fg) 20%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.haven-add-panel__empty {
+  opacity: 0.6;
+}
+
+/* `#widget-id` deep links: scroll, then say which one you landed on. */
+.haven-widget--deep-linked .haven-widget-tile {
+  animation: haven-deep-link 2s ease-out;
+}
+
+@keyframes haven-deep-link {
+  0%,
+  60% {
+    box-shadow: 0 0 0 3px #4c8dff;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .haven-widget--deep-linked .haven-widget-tile {
+    animation: none;
+    box-shadow: 0 0 0 3px #4c8dff;
+  }
+}
+
+/* The error tile a failed widget renders. It never blanks the dashboard. */
+.haven-widget__error {
+  padding: 0.6rem;
+  font-size: 0.8rem;
 }

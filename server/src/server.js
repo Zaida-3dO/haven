@@ -6,6 +6,7 @@ import { registerAppRoutes } from './routes/apps.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerLayoutRoutes } from './routes/layout.js';
 import { registerVersionRoutes } from './routes/versions.js';
+import { registerWidgetRoutes } from './routes/widgets.js';
 
 /**
  * Builds the Fastify instance without starting it, so tests can drive it
@@ -17,6 +18,8 @@ import { registerVersionRoutes } from './routes/versions.js';
  *     given, the caller owns its lifetime and `app.close()` leaves it open.
  *   - `seedPath`: where to read the app-registry seed from.
  *   - `iconDir`: where uploaded icons are written.
+ *   - `widgets`: connector overrides for the widget routes. Tests inject a
+ *     stubbed weather connector here so no test needs a key or the network.
  */
 export async function buildServer(opts = {}) {
   const {
@@ -24,6 +27,7 @@ export async function buildServer(opts = {}) {
     db: providedDb,
     seedPath = config.appsConfigPath,
     iconDir = config.iconDir,
+    widgets,
     ...fastifyOpts
   } = opts;
 
@@ -50,6 +54,7 @@ export async function buildServer(opts = {}) {
   // The version connector holds the GitHub token and the shared release cache;
   // the browser asks this server, never api.github.com directly.
   await registerVersionRoutes(app, { db });
+  await registerWidgetRoutes(app, widgets);
 
   return app;
 }

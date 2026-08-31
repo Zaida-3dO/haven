@@ -25,6 +25,8 @@ cp config/settings.example.json config/settings.json
 | `HAVEN_PORT` | `8080` | Bind port |
 | `HAVEN_LOG_LEVEL` | `info` | `trace`…`fatal` |
 | `HAVEN_DB_PATH` | `./data/haven.db` | SQLite file. `/data/haven.db` in Docker |
+| `HAVEN_ICON_DIR` | `./data/icons` | Uploaded app icons. On the data volume, never the repo |
+| `HAVEN_APPS_CONFIG` | `./config/apps.json` | App registry seed, read only when the registry is empty |
 | `HAVEN_SECRET_KEY` | — | Encrypts widget credentials at rest. `openssl rand -base64 32` |
 | `HAVEN_VERSION` | `dev` | Reported by `/api/health`; set at image build |
 
@@ -84,6 +86,30 @@ Probing happens **in the browser**, deliberately: a status dot then means
 LAN/VPN network.
 
 Mark exactly one URL `"primary": true` — the fallback when nothing answers.
+The API rejects an app with zero or more than one.
+
+### Seeding: the file is the seed, the database is the source of truth
+
+`config/apps.json` is read **once, on boot, and only when the registry is
+empty**. After that the SQLite table is authoritative and the file is ignored.
+
+This asymmetry is deliberate. If the file were re-read on every boot, an app
+renamed or reordered in the UI would be silently reverted on the next restart.
+To re-seed from the file, empty the `apps` table.
+
+A missing `config/apps.json` is not an error — a fresh install has no registry
+at all, and an empty one is a valid state.
+
+Migrating from the old dashboard's `apps.json`:
+
+```bash
+node scripts/migrate-apps.mjs --in /path/to/old/apps.json --dry-run
+node scripts/migrate-apps.mjs --in /path/to/old/apps.json --out config/apps.json
+```
+
+It reports what it mapped, skipped and did not recognise. **Never commit its
+output** — `config/*.json` is gitignored precisely because the real registry
+maps the internal network.
 
 ### Versions
 

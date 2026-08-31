@@ -56,7 +56,8 @@ Browser (widget shell)
    ▼
 Haven backend  (Node + SQLite, one container on the home server)
    │
-   ├── /api/layout      read/write grid layout
+   ├── /api/layout      read/write grid layout (geometry, per breakpoint)
+   ├── /api/instances   widget roster — type + config per instance (CRUD)
    ├── /api/apps        app registry (CRUD)
    ├── /api/widgets/*   one connector per data source
    └── connectors: qBittorrent · Google/Outlook Cal · HA · OpenWeatherMap · GitHub releases

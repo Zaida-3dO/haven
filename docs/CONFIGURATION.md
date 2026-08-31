@@ -7,6 +7,7 @@ Three places, deliberately separated. See [SECURITY.md](SECURITY.md) for why.
 | Secrets | `.env` | No — `.env.example` ships placeholders |
 | Services | `config/apps.json` | No — `config/apps.example.json` ships one fake entry |
 | Preferences | `config/settings.json` | No — `config/settings.example.json` ships defaults |
+| Running versions | `config/container-versions.json` | No — written by a refresher, not by hand |
 | Layout & widget state | SQLite on `/data` | No |
 
 ```bash
@@ -29,6 +30,7 @@ cp config/settings.example.json config/settings.json
 | `HAVEN_APPS_CONFIG` | `./config/apps.json` | App registry seed, read only when the registry is empty |
 | `HAVEN_SECRET_KEY` | — | Encrypts widget credentials at rest. `openssl rand -base64 32` |
 | `HAVEN_VERSION` | `dev` | Reported by `/api/health`; set at image build |
+| `HAVEN_CONTAINER_VERSIONS_FILE` | `./config/container-versions.json` | Running container versions, re-read at request time. See below |
 
 `HAVEN_SECRET_KEY` is not recoverable. Lose it and every connector credential
 must be re-entered.
@@ -118,6 +120,65 @@ maps the internal network.
   you're actually on.
 
 The two render side by side, which is the point.
+
+## `config/container-versions.json`
+
+Where the **running** version of each container comes from. Optional: with no
+file, the `HAVEN_CONTAINER_VERSIONS` environment map is used instead, and with
+neither the card simply shows no current version.
+
+Haven does not, and will not, mount the Docker socket to discover these —
+giving a web-facing container root-equivalent access to the host is a bad trade
+for displaying a string. Something *else* looks at the containers and writes
+this file; Haven only reads it, off the existing read-only `./config` mount.
+
+Two shapes are accepted:
+
+```json
+{
+  "generatedAt": "2026-08-30T09:00:00.000Z",
+  "versions": { "example-container": "1.4.2" }
+}
+```
+
+```json
+{ "example-container": "1.4.2" }
+```
+
+The first is preferred, because it carries its own age. The bare map is
+accepted because the old dashboard's version-collection script already emits
+exactly that shape, so it can be pointed at the mount without a translation
+step; its age is then taken from the file's modification time.
+
+### It is re-read while running, not at boot
+
+The file is read **at request time**, behind a short (60s) cache. A file read
+once at startup would freeze until the container restarted, which is the drift
+that `HAVEN_CONTAINER_VERSIONS` already suffers from and the whole reason this
+file exists. Write the file and the dashboard reflects it within a minute — no
+restart, no redeploy.
+
+### Age is shown, because a dead writer fails silently
+
+Every response carries `currentAsOf`, and the widget renders it beside the
+version. This is not decoration. If whatever writes the file stops running, the
+file simply stops changing and Haven goes on showing a version that was true
+last month as though it were true now — the same lie as a hand-edited map, only
+automated and harder to spot. Past 24 hours the age renders as a **stale**
+warning.
+
+A version with no timestamp (i.e. one from the environment map) shows no age,
+because the map's real age — whenever someone last edited it — is not knowable
+from here, and claiming otherwise would be worse than saying nothing.
+
+### Failure is always quiet
+
+Missing, unreadable, malformed, or the wrong shape: all fall back to the
+environment map and then to "unknown". None of them can fail a request or stop
+the server booting. A malformed file is logged once, not once per request.
+
+**Never commit this file** — `config/*.json` is gitignored because a real one
+names the containers running on the host.
 
 ## `config/settings.json`
 

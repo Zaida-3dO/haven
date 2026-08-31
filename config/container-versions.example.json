@@ -1,0 +1,30 @@
+{
+  "$comment": [
+    "Running container versions for the apps widget's `current` column.",
+    "Copy to `config/container-versions.json` (gitignored) — or, better, have",
+    "something that CAN see the containers write that file on a schedule.",
+    "Haven only reads it, off the read-only ./config mount; it never touches",
+    "the Docker socket, because mounting that into a web-facing container is a",
+    "root-equivalent escalation for the sake of displaying a string.",
+    "",
+    "Keys are container ids, matching an app's `version.currentContainerId` in",
+    "config/apps.json. The ones below are invented placeholders.",
+    "",
+    "`generatedAt` is when the versions were READ, and it matters: the widget",
+    "shows it, and flags it as stale past a day. If the writer dies the file",
+    "just stops changing, and that timestamp is the only thing that reveals it.",
+    "Omit it and the file's modification time is used instead.",
+    "",
+    "A bare `{ \"container-id\": \"version\" }` map with no envelope is also",
+    "accepted, dated from the mtime.",
+    "",
+    "The file is re-read while Haven runs (~60s), so a new version appears",
+    "without a restart. Missing or malformed degrades quietly to the",
+    "HAVEN_CONTAINER_VERSIONS environment map, then to `unknown`."
+  ],
+  "generatedAt": "2026-08-30T09:00:00.000Z",
+  "versions": {
+    "example-container": "1.4.2",
+    "example-other-container": "v2.0.0"
+  }
+}

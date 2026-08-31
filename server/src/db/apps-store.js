@@ -35,7 +35,7 @@ function toApp(row) {
     urls = [];
   }
 
-  let version = null;
+  let version;
   try {
     version = row.version_info ? JSON.parse(row.version_info) : null;
   } catch {

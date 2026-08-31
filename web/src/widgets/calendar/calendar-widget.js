@@ -150,7 +150,19 @@ const FEED_COLOURS = [
   'oklch(66% 0.15 300)',
 ];
 
-export class CalendarWidget extends HTMLElement {
+/**
+ * The base class, resolved at import time.
+ *
+ * `extends HTMLElement` would be evaluated when this module is imported, so
+ * the module could not be loaded at all outside a browser — including by a
+ * `node:test` suite, which is how this widget's rendering is tested (the web
+ * workspace has no jsdom by design). Falling back to a bare class keeps the
+ * module importable; the element is only ever `define`d where a real
+ * `HTMLElement` exists.
+ */
+const ElementBase = globalThis.HTMLElement ?? class {};
+
+export class CalendarWidget extends ElementBase {
   #config = calendarStubConfig();
   #data = null;
   #lastRevision = -1;
@@ -393,41 +405,6 @@ export class CalendarWidget extends HTMLElement {
     p.textContent = text;
     return p;
   }
-}
-
-/** The registry entry. Registered by `register()` below. */
-export const calendarWidgetDefinition = {
-  type: CALENDAR_WIDGET_TYPE,
-  name: 'Calendar',
-  tag: CALENDAR_WIDGET_TAG,
-  defaultSize: { w: 3, h: 4 },
-  minSize: { w: 2, h: 2 },
-  mobileSize: { w: 4, h: 4 },
-  configSchema: calendarConfigSchema,
-  refreshMs: CALENDAR_REFRESH_MS,
-  searchable: true,
-  configVersion: 1,
-  getStubConfig: calendarStubConfig,
-  dataSource: calendarDataSource,
-};
-
-/**
- * Register the widget and define its element.
- *
- * Kept as an explicit call rather than an import side effect so a test can
- * import the class without touching a global registry.
- */
-export function registerCalendarWidget(
-  registry,
-  { customElementsRef = globalThis.customElements } = {}
-) {
-  if (customElementsRef && !customElementsRef.get(CALENDAR_WIDGET_TAG)) {
-    customElementsRef.define(CALENDAR_WIDGET_TAG, CalendarWidget);
-  }
-  if (registry && !registry.has(CALENDAR_WIDGET_TYPE)) {
-    return registry.register(calendarWidgetDefinition);
-  }
-  return registry?.get(CALENDAR_WIDGET_TYPE) ?? null;
 }
 
 export { parseDayKey };

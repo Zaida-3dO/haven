@@ -20,7 +20,11 @@ import { installDeepLinks, mountGrid } from './grid.js';
 import { startClockTicks } from './clock-source.js';
 import { register as registerClock } from '../widgets/clock/index.js';
 import { register as registerApps } from '../widgets/apps/index.js';
+<<<<<<< HEAD
 import { register as registerTorrents } from '../widgets/torrents/index.js';
+=======
+import { register as registerCalendar } from '../widgets/calendar/index.js';
+>>>>>>> 2a07998 (test(web): cover calendar rendering, and register the widget)
 
 /**
  * The widget instances on the dashboard.
@@ -55,7 +59,11 @@ export async function bootDashboard(root, { chrome = root.parentElement, instanc
 
   registerClock(registry);
   registerApps(registry);
+<<<<<<< HEAD
   registerTorrents(registry);
+=======
+  registerCalendar(registry);
+>>>>>>> 2a07998 (test(web): cover calendar rendering, and register the widget)
 
   const layoutClient = createLayoutClient();
   const dashboard = new Dashboard({ registry, container: root });

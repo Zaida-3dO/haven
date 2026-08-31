@@ -32,9 +32,29 @@ Every widget is a Web Component declaring:
 | `defaultSize` | Grid cells on insert |
 | `minSize` | Grid cells minimum — maps to GridStack `minW`/`minH` |
 | `mobileSize` | Grid cells in the mobile breakpoint |
-| `configSchema` | Flat array of typed field descriptors |
-| `refreshMs` | How often the **host** refetches |
+| `configSchema` | Flat array of typed option descriptors |
+| `configVersion` | Schema version, for the migration hook. Defaults to `1` |
+| `refreshMs` | How often the **host** refetches. `null` means never on a timer |
 | `searchable` | Whether it contributes to the global index |
+| `dataSource` | `(config) => ({ key, url, options })` — how a config becomes a request |
+
+### `dataSource`
+
+The host fetches; this is how it knows *what* to fetch. It returns a request
+descriptor, not data:
+
+```js
+dataSource: (config) => ({ key: WEATHER_FETCH_KEY, url: WEATHER_ENDPOINT }),
+```
+
+`key` is the dedup key — two widgets returning the same `key` produce **one**
+request. `options` is optional and passed through to `fetch`.
+
+**A widget with no natural endpoint declares no `dataSource`** and sets
+`refreshMs: null`. The clock is the worked example: there is no time endpoint,
+and inventing one would be server territory. Its tick is a host-owned scheduler
+task instead, so the widget still owns no timer and still inherits
+pause-on-hidden.
 
 ## Lifecycle
 
@@ -65,11 +85,25 @@ Two sources of truth drift immediately.
 
 **No widget writes its own settings UI.**
 
+Each descriptor is keyed by **`key`**, unique within the schema:
+
+```js
+{ key: 'refreshMs', type: 'number', label: 'Refresh interval (ms)' }
+```
+
 ### Conditional visibility is data, not a function
 
 ```js
-{ field: 'apiKey', visible: { field: 'mode', operator: 'eq', value: 'api' } }
+{ key: 'apiKey', visible: { field: 'mode', operator: 'eq', value: 'api' } }
 ```
+
+Note the asymmetry, which is deliberate: the descriptor names itself with
+`key`, while the `visible` clause refers to *another* descriptor by `field`.
+A descriptor with no `visible` clause is always visible.
+
+**A hidden field keeps its value.** It is neither validated nor required while
+hidden, but its typed value is retained, so flipping the condition back does
+not silently lose what the user typed.
 
 Lovelace uses a serialisable condition tree; Grafana uses a `showIf: (opts) =>
 boolean` function. Take Lovelace's — it survives JSON round-tripping and can be
@@ -91,12 +125,24 @@ Modelled on Grafana's `PanelData` — the best-designed part of any of these API
   state: 'loading' | 'done' | 'error',
   value: <the data>,
   errors: [],
+  notices: [],    // soft notices — stale but usable
   revision: 42,   // increments on change
 }
 ```
 
 The revision counter lets a widget tell "data changed" from "shape changed"
 without a deep compare.
+
+**`revision` only bumps when the fetched value actually differs**, and the host
+skips a redraw when it hasn't. That rule protects the 3D canvas — but it also
+means **a widget cannot be driven by data alone if its display changes with
+time**. Weather at 10:00:01 equals weather at 10:00:00, so a data-driven clock
+would render once and freeze. Time-driven widgets use a host-owned ticker
+instead; see `dataSource` above.
+
+**A soft notice is not an error.** `notices` stays in state `done`: the widget
+draws its data and the host marks it stale. Only an unusable failure is
+`error`.
 
 ## Errors are first-class
 

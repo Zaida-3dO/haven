@@ -19,6 +19,7 @@ import { createLayoutClient } from './layout-client.js';
 import { installDeepLinks, mountGrid } from './grid.js';
 import { startClockTicks } from './clock-source.js';
 import { register as registerClock } from '../widgets/clock/index.js';
+import { register as registerApps } from '../widgets/apps/index.js';
 import { register as registerTorrents } from '../widgets/torrents/index.js';
 
 /**
@@ -31,6 +32,8 @@ import { register as registerTorrents } from '../widgets/torrents/index.js';
  * a fetch is a one-line change in this file.
  */
 const DEFAULT_INSTANCES = [
+  // The apps widget replaces the old dashboard's whole front page, so it leads.
+  { id: 'apps-main', type: 'apps', config: {} },
   { id: 'clock-local', type: 'clock', config: { label: 'Local time', source: 'local' } },
   { id: 'torrents', type: 'torrents', config: { maxRows: 6 } },
   {
@@ -51,6 +54,7 @@ export async function bootDashboard(root, { chrome = root.parentElement, instanc
   if (!root) throw new Error('bootDashboard: no root element');
 
   registerClock(registry);
+  registerApps(registry);
   registerTorrents(registry);
 
   const layoutClient = createLayoutClient();

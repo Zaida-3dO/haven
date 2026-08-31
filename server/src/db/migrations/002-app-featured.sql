@@ -1,0 +1,14 @@
+-- Migration 002 — the `featured` block on an app, for the hero widget.
+--
+-- docs/DESIGN.md §6.1 describes the hero as app-driven, with "7 apps [having]
+-- a `featured` block with tagline and cover". That block was never actually
+-- carried into the schema: `scripts/migrate-apps.mjs` lists `featured` in its
+-- KNOWN_FIELDS purely so it is not REPORTED as an unknown field, and then drops
+-- it, because there was nowhere to put it. This adds the somewhere.
+--
+-- Stored as one JSON blob rather than two columns (`featured_tagline`,
+-- `featured_cover`) for the same reason `urls` and `version_info` are blobs:
+-- it is a single optional sub-object that is read and written whole, and it is
+-- the shape most likely to grow a field. NULL means "not featured", which is
+-- the default and the state of every existing row.
+ALTER TABLE apps ADD COLUMN featured TEXT;

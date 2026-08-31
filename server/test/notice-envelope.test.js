@@ -279,3 +279,70 @@ test('defaultSource fills in only when the sender omits one', () => {
   });
   assert.equal(explicit.notices[0].source, 'chores');
 });
+
+// ── Action dispatch ───────────────────────────────────────────────────────
+
+test('a Home Assistant service survives ingest', () => {
+  // It is parsed explicitly precisely because unknown keys are dropped: an
+  // action field this function does not name would silently become a "Done"
+  // button that calls nothing.
+  const [action] = parseNotice({
+    ...valid(),
+    actions: [
+      {
+        id: 'lock',
+        label: 'Lock the door',
+        service: 'lock/lock',
+        data: { entity_id: 'lock.front' },
+      },
+    ],
+  }).actions;
+
+  assert.equal(action.service, 'lock/lock');
+  assert.deepEqual(action.data, { entity_id: 'lock.front' });
+});
+
+test('a service must be a domain/service pair, not a path', () => {
+  // An action arrived from outside; it does not get to choose an arbitrary
+  // URL on the Home Assistant host.
+  for (const service of ['../../config', '/api/config', 'onlyonepart', 'http://evil.invalid/']) {
+    assert.throws(
+      () => parseNotice({ ...valid(), actions: [{ id: 'a', label: 'A', service }] }),
+      (error) => error.field === 'actions[0].service',
+      service
+    );
+  }
+});
+
+test('an action may not declare both a service and a target', () => {
+  // Two dispatch routes on one button is an ambiguity the backend would have
+  // to break arbitrarily.
+  assert.throws(
+    () =>
+      parseNotice({
+        ...valid(),
+        actions: [
+          { id: 'a', label: 'A', service: 'lock/lock', target: 'https://elsewhere.invalid/x' },
+        ],
+      }),
+    /either a service or a target, not both/
+  );
+});
+
+test('service data must be an object', () => {
+  assert.throws(
+    () =>
+      parseNotice({
+        ...valid(),
+        actions: [{ id: 'a', label: 'A', service: 'lock/lock', data: 'entity_id=lock.front' }],
+      }),
+    (error) => error.field === 'actions[0].data'
+  );
+});
+
+test('an action with neither service nor target is a plain Done button', () => {
+  const [action] = parseNotice({ ...valid(), actions: [{ id: 'done', label: 'Done' }] }).actions;
+  assert.equal(action.service, null);
+  assert.equal(action.target, null);
+  assert.equal(action.data, null);
+});

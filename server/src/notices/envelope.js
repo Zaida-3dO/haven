@@ -144,12 +144,54 @@ export function parseDue(value, field = 'due') {
 }
 
 /**
+ * A Home Assistant service, as `domain/service`.
+ *
+ * Constrained to that exact shape rather than accepted as a free path: an
+ * action is data that arrived from outside, and it does not get to choose an
+ * arbitrary URL on the Home Assistant host. The connector re-checks this
+ * before dispatching, because a value that reaches the network deserves to be
+ * validated at both ends.
+ */
+function optionalService(value, field) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') fail(field, `${field} must be a string when present.`);
+
+  const service = value.trim();
+  if (!/^[a-z_]+\/[a-z_]+$/.test(service)) {
+    fail(field, `${field} must be a Home Assistant "domain/service" pair (got "${service}").`);
+  }
+  return service;
+}
+
+/** The payload sent with a service call. A flat JSON object or nothing. */
+function optionalServiceData(value, field) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    fail(field, `${field} must be an object when present.`);
+  }
+  // Round-tripped through JSON so nothing exotic (functions, prototypes,
+  // circular references) survives into storage.
+  return JSON.parse(JSON.stringify(value));
+}
+
+/**
  * One action button.
  *
  * `id` is what the browser sends back to `POST /api/widgets/notices/:id/actions/:actionId`,
  * and it is deliberately an opaque identifier rather than anything executable:
  * the browser must never learn what an action *does*, because doing it means
  * calling Home Assistant with a long-lived token. See docs/SECURITY.md.
+ *
+ * An action dispatches in one of exactly three ways, and which one is decided
+ * here rather than at call time:
+ *
+ *   `service` → a Home Assistant service call (the only executable form today)
+ *   `target`  → a URL the backend calls, reserved for a future source
+ *   neither   → a "Done" button: record it, dismiss it, call nothing
+ *
+ * Unknown keys are dropped here as everywhere else, which is why `service` and
+ * `data` are parsed explicitly: an action field that is not named in this
+ * function does not survive ingest, and would silently become a "Done" button.
  */
 function parseAction(value, index) {
   const at = `actions[${index}]`;
@@ -160,15 +202,26 @@ function parseAction(value, index) {
   const id = requireString(value.id, `${at}.id`, LIMITS.actionId);
   const label = requireString(value.label, `${at}.label`, LIMITS.actionLabel);
 
+  const service = optionalService(value.service, `${at}.service`);
+  /**
+   * Where the backend sends the action, resolved server-side. Optional:
+   * without it the action is recorded and the notice dismissed, which is
+   * what a "Done" button on a chore means.
+   */
+  const target = optionalUrl(value.target, `${at}.target`);
+
+  if (service && target) {
+    // Two dispatch routes on one button is an ambiguity the backend would have
+    // to break arbitrarily, and whichever it picked would surprise someone.
+    fail(at, `${at} may declare either a service or a target, not both.`);
+  }
+
   return Object.freeze({
     id,
     label,
-    /**
-     * Where the backend sends the action, resolved server-side. Optional:
-     * without it the action is recorded and the notice dismissed, which is
-     * what a "Done" button on a chore means.
-     */
-    target: optionalUrl(value.target, `${at}.target`),
+    service,
+    data: service ? (optionalServiceData(value.data, `${at}.data`) ?? {}) : null,
+    target,
     method: parseMethod(value.method, `${at}.method`),
     /** Whether performing it also dismisses the notice. Defaults to true. */
     dismisses: value.dismisses === undefined ? true : Boolean(value.dismisses),

@@ -2,91 +2,68 @@
  * The add-widget panel.
  *
  * Lists every registered widget by its `name` and inserts the chosen one at
- * its `defaultSize` with `getStubConfig()` applied — which is the whole point
- * of `getStubConfig` existing. A newly added widget must *work immediately*
+ * its `defaultSize` with a stub config applied — which is the whole point of
+ * `getStubConfig` existing. A newly added widget must *work immediately*
  * rather than landing as an error card the user has to go and fix before they
- * can see what they just added (WIDGET-CONTRACT, "getStubConfig matters more
- * than it looks").
+ * can see what they just added.
  *
- * ## Dependency on the widget host
- *
- * The registry itself is owned by `./registry.js`, built in parallel on
- * `feat/m1-widget-host` and not merged yet. This module deliberately does not
- * import it directly. Instead it takes a `registry` object with a small
- * documented surface (see {@link normaliseRegistry}), so that when the host
- * lands, reconciliation is a one-line adapter here rather than a rewrite —
- * and so this panel is testable today with a plain fake.
+ * Both of those come straight off the registry: `catalogue()` is exactly the
+ * add-panel's list (name, defaultSize, minSize), and `stubConfig(type)` folds
+ * the widget's own `getStubConfig()` over the schema defaults and stamps
+ * `configVersion`, so a widget that ships no stub still gets a usable config
+ * rather than a blank one.
  */
 
 /**
- * The registry surface this panel needs.
+ * Builds the descriptor for a widget about to be inserted.
  *
- * @typedef {object} WidgetRegistryLike
- * @property {() => Array<object>} list  registered widget metadata
+ * Kept separate from the DOM so the insertion contract — type, geometry,
+ * starting config — can be tested without a document.
+ *
+ * @param {import('./registry.js').WidgetRegistry} registry
+ * @param {string} type
+ * @param {string} [breakpoint] which breakpoint's default size to use
  */
+export function buildInsertion(registry, type, breakpoint = 'desktop') {
+  const definition = registry.get(type);
+  if (!definition) return null;
 
-/**
- * Adapts whatever `registry.js` ends up exposing to the two things this panel
- * uses: a list of widget metadata, and a lookup by type.
- *
- * Accepts a `list()`/`getAll()`/`entries()` style object, a bare array, or a
- * Map — because the host's exact accessor name is not settled yet and getting
- * it wrong should be a one-line fix, not a broken panel.
- */
-export function normaliseRegistry(registry) {
-  const list = () => {
-    if (!registry) return [];
-    if (Array.isArray(registry)) return registry;
-    if (typeof registry.list === 'function') return registry.list();
-    if (typeof registry.getAll === 'function') return registry.getAll();
-    if (registry instanceof Map) return [...registry.values()];
-    if (typeof registry.entries === 'function') return [...registry.entries()].map(([, v]) => v);
-    return [];
-  };
+  // A widget declaring a `mobileSize` gets it on the mobile breakpoint; the
+  // registry defaults it to `defaultSize` when the widget declares none.
+  const size = breakpoint === 'mobile' ? definition.mobileSize : definition.defaultSize;
 
   return {
-    list,
-    get(type) {
-      if (registry && typeof registry.get === 'function' && !(registry instanceof Map)) {
-        return registry.get(type);
-      }
-      return list().find((meta) => meta?.type === type);
-    },
+    type,
+    name: definition.name,
+    tag: definition.tag,
+    config: registry.stubConfig(type),
+    size: { w: size.w, h: size.h },
+    // `minSize` maps to GridStack's minW/minH, which is what stops a widget
+    // being resized below the size it can actually render at.
+    minSize: { w: definition.minSize.w, h: definition.minSize.h },
   };
-}
-
-/**
- * Builds the config a newly inserted widget starts life with.
- *
- * `getStubConfig` is optional on a widget; a widget with no configurable
- * options legitimately has nothing to stub. The config version is stamped from
- * the widget's declared `configVersion` so the migration hook has something to
- * compare against from the very first save (WIDGET-CONTRACT, "Config
- * versioning").
- */
-export function stubConfigFor(meta) {
-  const stub = typeof meta?.getStubConfig === 'function' ? (meta.getStubConfig() ?? {}) : {};
-  return { version: meta?.configVersion ?? 1, ...stub };
 }
 
 /**
  * Creates the add-widget panel.
  *
  * @param {object} deps
- * @param {WidgetRegistryLike} deps.registry
- * @param {(spec: {type: string, meta: object, config: object}) => void} deps.onAdd
+ * @param {import('./registry.js').WidgetRegistry} deps.registry
+ * @param {(insertion: object) => void} deps.onAdd called with the insertion spec
+ * @param {() => string} [deps.breakpoint] the breakpoint being edited
  */
 export function createAddPanel({
   registry,
   onAdd = () => {},
+  breakpoint = () => 'desktop',
   document: doc = globalThis.document,
 } = {}) {
-  const reg = normaliseRegistry(registry);
+  if (!registry) throw new Error('createAddPanel: a registry is required');
 
   const el = doc.createElement('aside');
   el.className = 'haven-add-panel';
   el.hidden = true;
-  // Labelled and roled so it is announced as a dialog rather than as an
+  // Roled and labelled so it is announced as a dialog rather than as an
   // anonymous region when edit mode opens it.
   el.setAttribute('role', 'dialog');
   el.setAttribute('aria-label', 'Add widget');
@@ -98,49 +75,49 @@ export function createAddPanel({
   const list = doc.createElement('ul');
   list.className = 'haven-add-panel__list';
 
-  el.append(heading, list);
+  el.appendChild(heading);
+  el.appendChild(list);
 
   /** Re-renders the list from the registry. Cheap; called on every open. */
   function refresh() {
-    list.replaceChildren();
+    const entries = registry.catalogue();
 
-    const widgets = reg.list();
+    const children = [];
 
-    if (widgets.length === 0) {
+    if (entries.length === 0) {
       const empty = doc.createElement('li');
       empty.className = 'haven-add-panel__empty';
       empty.textContent = 'No widgets registered.';
-      list.append(empty);
-      return;
+      children.push(empty);
     }
 
-    for (const meta of widgets) {
+    for (const entry of entries) {
       const item = doc.createElement('li');
       item.className = 'haven-add-panel__item';
 
       const button = doc.createElement('button');
       button.type = 'button';
       button.className = 'haven-add-panel__add';
-      button.dataset.widgetType = meta.type;
-      // The panel lists widgets by `name` — the human label — not by `type`,
-      // which is a registry identity nobody should have to read.
-      button.textContent = meta.name ?? meta.type;
-      button.setAttribute('aria-label', `Add ${meta.name ?? meta.type}`);
-      button.addEventListener('click', () => add(meta.type));
+      button.dataset.widgetType = entry.type;
+      // Listed by `name` — the human label — never by `type`, which is a
+      // registry identity nobody should have to read.
+      button.textContent = entry.name;
+      button.setAttribute?.('aria-label', `Add ${entry.name}`);
+      button.addEventListener?.('click', () => add(entry.type));
 
-      item.append(button);
-      list.append(item);
+      item.appendChild(button);
+      children.push(item);
     }
+
+    list.replaceChildren(...children);
   }
 
   /** Inserts a widget at its default size with a working stub config. */
   function add(type) {
-    const meta = reg.get(type);
-    if (!meta) return null;
-
-    const spec = { type, meta, config: stubConfigFor(meta) };
-    onAdd(spec);
-    return spec;
+    const insertion = buildInsertion(registry, type, breakpoint());
+    if (!insertion) return null;
+    onAdd(insertion);
+    return insertion;
   }
 
   return {

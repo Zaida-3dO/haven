@@ -15,6 +15,7 @@ import { registry } from './registry.js';
 import { createAddPanel } from './add-panel.js';
 import { createEditMode, createEditToolbar } from './edit-mode.js';
 import { connectGrid } from './dashboard-grid.js';
+import { connectSettings } from './settings-panel.js';
 import { createLayoutClient } from './layout-client.js';
 import { installDeepLinks, mountGrid } from './grid.js';
 import { startClockTicks } from './clock-source.js';
@@ -23,6 +24,12 @@ import { defineHeroWidget } from '../widgets/hero/index.js';
 import { register as registerApps } from '../widgets/apps/index.js';
 import { register as registerTorrents } from '../widgets/torrents/index.js';
 import { register as registerCalendar } from '../widgets/calendar/index.js';
+import { defineIframeWidget } from '../widgets/iframe/index.js';
+import { definePageWidget } from '../widgets/page/index.js';
+import { createRouter } from './router.js';
+import { pageRegistry } from '../pages/registry.js';
+import { libraryAnalyticsPage } from '../pages/library-analytics.js';
+import { HOME_3D_URL } from '../widgets/iframe/definition.js';
 
 /**
  * The widget instances on the dashboard.
@@ -46,6 +53,29 @@ const DEFAULT_INSTANCES = [
     type: 'clock',
     config: { label: 'Tokyo', source: 'timezone', timezone: 'Asia/Tokyo', showSeconds: 'yes' },
   },
+  // The 3D home preview — the iframe widget's first consumer. A relative path,
+  // because the 3D home is served from Haven's own origin and an absolute
+  // internal address must never be committed to a public repo.
+  {
+    id: 'embed-home3d',
+    type: 'iframe',
+    config: {
+      url: HOME_3D_URL,
+      title: '3D home',
+      scroll: 'no',
+      allowForms: 'no',
+      allowPopups: 'no',
+      allowSameOrigin: 'no',
+    },
+  },
+  // A summary tile linking through to the Library Analytics subpage. The page
+  // itself is a whole screen with its own header, so the tile links rather
+  // than trying to squeeze it into four cells.
+  {
+    id: 'page-library',
+    type: 'page',
+    config: { pageId: 'library-analytics', mode: 'summary' },
+  },
 ];
 
 /**
@@ -55,7 +85,10 @@ const DEFAULT_INSTANCES = [
  * @param {object} [options]
  * @param {HTMLElement} [options.chrome] where the toolbar and add panel go
  */
-export async function bootDashboard(root, { chrome = root.parentElement, instances } = {}) {
+export async function bootDashboard(
+  root,
+  { chrome = root.parentElement, instances, pageRoot = null, pages = pageRegistry } = {}
+) {
   if (!root) throw new Error('bootDashboard: no root element');
 
   registerClock(registry);
@@ -66,12 +99,32 @@ export async function bootDashboard(root, { chrome = root.parentElement, instanc
   // The hero needs no per-instance wiring: its rotation rides the shared
   // ticker, which the element subscribes to on connect.
   defineHeroWidget({ registry });
+  defineIframeWidget({ registry });
+  definePageWidget({ registry });
+
+  // Custom pages are authored once and placed twice — as a subpage below, and
+  // as a `page` widget on the grid. Both read this one registry.
+  if (!pages.has(libraryAnalyticsPage.id)) pages.register(libraryAnalyticsPage);
 
   const layoutClient = createLayoutClient();
   const dashboard = new Dashboard({ registry, container: root });
   const gridHandle = mountGrid({ root });
 
-  const grid = connectGrid({ dashboard, gridHandle, registry });
+  // The settings panel is built before the grid so the gear can be wired to
+  // it directly. Until now that callback was a no-op and every widget option
+  // was reachable only by editing the database.
+  const settingsPanel = connectSettings({
+    dashboard,
+    registry,
+    onError: (error) => console.error('Haven: saving widget settings failed.', error),
+  });
+
+  const grid = connectGrid({
+    dashboard,
+    gridHandle,
+    registry,
+    onSettings: (widgetId) => settingsPanel.open(widgetId),
+  });
 
   // Geometry comes from the server; which widgets exist comes from the roster.
   // A layout that fails to load must not leave a blank page, so the widgets are
@@ -116,9 +169,20 @@ export async function bootDashboard(root, { chrome = root.parentElement, instanc
   if (chrome) {
     chrome.prepend(toolbar.el);
     chrome.appendChild(addPanel.el);
+    chrome.appendChild(settingsPanel.el);
   }
 
   const teardownDeepLinks = installDeepLinks(gridHandle);
+
+  /**
+   * Subpage routing.
+   *
+   * The dashboard is deliberately left mounted underneath a subpage rather
+   * than destroyed: tearing down every widget to look at an analytics page and
+   * rebuilding them on the way back would reload every iframe on the board,
+   * which is exactly what the iframe widget exists to avoid.
+   */
+  const router = pageRoot ? createRouter({ pages, gridRoot: root, pageRoot }) : null;
 
   dashboard.start();
 
@@ -128,9 +192,14 @@ export async function bootDashboard(root, { chrome = root.parentElement, instanc
     grid,
     editMode,
     addPanel,
+    settingsPanel,
     toolbar,
+    router,
+    pages,
     destroy() {
+      settingsPanel.close();
       teardownDeepLinks();
+      router?.destroy();
       dashboard.destroy();
       gridHandle.destroy();
     },

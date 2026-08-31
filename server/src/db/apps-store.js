@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 /** Categories carried over from the old dashboard. */
 export const CATEGORIES = ['personal', 'media', 'home', 'ai', 'tools'];
 
-const COLUMNS = `id, name, description, category, icon, urls, version_info, visit_count, sort_order`;
+const COLUMNS = `id, name, description, category, icon, urls, version_info, featured, visit_count, sort_order`;
 
 /**
  * Row → API shape.
@@ -42,6 +42,16 @@ function toApp(row) {
     version = null;
   }
 
+  // Same tolerance as `urls`: a corrupted featured blob degrades to "not
+  // featured" rather than throwing, so one bad row cannot take down the whole
+  // registry listing — or blank the hero.
+  let featured;
+  try {
+    featured = row.featured ? JSON.parse(row.featured) : null;
+  } catch {
+    featured = null;
+  }
+
   return {
     id: row.id,
     name: row.name,
@@ -50,6 +60,7 @@ function toApp(row) {
     icon: row.icon ?? null,
     urls,
     version,
+    featured,
     visitCount: row.visit_count ?? 0,
     sortOrder: row.sort_order ?? 0,
   };
@@ -65,6 +76,7 @@ function toRow(app) {
     icon: app.icon ?? null,
     urls: JSON.stringify(app.urls ?? []),
     version_info: app.version ? JSON.stringify(app.version) : null,
+    featured: app.featured ? JSON.stringify(app.featured) : null,
     sort_order: app.sortOrder ?? 0,
   };
 }
@@ -87,8 +99,8 @@ export function getApp(db, id) {
 
 export function createApp(db, app) {
   db.prepare(
-    `INSERT INTO apps (id, name, description, category, icon, urls, version_info, sort_order)
-     VALUES (@id, @name, @description, @category, @icon, @urls, @version_info, @sort_order)`
+    `INSERT INTO apps (id, name, description, category, icon, urls, version_info, featured, sort_order)
+     VALUES (@id, @name, @description, @category, @icon, @urls, @version_info, @featured, @sort_order)`
   ).run(toRow(app));
   return getApp(db, app.id);
 }
@@ -105,7 +117,7 @@ export function updateApp(db, id, app) {
       `UPDATE apps SET
          name = @name, description = @description, category = @category,
          icon = @icon, urls = @urls, version_info = @version_info,
-         sort_order = @sort_order, updated_at = datetime('now')
+         featured = @featured, sort_order = @sort_order, updated_at = datetime('now')
        WHERE id = @id`
     )
     .run({ ...toRow(app), id });
@@ -177,4 +189,29 @@ export function seedApps(db, { path, logger } = {}) {
 
   logger?.info?.(`Seeded ${apps.length} app(s) from ${path}.`);
   return { seeded: apps.length, reason: 'seeded' };
+}
+
+/**
+ * The apps carrying a `featured` block, for the hero widget.
+ *
+ * Filtered in SQL rather than by listing everything and filtering in JS: the
+ * hero asks for a handful of slides out of a registry of ~23 apps, and the
+ * column is NULL for all but a few.
+ *
+ * Ordered by `sort_order` then `name` — deliberately NOT by `visit_count` like
+ * `listApps`. A hero that reorders itself as you click through it is
+ * disorienting, and the point of featuring something is that YOU chose its
+ * placement.
+ */
+export function listFeaturedApps(db) {
+  const rows = db
+    .prepare(
+      `SELECT ${COLUMNS} FROM apps
+       WHERE featured IS NOT NULL AND featured != ''
+       ORDER BY sort_order ASC, name ASC`
+    )
+    .all();
+  // A row whose blob is corrupt parses to `featured: null` in `toApp`; it is
+  // dropped here rather than rendered as a blank slide.
+  return rows.map(toApp).filter((app) => app.featured);
 }

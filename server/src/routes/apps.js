@@ -18,6 +18,7 @@ import {
   deleteApp,
   getApp,
   listApps,
+  listFeaturedApps,
   recordVisit,
   updateApp,
 } from '../db/apps-store.js';
@@ -37,6 +38,69 @@ const ALLOWED_ICON_TYPES = new Map([
   ['image/gif', '.gif'],
 ]);
 
+/**
+ * Hero covers. A cover is a full-bleed background image rather than a 48px
+ * icon, so it gets its own, larger cap — but the same allow-list discipline,
+ * minus SVG.
+ *
+ * SVG is deliberately excluded here even though icons allow it: an SVG is a
+ * document that can carry script, and a cover is rendered full-bleed behind
+ * content rather than as a small decorative mark. The icon endpoint's existing
+ * behaviour is left alone; this is the stricter of the two on purpose.
+ */
+const MAX_COVER_BYTES = 4 * 1024 * 1024;
+const ALLOWED_COVER_TYPES = new Map([
+  ['image/png', '.png'],
+  ['image/jpeg', '.jpg'],
+  ['image/webp', '.webp'],
+  ['image/avif', '.avif'],
+]);
+
+/**
+ * Streams an upload to disk, enforcing `maxBytes` on the way through.
+ *
+ * The per-route cap is counted HERE rather than relying on the multipart
+ * plugin's `fileSize` limit, because that limit is configured once for the
+ * whole plugin and there are now two routes with different ceilings. Leaning on
+ * the plugin's `truncated` flag alone would silently raise the icon cap to the
+ * cover's 4MB the moment the shared limit went up — a weakening with no visible
+ * symptom, which is the kind that survives review.
+ *
+ * The partial file is always removed on rejection, so a too-large upload never
+ * leaves a corrupt image on the volume.
+ *
+ * @returns {{ ok: true } | { ok: false, reason: 'too-large' }}
+ */
+async function writeUpload(file, destination, maxBytes) {
+  let written = 0;
+  const count = async function* (source) {
+    for await (const chunk of source) {
+      written += chunk.length;
+      if (written > maxBytes) throw new TooLargeError();
+      yield chunk;
+    }
+  };
+
+  try {
+    await pipeline(file.file, count, createWriteStream(destination));
+  } catch (err) {
+    await unlink(destination).catch(() => {});
+    if (err instanceof TooLargeError) return { ok: false, reason: 'too-large' };
+    throw err;
+  }
+
+  // Belt and braces: the plugin's own limit may have cut the stream short
+  // before our counter ever saw the overage.
+  if (file.file.truncated) {
+    await unlink(destination).catch(() => {});
+    return { ok: false, reason: 'too-large' };
+  }
+
+  return { ok: true };
+}
+
+class TooLargeError extends Error {}
+
 const badRequest = (reply, errors) =>
   reply.code(400).send({ error: 'INVALID_APP', message: 'Validation failed.', details: errors });
 
@@ -47,7 +111,9 @@ export async function registerAppRoutes(app, { db, iconDir = config.iconDir } = 
   if (!db) throw new Error('registerAppRoutes requires a database handle.');
 
   await app.register(import('@fastify/multipart'), {
-    limits: { fileSize: MAX_ICON_BYTES, files: 1 },
+    // The larger of the two caps; each route then enforces its OWN limit on
+    // the stream it received, so a 4MB upload to /icon is still rejected.
+    limits: { fileSize: Math.max(MAX_ICON_BYTES, MAX_COVER_BYTES), files: 1 },
   });
 
   app.get('/api/apps', async (request) => {
@@ -126,17 +192,8 @@ export async function registerAppRoutes(app, { db, iconDir = config.iconDir } = 
 
     await mkdir(resolve(iconDir), { recursive: true });
 
-    try {
-      await pipeline(file.file, createWriteStream(destination));
-    } catch (err) {
-      await unlink(destination).catch(() => {});
-      throw err;
-    }
-
-    // `file.file.truncated` is set when the stream hit the limit. The partial
-    // file is removed rather than left as a corrupt icon.
-    if (file.file.truncated) {
-      await unlink(destination).catch(() => {});
+    const written = await writeUpload(file, destination, MAX_ICON_BYTES);
+    if (!written.ok) {
       return reply.code(413).send({
         error: 'FILE_TOO_LARGE',
         message: `Icon must be ${MAX_ICON_BYTES / 1024}KB or smaller.`,
@@ -145,6 +202,85 @@ export async function registerAppRoutes(app, { db, iconDir = config.iconDir } = 
 
     const updated = updateApp(db, id, { ...existing, icon: filename });
     return { id, icon: filename, app: updated };
+  });
+
+  /**
+   * Cover upload for an app's hero slide.
+   *
+   * Writes to the same data volume as icons, under a `hero-` prefix so a cover
+   * and an icon for the same app cannot collide on one filename.
+   */
+  app.post('/api/apps/:id/cover', async (request, reply) => {
+    const { id } = request.params;
+    const existing = getApp(db, id);
+    if (!existing) return notFound(reply, id);
+
+    if (!existing.featured) {
+      return reply.code(409).send({
+        error: 'NOT_FEATURED',
+        message: `App "${id}" has no featured block to attach a cover to.`,
+      });
+    }
+
+    const file = await request.file();
+    if (!file) {
+      return reply.code(400).send({ error: 'NO_FILE', message: 'Expected a file upload.' });
+    }
+
+    const ext = ALLOWED_COVER_TYPES.get(file.mimetype);
+    if (!ext) {
+      return reply.code(415).send({
+        error: 'UNSUPPORTED_TYPE',
+        message: `Cover must be one of: ${[...ALLOWED_COVER_TYPES.keys()].join(', ')}.`,
+      });
+    }
+
+    // Derived from the app id, never from the uploaded filename.
+    const filename = `hero-${id}${ext}`;
+    const destination = join(resolve(iconDir), filename);
+
+    await mkdir(resolve(iconDir), { recursive: true });
+
+    const written = await writeUpload(file, destination, MAX_COVER_BYTES);
+    if (!written.ok) {
+      return reply.code(413).send({
+        error: 'FILE_TOO_LARGE',
+        message: `Cover must be ${MAX_COVER_BYTES / (1024 * 1024)}MB or smaller.`,
+      });
+    }
+
+    const updated = updateApp(db, id, {
+      ...existing,
+      featured: { ...existing.featured, cover: filename },
+    });
+    return { id, cover: filename, app: updated };
+  });
+
+  /**
+   * GET /api/widgets/hero — the app-linked slides.
+   *
+   * Lives on the apps route rather than in `widgets.js` because it is a
+   * registry query, and the registry's data access is here. It returns only
+   * what a slide needs: an id, a title, the tagline, the cover filename and the
+   * click target. Notably it does NOT return the full `urls` array — the hero
+   * links to the primary address, and shipping every internal alias to the
+   * browser for a decorative banner would be handing out a map of the network
+   * for no benefit.
+   */
+  app.get('/api/widgets/hero', async (request, reply) => {
+    const slides = listFeaturedApps(db).map((entry) => ({
+      id: entry.id,
+      type: 'app',
+      title: entry.name,
+      tagline: entry.featured.tagline,
+      cover: entry.featured.cover ?? null,
+      url: (entry.urls.find((u) => u.primary) ?? entry.urls[0])?.url ?? null,
+    }));
+
+    // Never cached: featuring something is an editorial act and should show up
+    // on the next load, not in half an hour.
+    reply.header('cache-control', 'no-store');
+    return { slides };
   });
 
   // Serve the uploaded icons back. Registered in its own scope so the static
@@ -158,4 +294,4 @@ export async function registerAppRoutes(app, { db, iconDir = config.iconDir } = 
   });
 }
 
-export { MAX_ICON_BYTES, ALLOWED_ICON_TYPES };
+export { MAX_ICON_BYTES, ALLOWED_ICON_TYPES, MAX_COVER_BYTES, ALLOWED_COVER_TYPES };

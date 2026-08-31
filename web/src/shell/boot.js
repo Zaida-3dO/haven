@@ -19,6 +19,7 @@ import { createLayoutClient } from './layout-client.js';
 import { installDeepLinks, mountGrid } from './grid.js';
 import { startClockTicks } from './clock-source.js';
 import { register as registerClock } from '../widgets/clock/index.js';
+import { defineHeroWidget } from '../widgets/hero/index.js';
 import { register as registerApps } from '../widgets/apps/index.js';
 import { register as registerTorrents } from '../widgets/torrents/index.js';
 import { register as registerCalendar } from '../widgets/calendar/index.js';
@@ -33,6 +34,8 @@ import { register as registerCalendar } from '../widgets/calendar/index.js';
  * a fetch is a one-line change in this file.
  */
 const DEFAULT_INSTANCES = [
+  // The hero is a banner across the top, so it comes before the apps grid.
+  { id: 'hero-main', type: 'hero', config: { rotateSeconds: 8, showTagline: true } },
   // The apps widget replaces the old dashboard's whole front page, so it leads.
   { id: 'apps-main', type: 'apps', config: {} },
   { id: 'clock-local', type: 'clock', config: { label: 'Local time', source: 'local' } },
@@ -59,6 +62,10 @@ export async function bootDashboard(root, { chrome = root.parentElement, instanc
   registerApps(registry);
   registerTorrents(registry);
   registerCalendar(registry);
+
+  // The hero needs no per-instance wiring: its rotation rides the shared
+  // ticker, which the element subscribes to on connect.
+  defineHeroWidget({ registry });
 
   const layoutClient = createLayoutClient();
   const dashboard = new Dashboard({ registry, container: root });

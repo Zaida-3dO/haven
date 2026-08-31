@@ -53,6 +53,40 @@ function validateUrlEntry(entry, index, errors) {
   }
 }
 
+/**
+ * The `featured` block — what the hero widget renders for an app slide.
+ *
+ * Optional and nullable: `null` (or absent) means "not featured", which is the
+ * state of nearly every app. `cover` is a BARE FILENAME resolved against the
+ * data volume, exactly like `icon`, and is rejected if it contains a path
+ * separator — a stored value with a `/` in it is a path traversal waiting for
+ * somewhere to be joined.
+ */
+function validateFeatured(featured, errors) {
+  if (featured === undefined || featured === null) return;
+
+  if (!isPlainObject(featured)) {
+    errors.push('featured must be an object');
+    return;
+  }
+
+  if (typeof featured.tagline !== 'string' || !featured.tagline.trim()) {
+    errors.push('featured.tagline is required');
+  } else if (featured.tagline.length > 140) {
+    // A hero line, not a paragraph. Long enough for a sentence, short enough
+    // that it cannot silently overflow the slide.
+    errors.push('featured.tagline must be 140 characters or fewer');
+  }
+
+  if (featured.cover !== undefined && featured.cover !== null) {
+    if (typeof featured.cover !== 'string') {
+      errors.push('featured.cover must be a string');
+    } else if (/[/\\]/.test(featured.cover) || featured.cover.includes('..')) {
+      errors.push('featured.cover must be a bare filename, not a path');
+    }
+  }
+}
+
 function validateVersion(version, errors) {
   if (version === undefined || version === null) return;
 
@@ -141,6 +175,7 @@ export function validateApp(body, { requireId = true } = {}) {
   }
 
   validateVersion(body.version, errors);
+  validateFeatured(body.featured, errors);
 
   if (body.sortOrder !== undefined && !Number.isInteger(body.sortOrder)) {
     errors.push('sortOrder must be an integer');
@@ -171,6 +206,12 @@ export function validateApp(body, { requireId = true } = {}) {
         ...(u.primary === true ? { primary: true } : {}),
       })),
       version: body.version ?? null,
+      featured: body.featured
+        ? {
+            tagline: body.featured.tagline.trim(),
+            cover: body.featured.cover?.trim() || null,
+          }
+        : null,
       sortOrder: body.sortOrder ?? 0,
     },
   };

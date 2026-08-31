@@ -1,3 +1,5 @@
-import { mountShell } from './shell/shell.js';
+import { bootDashboard } from './shell/boot.js';
 
-mountShell(document.querySelector('#haven-shell'));
+bootDashboard(document.querySelector('#haven-grid'), {
+  chrome: document.querySelector('#haven-chrome'),
+});

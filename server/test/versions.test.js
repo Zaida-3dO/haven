@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
@@ -12,6 +12,7 @@ import {
   LATEST_ERROR_CACHE_MS,
   VersionCache,
   compareVersions,
+  currentVersionSource,
   fetchLatest,
   resolveCurrent,
   toReleasesApiUrl,
@@ -380,6 +381,9 @@ describe('version routes', () => {
     assert.deepEqual(response.json(), {
       id: 'no-version-app',
       current: null,
+      // Null rather than absent: there is no running version, so there is no
+      // reading to date. A timestamp here would be dating nothing.
+      currentAsOf: null,
       latest: null,
       latestUrl: null,
       publishedAt: null,
@@ -477,5 +481,209 @@ describe('the combined dashboard route', () => {
       await emptyApp.close();
       emptyDb.close();
     }
+  });
+});
+
+/**
+ * The container versions file as the source of the "current" column, driven
+ * through the real routes.
+ *
+ * These use `app.inject()` rather than calling the resolver directly, because
+ * the thing worth protecting is the response the widget actually receives.
+ */
+describe('the container versions file, end to end', () => {
+  let fileDir;
+
+  before(() => {
+    fileDir = mkdtempSync(join(tmpdir(), 'haven-versions-route-'));
+  });
+
+  after(() => {
+    rmSync(fileDir, { recursive: true, force: true });
+  });
+
+  const writeVersionsFile = (name, contents) => {
+    const path = join(fileDir, name);
+    writeFileSync(path, JSON.stringify(contents), 'utf8');
+    return path;
+  };
+
+  /** A server whose versions file is the given path, which may not exist. */
+  async function serverWithVersionsFile(db, containerVersionsPath) {
+    return buildServer({
+      logger: false,
+      db,
+      seedPath: join(tmpdir(), 'haven-no-such-seed.json'),
+      iconDir: mkdtempSync(join(tmpdir(), 'haven-icons-')),
+      containerVersionsPath,
+    });
+  }
+
+  test('serves the running version and its age from the file', async () => {
+    const db = freshDb();
+    createApp(
+      db,
+      appFixture({
+        id: 'file-app',
+        version: { latestUrl: null, currentContainerId: 'example-container' },
+      })
+    );
+    const path = writeVersionsFile('served.json', {
+      generatedAt: '2026-08-30T09:00:00.000Z',
+      versions: { 'example-container': '1.4.2' },
+    });
+    const app = await serverWithVersionsFile(db, path);
+
+    try {
+      const body = (await app.inject({ method: 'GET', url: '/api/versions/file-app' })).json();
+
+      assert.equal(body.current, '1.4.2');
+      // Without this the UI cannot tell a version read a minute ago from one
+      // read last month, which is the failure mode of a dead refresher.
+      assert.equal(body.currentAsOf, '2026-08-30T09:00:00.000Z');
+    } finally {
+      await app.close();
+      db.close();
+    }
+  });
+
+  test('a missing file leaves behaviour exactly as it was', async () => {
+    // The ship-independently claim rests on this: with no file present, the
+    // response is identical to the one this route gave before the file
+    // existed.
+    const db = freshDb();
+    createApp(
+      db,
+      appFixture({
+        id: 'no-file-app',
+        version: { latestUrl: null, currentContainerId: 'example-container' },
+      })
+    );
+    const app = await serverWithVersionsFile(db, join(fileDir, 'definitely-absent.json'));
+
+    try {
+      const body = (await app.inject({ method: 'GET', url: '/api/versions/no-file-app' })).json();
+
+      assert.deepEqual(body, {
+        id: 'no-file-app',
+        current: null,
+        currentAsOf: null,
+        latest: null,
+        latestUrl: null,
+        publishedAt: null,
+        status: 'unknown',
+      });
+    } finally {
+      await app.close();
+      db.close();
+    }
+  });
+
+  test('a malformed file degrades to no current version rather than erroring', async () => {
+    const db = freshDb();
+    createApp(
+      db,
+      appFixture({
+        id: 'broken-file-app',
+        version: { latestUrl: null, currentContainerId: 'example-container' },
+      })
+    );
+    const path = join(fileDir, 'broken.json');
+    writeFileSync(path, '{ this is not json', 'utf8');
+    const app = await serverWithVersionsFile(db, path);
+
+    try {
+      const response = await app.inject({ method: 'GET', url: '/api/versions/broken-file-app' });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.json().current, null);
+      assert.equal(response.json().currentAsOf, null);
+    } finally {
+      await app.close();
+      db.close();
+    }
+  });
+
+  test('the flat map shape works through the route too', async () => {
+    // The old dashboard's version script already emits this shape, so it can
+    // be pointed at the mount without a translation step.
+    const db = freshDb();
+    createApp(
+      db,
+      appFixture({
+        id: 'flat-file-app',
+        version: { latestUrl: null, currentContainerId: 'example-container' },
+      })
+    );
+    const app = await serverWithVersionsFile(
+      db,
+      writeVersionsFile('flat-route.json', { 'example-container': '7.7.7' })
+    );
+
+    try {
+      const body = (await app.inject({ method: 'GET', url: '/api/versions/flat-file-app' })).json();
+
+      assert.equal(body.current, '7.7.7');
+      // Dated from the file's mtime, so a bare map is still checkable for age.
+      assert.ok(body.currentAsOf, 'a flat map should still be dated, from the mtime');
+    } finally {
+      await app.close();
+      db.close();
+    }
+  });
+
+  test('the batch and dashboard routes carry currentAsOf as well', async () => {
+    const db = freshDb();
+    createApp(
+      db,
+      appFixture({
+        id: 'batch-file-app',
+        version: { latestUrl: null, currentContainerId: 'example-container' },
+      })
+    );
+    const app = await serverWithVersionsFile(
+      db,
+      writeVersionsFile('batch.json', {
+        generatedAt: '2026-08-29T10:00:00.000Z',
+        versions: { 'example-container': '2.2.2' },
+      })
+    );
+
+    try {
+      const batch = (await app.inject({ method: 'GET', url: '/api/versions' })).json();
+      assert.equal(batch.versions['batch-file-app'].current, '2.2.2');
+      assert.equal(batch.versions['batch-file-app'].currentAsOf, '2026-08-29T10:00:00.000Z');
+
+      const dash = (await app.inject({ method: 'GET', url: '/api/apps/dashboard' })).json();
+      assert.equal(dash.versions['batch-file-app'].currentAsOf, '2026-08-29T10:00:00.000Z');
+    } finally {
+      await app.close();
+      db.close();
+    }
+  });
+});
+
+describe('currentVersionSource — precedence', () => {
+  const readerOf = (value) => ({ read: () => value });
+
+  test('the file wins over the env map for the same container', () => {
+    const source = currentVersionSource(
+      readerOf({ versions: { 'example-container': '9.9.9' }, generatedAt: '2026-08-30T00:00:00Z' })
+    );
+
+    assert.equal(source.versions['example-container'], '9.9.9');
+    assert.equal(source.currentAsOf, '2026-08-30T00:00:00Z');
+  });
+
+  test('with no file there is no timestamp to report', () => {
+    // The env map's age is whenever someone last edited it, which nothing here
+    // knows. Reporting "now" would claim a freshness that does not exist.
+    const source = currentVersionSource(readerOf({ versions: {}, generatedAt: null }));
+
+    assert.equal(source.currentAsOf, null);
+  });
+
+  test('tolerates a missing reader entirely', () => {
+    assert.equal(currentVersionSource(undefined).currentAsOf, null);
   });
 });

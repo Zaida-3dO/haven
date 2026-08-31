@@ -4,6 +4,7 @@ import { STATUS } from '../src/lib/status.js';
 import {
   ALL_CATEGORY,
   SORT,
+  STALE_AFTER_MS,
   buildCard,
   buildView,
   categoryTabs,
@@ -12,6 +13,7 @@ import {
   safeUrl,
   secondaryUrls,
   sortApps,
+  versionAge,
   versionPair,
 } from '../src/widgets/apps/model.js';
 
@@ -478,5 +480,150 @@ describe('versionPair without a server-computed status', () => {
     });
 
     assert.equal(pair.differs, false);
+  });
+});
+
+/**
+ * Staleness of the running-version reading.
+ *
+ * This exists because the file behind `current` is written by a separate
+ * refresher process, and a refresher that dies fails SILENTLY: the file simply
+ * stops changing and the dashboard goes on showing an old version as though it
+ * were current. Every test here is guarding the visibility of that failure.
+ */
+describe('versionAge', () => {
+  const NOW = Date.parse('2026-08-31T12:00:00.000Z');
+  const at = (iso) => versionAge(iso, () => NOW);
+
+  test('reads a recent timestamp as fresh, with a phrase', () => {
+    const age = at('2026-08-31T11:30:00.000Z');
+
+    assert.equal(age.stale, false);
+    assert.equal(age.text, '30m ago');
+  });
+
+  test('under a minute reads as just now', () => {
+    assert.equal(at('2026-08-31T11:59:40.000Z').text, 'just now');
+  });
+
+  test('hours and days get their own units', () => {
+    assert.equal(at('2026-08-31T09:00:00.000Z').text, '3h ago');
+    assert.equal(at('2026-08-28T12:00:00.000Z').text, '3d ago');
+  });
+
+  test('a reading older than a day is stale', () => {
+    // A refresher worth running runs at least daily, so a reading older than
+    // this means something is broken rather than merely slow.
+    const age = at('2026-08-30T11:00:00.000Z');
+
+    assert.equal(age.stale, true);
+    assert.equal(age.text, '1d ago');
+  });
+
+  test('the boundary is inclusive — exactly a day old is already stale', () => {
+    assert.equal(at('2026-08-30T12:00:00.000Z').stale, true);
+    assert.equal(at('2026-08-30T12:00:01.000Z').stale, false);
+  });
+
+  test('a missing or unparseable timestamp is not stale and has no text', () => {
+    // No timestamp means the version came from the env map, which has no
+    // knowable age. Calling that "stale" would cry wolf on every card.
+    assert.deepEqual(at(null), { text: null, stale: false, ms: null });
+    assert.deepEqual(at('  '), { text: null, stale: false, ms: null });
+    assert.deepEqual(at('not a date'), { text: null, stale: false, ms: null });
+  });
+
+  test('a future timestamp is clamped rather than read as negative', () => {
+    const age = at('2026-09-01T12:00:00.000Z');
+
+    assert.equal(age.ms, 0);
+    assert.equal(age.stale, false);
+    assert.equal(age.text, 'just now');
+  });
+
+  test('STALE_AFTER_MS is a day', () => {
+    assert.equal(STALE_AFTER_MS, 24 * 60 * 60 * 1000);
+  });
+});
+
+describe('versionPair — staleness of the running version', () => {
+  const NOW = Date.parse('2026-08-31T12:00:00.000Z');
+  const now = () => NOW;
+
+  test('carries the age of a fresh reading without warning about it', () => {
+    const pair = versionPair(
+      appFixture(),
+      {
+        'example-service': {
+          current: '1.0.0',
+          latest: '1.0.0',
+          status: 'same',
+          currentAsOf: '2026-08-31T10:00:00.000Z',
+        },
+      },
+      { now }
+    );
+
+    assert.equal(pair.currentAge, '2h ago');
+    assert.equal(pair.currentStale, false);
+    // A fresh reading is context, not an alert — the label stays clean.
+    assert.equal(pair.label, 'Up to date (1.0.0)');
+  });
+
+  test('a stale reading is called out in the label', () => {
+    // The label is what a screen reader announces, so the caveat has to be in
+    // it rather than living only in a colour.
+    const pair = versionPair(
+      appFixture(),
+      {
+        'example-service': {
+          current: '1.0.0',
+          latest: '1.0.0',
+          status: 'same',
+          currentAsOf: '2026-08-01T12:00:00.000Z',
+        },
+      },
+      { now }
+    );
+
+    assert.equal(pair.currentStale, true);
+    assert.equal(pair.currentAge, '30d ago');
+    assert.match(pair.label, /last checked 30d ago/);
+    // The underlying facts survive the warning rather than being replaced.
+    assert.match(pair.label, /Up to date \(1\.0\.0\)/);
+  });
+
+  test('no currentAsOf means no age and no warning', () => {
+    // The env-map fallback. Behaviour identical to before the file existed.
+    const pair = versionPair(appFixture(), {
+      'example-service': { current: '1.0.0', latest: '1.0.0', status: 'same' },
+    });
+
+    assert.equal(pair.currentAsOf, null);
+    assert.equal(pair.currentAge, null);
+    assert.equal(pair.currentStale, false);
+    assert.equal(pair.label, 'Up to date (1.0.0)');
+  });
+
+  test('staleness does not suppress the update affordance', () => {
+    // An old reading is still a reading: if it differs from the latest
+    // release, that is still worth showing.
+    const pair = versionPair(
+      appFixture(),
+      {
+        'example-service': {
+          current: '1.0.0',
+          latest: '2.0.0',
+          status: 'differs',
+          currentAsOf: '2026-07-01T12:00:00.000Z',
+        },
+      },
+      { now }
+    );
+
+    assert.equal(pair.differs, true);
+    assert.equal(pair.currentStale, true);
+    assert.match(pair.label, /Update available/);
+    assert.match(pair.label, /last checked/);
   });
 });

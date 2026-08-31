@@ -1,6 +1,8 @@
 import Fastify from 'fastify';
 import { config } from './config.js';
 import { openDatabase } from './db/index.js';
+import { seedApps } from './db/apps-store.js';
+import { registerAppRoutes } from './routes/apps.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerLayoutRoutes } from './routes/layout.js';
 
@@ -12,9 +14,17 @@ import { registerLayoutRoutes } from './routes/layout.js';
  *   - `dbPath`: overrides `config.dbPath`. Tests pass `':memory:'`.
  *   - `db`: an already-open database to use instead of opening one. When
  *     given, the caller owns its lifetime and `app.close()` leaves it open.
+ *   - `seedPath`: where to read the app-registry seed from.
+ *   - `iconDir`: where uploaded icons are written.
  */
 export async function buildServer(opts = {}) {
-  const { dbPath, db: providedDb, ...fastifyOpts } = opts;
+  const {
+    dbPath,
+    db: providedDb,
+    seedPath = config.appsConfigPath,
+    iconDir = config.iconDir,
+    ...fastifyOpts
+  } = opts;
 
   const app = Fastify({
     logger: { level: config.logLevel },
@@ -28,8 +38,14 @@ export async function buildServer(opts = {}) {
     app.addHook('onClose', async () => db.close());
   }
 
+  // Seed from config/apps.json only when the registry is empty. The file is
+  // the seed; the database is the source of truth afterwards, so edits made in
+  // the UI are never silently reverted by a stale file on the next restart.
+  seedApps(db, { path: seedPath, logger: app.log });
+
   await registerHealthRoutes(app);
   await registerLayoutRoutes(app);
+  await registerAppRoutes(app, { db, iconDir });
 
   return app;
 }

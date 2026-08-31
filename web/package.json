@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test \"test/**/*.test.js\"",
-    "lint": "eslint src"
+    "lint": "eslint src test"
   },
   "dependencies": {
     "gridstack": "^13.2.0"

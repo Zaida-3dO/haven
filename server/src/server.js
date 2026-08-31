@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { config } from './config.js';
 import { openDatabase } from './db/index.js';
 import { seedApps } from './db/apps-store.js';
+import { createContainerVersionsReader } from './container-versions.js';
 import { registerAppRoutes } from './routes/apps.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerLayoutRoutes } from './routes/layout.js';
@@ -30,6 +31,7 @@ export async function buildServer(opts = {}) {
     db: providedDb,
     seedPath = config.appsConfigPath,
     iconDir = config.iconDir,
+    containerVersionsPath = config.containerVersionsFile,
     widgets,
     notices,
     ...fastifyOpts
@@ -57,7 +59,13 @@ export async function buildServer(opts = {}) {
   await registerAppRoutes(app, { db, iconDir });
   // The version connector holds the GitHub token and the shared release cache;
   // the browser asks this server, never api.github.com directly.
-  await registerVersionRoutes(app, { db });
+  await registerVersionRoutes(app, {
+    db,
+    versionsReader: createContainerVersionsReader({
+      path: containerVersionsPath,
+      logger: app.log,
+    }),
+  });
   await registerWidgetRoutes(app, widgets);
   await registerNoticeRoutes(app, { db, ...notices });
 

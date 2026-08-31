@@ -244,6 +244,20 @@ export const STYLES = `
     color: var(--haven-accent-fg, #202124);
   }
 
+  /* How old the running-version reading is. Quiet by default — it is context,
+     not an alert — until it is old enough to be untrustworthy, at which point
+     it is the most important thing in the row. */
+  .version__age {
+    font-size: 0.62rem;
+    opacity: 0.55;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .version__age--stale {
+    opacity: 1;
+    color: var(--haven-warn, #fbbc04);
+  }
+
   /* ── Secondary URL menu ───────────────────────────────────────────── */
 
   .menu__toggle {

@@ -33,8 +33,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates tini \
     && rm -rf /var/lib/apt/lists/*
 
+# npm workspaces hoist every dependency to the ROOT node_modules, so there is
+# no server/node_modules to copy — Node resolves the server's imports by
+# walking up from server/src/ to /app/node_modules.
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/server/node_modules ./server/node_modules
 COPY server/ ./server/
 COPY --from=web-build /app/web/dist ./web/dist
 COPY package.json ./

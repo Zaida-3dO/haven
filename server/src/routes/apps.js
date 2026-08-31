@@ -38,10 +38,10 @@ const ALLOWED_ICON_TYPES = new Map([
 ]);
 
 const badRequest = (reply, errors) =>
-  reply.code(400).send({ error: 'invalid_app', message: 'Validation failed.', details: errors });
+  reply.code(400).send({ error: 'INVALID_APP', message: 'Validation failed.', details: errors });
 
 const notFound = (reply, id) =>
-  reply.code(404).send({ error: 'not_found', message: `No app with id "${id}".` });
+  reply.code(404).send({ error: 'NOT_FOUND', message: `No app with id "${id}".` });
 
 export async function registerAppRoutes(app, { db, iconDir = config.iconDir } = {}) {
   if (!db) throw new Error('registerAppRoutes requires a database handle.');
@@ -67,7 +67,7 @@ export async function registerAppRoutes(app, { db, iconDir = config.iconDir } = 
     if (getApp(db, result.value.id)) {
       return reply
         .code(409)
-        .send({ error: 'duplicate_id', message: `An app with id "${result.value.id}" exists.` });
+        .send({ error: 'DUPLICATE_ID', message: `An app with id "${result.value.id}" exists.` });
     }
 
     return reply.code(201).send(createApp(db, result.value));
@@ -108,13 +108,13 @@ export async function registerAppRoutes(app, { db, iconDir = config.iconDir } = 
 
     const file = await request.file();
     if (!file) {
-      return reply.code(400).send({ error: 'no_file', message: 'Expected a file upload.' });
+      return reply.code(400).send({ error: 'NO_FILE', message: 'Expected a file upload.' });
     }
 
     const ext = ALLOWED_ICON_TYPES.get(file.mimetype);
     if (!ext) {
       return reply.code(415).send({
-        error: 'unsupported_type',
+        error: 'UNSUPPORTED_TYPE',
         message: `Icon must be one of: ${[...ALLOWED_ICON_TYPES.keys()].join(', ')}.`,
       });
     }
@@ -138,7 +138,7 @@ export async function registerAppRoutes(app, { db, iconDir = config.iconDir } = 
     if (file.file.truncated) {
       await unlink(destination).catch(() => {});
       return reply.code(413).send({
-        error: 'file_too_large',
+        error: 'FILE_TOO_LARGE',
         message: `Icon must be ${MAX_ICON_BYTES / 1024}KB or smaller.`,
       });
     }

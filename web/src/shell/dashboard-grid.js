@@ -67,12 +67,16 @@ function createTile({ doc, widgetId, title, onSettings, onRemove }) {
  * @param {object} deps.gridHandle  the handle from `mountGrid`
  * @param {object} deps.registry    the widget registry
  * @param {(id: string) => void} [deps.onSettings]
+ * @param {(id: string) => void} [deps.onRemoved] called AFTER a widget is
+ *   removed from both the grid and the dashboard, so the shell can persist the
+ *   removal. Not called for an id that was not mounted here.
  */
 export function connectGrid({
   dashboard,
   gridHandle,
   registry,
   onSettings = () => {},
+  onRemoved = () => {},
   document: doc = globalThis.document,
 } = {}) {
   const tiles = new Map();
@@ -121,7 +125,15 @@ export function connectGrid({
     return host;
   }
 
-  /** Removes a widget from the grid and the dashboard together. */
+  /**
+   * Removes a widget from the grid and the dashboard together.
+   *
+   * `onRemoved` fires last, once the widget is actually gone from both, so a
+   * listener that persists the removal cannot run against a half-removed
+   * widget. `dashboard.remove` also drops the instance's search-index bucket
+   * (`SearchIndex.remove`), so a deleted widget stops being findable in the
+   * same turn it stops being visible.
+   */
   function remove(widgetId) {
     const tile = tiles.get(widgetId);
     if (tile) {
@@ -129,6 +141,7 @@ export function connectGrid({
       tiles.delete(widgetId);
     }
     dashboard.remove(widgetId);
+    onRemoved(widgetId);
   }
 
   return {

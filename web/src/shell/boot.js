@@ -17,6 +17,7 @@ import { createEditMode, createEditToolbar } from './edit-mode.js';
 import { connectGrid } from './dashboard-grid.js';
 import { connectSettings } from './settings-panel.js';
 import { createLayoutClient } from './layout-client.js';
+import { createInstancesClient, secretKeysOf } from './instances-client.js';
 import { installDeepLinks, mountGrid } from './grid.js';
 import { startClockTicks } from './clock-source.js';
 import { register as registerClock } from '../widgets/clock/index.js';
@@ -26,15 +27,20 @@ import { register as registerTorrents } from '../widgets/torrents/index.js';
 import { register as registerCalendar } from '../widgets/calendar/index.js';
 
 /**
- * The widget instances on the dashboard.
+ * The fallback roster.
  *
- * The layout API stores geometry per breakpoint and, on each node, an optional
- * `widgetId`. What it does not store is which widget *type* an instance is, or
- * its config — there is no instances endpoint yet. Until there is, the roster
- * lives here so the grid work is demonstrable end to end; replacing this with
- * a fetch is a one-line change in this file.
+ * The roster now comes from `GET /api/instances` and the server seeds the same
+ * list into the database on a fresh install (`DEFAULT_INSTANCES` in
+ * `server/src/db/instances-store.js`). This copy is what the shell falls back
+ * to when that request FAILS — not when it comes back empty.
+ *
+ * That distinction is the whole reason it still exists. An empty roster is a
+ * legitimate state (the user removed every widget) and must render as an empty
+ * dashboard. A failed request is not a statement about the roster at all, and
+ * treating it as one would blank a working dashboard because the server
+ * hiccuped.
  */
-const DEFAULT_INSTANCES = [
+const FALLBACK_INSTANCES = [
   // The hero is a banner across the top, so it comes before the apps grid.
   { id: 'hero-main', type: 'hero', config: { rotateSeconds: 8, showTagline: true } },
   // The apps widget replaces the old dashboard's whole front page, so it leads.
@@ -48,6 +54,26 @@ const DEFAULT_INSTANCES = [
     config: { label: 'Tokyo', source: 'timezone', timezone: 'Asia/Tokyo', showSeconds: 'yes' },
   },
 ];
+
+/**
+ * Drops roster entries the layout still references but that no longer exist,
+ * and vice versa — the dangling-reference guard.
+ *
+ * A layout node whose `widgetId` names an instance that is gone must not blank
+ * the dashboard: it is skipped and the rest loads. `connectGrid.load` already
+ * walks the ROSTER and looks geometry up per entry, so an extra layout node is
+ * inert by construction. This exists for the other direction and for the
+ * explicit `widgetId` spelling, so the intent is stated rather than relied on
+ * as an accident of iteration order.
+ */
+export function reconcileRoster(roster = [], layoutNodes = []) {
+  const known = new Set(roster.map((entry) => entry?.id).filter(Boolean));
+  const usable = layoutNodes.filter((node) => {
+    const target = node?.widgetId ?? node?.id;
+    return typeof target === 'string' && known.has(target);
+  });
+  return { roster: roster.filter((entry) => entry && typeof entry.id === 'string'), usable };
+}
 
 /**
  * Boots the grid-backed dashboard into `root`.
@@ -69,8 +95,35 @@ export async function bootDashboard(root, { chrome = root.parentElement, instanc
   defineHeroWidget({ registry });
 
   const layoutClient = createLayoutClient();
+  const instancesClient = instances ? null : createInstancesClient();
   const dashboard = new Dashboard({ registry, container: root });
   const gridHandle = mountGrid({ root });
+
+  /** The roster as last known, so a save can send the whole instance back. */
+  const roster = new Map();
+
+  /**
+   * Persists one instance through the API.
+   *
+   * `onSaved` rather than `onSave`: `connectSettings`'s own `onSave` is the
+   * one that runs `host.setConfig()`, and that is the path that runs
+   * `migrateConfig` then `parseConfig`. Persisting from `onSaved` means the
+   * config written to the database is the one that already came out of the
+   * migration hook — so the hook is never bypassed, and a config saved today
+   * is stored at today's version.
+   */
+  async function persist(widgetId, config) {
+    if (!instancesClient) return;
+    const entry = roster.get(widgetId);
+    if (!entry) return;
+
+    const next = { ...entry, config };
+    roster.set(widgetId, next);
+
+    await instancesClient.save(widgetId, next, {
+      secretKeys: secretKeysOf(registry.get(entry.type)),
+    });
+  }
 
   // The settings panel is built before the grid so the gear can be wired to
   // it directly. Until now that callback was a no-op and every widget option
@@ -78,6 +131,14 @@ export async function bootDashboard(root, { chrome = root.parentElement, instanc
   const settingsPanel = connectSettings({
     dashboard,
     registry,
+    onSaved: (widgetId, config) => {
+      // Fire-and-report: the widget has already been updated in place by
+      // `setConfig`, so a failed write must not undo that or throw into the
+      // panel's close path. It is logged, and the next load reveals it.
+      void persist(widgetId, config).catch((error) =>
+        console.error('Haven: could not persist widget settings.', error)
+      );
+    },
     onError: (error) => console.error('Haven: saving widget settings failed.', error),
   });
 
@@ -86,11 +147,20 @@ export async function bootDashboard(root, { chrome = root.parentElement, instanc
     gridHandle,
     registry,
     onSettings: (widgetId) => settingsPanel.open(widgetId),
+    onRemoved: (widgetId) => {
+      roster.delete(widgetId);
+      if (!instancesClient) return;
+      // Deleting server-side also drops the layout node and the instance's
+      // stored credentials — see `instances-store.delete`.
+      void instancesClient
+        .remove(widgetId)
+        .catch((error) => console.error('Haven: could not delete the widget instance.', error));
+    },
   });
 
-  // Geometry comes from the server; which widgets exist comes from the roster.
-  // A layout that fails to load must not leave a blank page, so the widgets are
-  // placed either way — just at their default positions.
+  // Geometry comes from the server; so, now, does the roster. Neither request
+  // failing may leave a blank page: the layout falls back to default positions
+  // and the roster to a built-in list, so the dashboard always renders.
   let saved = { desktop: [], mobile: [] };
   try {
     ({ layout: saved } = await layoutClient.load());
@@ -98,11 +168,26 @@ export async function bootDashboard(root, { chrome = root.parentElement, instanc
     console.warn('Haven: could not load the saved layout, using defaults.', error);
   }
 
-  const roster = instances ?? DEFAULT_INSTANCES;
-  grid.load(roster, saved[gridHandle.breakpoint()] ?? []);
+  let loaded = instances ?? null;
+  if (!loaded) {
+    try {
+      loaded = await instancesClient.load();
+    } catch (error) {
+      // A FAILED request, not an empty roster: an empty roster is a legitimate
+      // "the user removed everything" and renders as an empty dashboard.
+      console.warn('Haven: could not load the widget roster, using defaults.', error);
+      loaded = FALLBACK_INSTANCES;
+    }
+  }
+
+  const nodes = saved[gridHandle.breakpoint()] ?? [];
+  const { roster: entries, usable } = reconcileRoster(loaded, nodes);
+  for (const entry of entries) roster.set(entry.id, entry);
+
+  grid.load(entries, usable);
 
   // The clock's tick is a host-owned scheduler task — see clock-source.js.
-  for (const entry of roster) {
+  for (const entry of entries) {
     if (entry.type !== 'clock') continue;
     const host = dashboard.host(entry.id);
     if (host) startClockTicks({ scheduler: dashboard.scheduler, host });
@@ -113,9 +198,21 @@ export async function bootDashboard(root, { chrome = root.parentElement, instanc
     breakpoint: () => gridHandle.breakpoint(),
     onAdd: (insertion) => {
       const host = grid.insert(insertion);
-      if (host && insertion.type === 'clock') {
+      if (!host) return;
+      if (insertion.type === 'clock') {
         startClockTicks({ scheduler: dashboard.scheduler, host });
       }
+
+      // A widget added and not persisted is one that vanishes on refresh —
+      // the exact bug this whole task exists to close. The host's config is
+      // used rather than the insertion's, because it has been through
+      // `migrateConfig` and `parseConfig` already.
+      const entry = { id: host.id, type: insertion.type, config: host.config ?? {} };
+      roster.set(host.id, entry);
+      if (!instancesClient) return;
+      void instancesClient
+        .create(entry, { secretKeys: secretKeysOf(registry.get(insertion.type)) })
+        .catch((error) => console.error('Haven: could not persist the new widget.', error));
     },
   });
 

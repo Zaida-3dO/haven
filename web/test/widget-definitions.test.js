@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { WidgetRegistry } from '../src/shell/registry.js';
 import { greetingWidget } from '../src/widgets/greeting/definition.js';
+import { heroWidget } from '../src/widgets/hero/definition.js';
 import { weatherWidget } from '../src/widgets/weather/definition.js';
 
 /**
@@ -16,6 +17,7 @@ import { weatherWidget } from '../src/widgets/weather/definition.js';
 const widgets = [
   ['weather', weatherWidget],
   ['greeting', greetingWidget],
+  ['hero', heroWidget],
 ];
 
 for (const [name, definition] of widgets) {
@@ -106,9 +108,10 @@ test('neither widget requests a credentialed URL', () => {
 // ── the rule the contract calls the easiest one to get wrong ─────────────
 
 /**
- * Every widget source EXCEPT `greeting/clock.js`, which is the one
- * host-owned timer and is excluded on purpose — it is the thing that lets the
- * widgets themselves stay timer-free.
+ * Every widget source EXCEPT the two shared-tick modules — `greeting/clock.js`
+ * (the one host-owned timer) and `hero/rotation.js` (which subscribes to it).
+ * Both are excluded on purpose: they are the thing that lets the widgets
+ * themselves stay timer-free.
  */
 const sources = Object.fromEntries(
   [
@@ -120,6 +123,10 @@ const sources = Object.fromEntries(
     'greeting/element.js',
     'greeting/definition.js',
     'greeting/phrases.js',
+    'hero/index.js',
+    'hero/element.js',
+    'hero/definition.js',
+    'hero/slides.js',
   ].map((file) => [
     file,
     stripComments(readFileSync(new URL(`../src/widgets/${file}`, import.meta.url), 'utf8')),

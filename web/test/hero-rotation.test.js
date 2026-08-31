@@ -195,10 +195,7 @@ describe('the hero owns no timer of its own', () => {
   for (const file of files) {
     test(`${file} schedules nothing itself`, async () => {
       const { readFile } = await import('node:fs/promises');
-      const raw = await readFile(
-        new URL(`../src/widgets/hero/${file}`, import.meta.url),
-        'utf8'
-      );
+      const raw = await readFile(new URL(`../src/widgets/hero/${file}`, import.meta.url), 'utf8');
       const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 
       assert.ok(

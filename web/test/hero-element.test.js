@@ -25,9 +25,8 @@ globalThis.HTMLElement = class extends FakeElement {
   }
 };
 
-const { HavenHeroWidget, handleSwipe, SWIPE_THRESHOLD_PX } = await import(
-  '../src/widgets/hero/element.js'
-);
+const { HavenHeroWidget, handleSwipe, SWIPE_THRESHOLD_PX } =
+  await import('../src/widgets/hero/element.js');
 
 after(() => {
   globalThis.document = realDocument;
@@ -87,10 +86,7 @@ describe('rendering', () => {
 
     assert.equal(find(el, '.hero__title').textContent, 'Ledger');
     assert.equal(find(el, '.hero__tagline').textContent, 'Track what you spend');
-    assert.equal(
-      find(el, '.hero__img').getAttribute('src'),
-      '/api/apps/icons/hero-ledger.jpg'
-    );
+    assert.equal(find(el, '.hero__img').getAttribute('src'), '/api/apps/icons/hero-ledger.jpg');
   });
 
   test('an app slide is a link to the app, with a describing label', () => {

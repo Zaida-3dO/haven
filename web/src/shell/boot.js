@@ -19,6 +19,7 @@ import { createLayoutClient } from './layout-client.js';
 import { installDeepLinks, mountGrid } from './grid.js';
 import { startClockTicks } from './clock-source.js';
 import { register as registerClock } from '../widgets/clock/index.js';
+import { defineHeroWidget } from '../widgets/hero/index.js';
 
 /**
  * The widget instances on the dashboard.
@@ -49,6 +50,9 @@ export async function bootDashboard(root, { chrome = root.parentElement, instanc
   if (!root) throw new Error('bootDashboard: no root element');
 
   registerClock(registry);
+  // The hero needs no per-instance wiring: its rotation rides the shared
+  // ticker, which the element subscribes to on connect.
+  defineHeroWidget({ registry });
 
   const layoutClient = createLayoutClient();
   const dashboard = new Dashboard({ registry, container: root });

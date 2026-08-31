@@ -250,11 +250,22 @@ Results group by source widget ("Apps", "Calendar", "Alerts") and jump to the wi
 ## 6. The widgets
 
 ### 6.1 Hero (apps + image carousel)
-Rotating hero. Currently app-driven — 7 apps have a `featured` block with tagline and cover.
+Rotating hero. App-driven — an app carries a `featured` block with tagline and cover.
 
-> **Open question:** keep hero slides app-linked (click → opens the app), or make it a
-> generic image carousel decoupled from apps? **Recommendation: keep app-linked**, with an
-> optional free-form slide type. It's more useful clicking through to something.
+> **Settled:** slides are **app-linked** (click → opens the app), with an optional
+> free-form `image` slide type alongside. Clicking through to something is more useful
+> than a decorative carousel.
+
+**Built.** `featured` is a nullable JSON column on `apps` (migration 002) — it did not
+previously exist anywhere in the schema, so the app-linked slides had nothing to read.
+`GET /api/widgets/hero` returns slides carrying only what one renders, deliberately
+excluding the full `urls` array. Covers upload to the data volume via
+`POST /api/apps/:id/cover` (4MB, no SVG).
+
+Rotation rides the shared `ClockTicker` rather than a widget-owned timer, with
+per-widget elapsed-time accounting so two heroes can run at different rates off one
+interval. `prefers-reduced-motion` disables auto-rotation and the transition; manual
+navigation (keyboard, dots, swipe) still works. Pause on hover and on focus.
 
 ### 6.2 Apps
 The core widget. Category tabs, sort, per-app cards.

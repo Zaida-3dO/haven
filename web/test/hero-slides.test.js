@@ -22,7 +22,6 @@ describe('safeUrl', () => {
   });
 
   test('rejects javascript: — a slide URL is stored input, not a constant', () => {
-    // eslint-disable-next-line no-script-url
     assert.equal(safeUrl('javascript:alert(1)'), null);
     assert.equal(safeUrl('data:text/html,<script>'), null);
     assert.equal(safeUrl('vbscript:msgbox'), null);
@@ -61,7 +60,6 @@ describe('coverSrc', () => {
 
   test('an image slide may carry an absolute src, protocol-checked', () => {
     assert.equal(coverSrc({ src: 'https://cdn.invalid/a.png' }), 'https://cdn.invalid/a.png');
-    // eslint-disable-next-line no-script-url
     assert.equal(coverSrc({ src: 'javascript:alert(1)' }), null);
   });
 
@@ -108,7 +106,6 @@ describe('normaliseSlide', () => {
 
   test('an unsafe URL is stripped without dropping the whole slide', () => {
     // The slide is still readable; only the link is refused.
-    // eslint-disable-next-line no-script-url
     const slide = normaliseSlide({ title: 'A', url: 'javascript:alert(1)' });
     assert.equal(slide.title, 'A');
     assert.equal(slide.url, null);

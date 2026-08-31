@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
+import { seedApps } from '../src/db/apps-store.js';
 import { migrate } from '../src/db/migrate.js';
 import { buildServer } from '../src/server.js';
 
@@ -189,7 +190,6 @@ describe('app registry validation', () => {
     await rejects(
       exampleApp({
         id: 'xss',
-        // eslint-disable-next-line no-script-url
         urls: [{ title: 'Open', url: 'javascript:alert(1)', primary: true }],
       }),
       /must be http or https/
@@ -251,6 +251,16 @@ describe('seeding from config/apps.json', () => {
     });
     await first.close();
 
+    // Assert on the decision itself, not only on its visible effect. Checking
+    // just the rename is not enough: a broken guard that re-seeds anyway would
+    // still leave the rename intact, because the INSERT would collide on the
+    // primary key and roll the transaction back. That passes for the wrong
+    // reason, and it hides a real bug — a seed file with one NEW app plus the
+    // existing ones would throw and silently seed nothing.
+    const decision = seedApps(db, { path: seedPath });
+    assert.equal(decision.seeded, 0);
+    assert.equal(decision.reason, 'registry not empty');
+
     // Restart against the same db and the same, unchanged, seed file.
     const second = await buildServer({
       logger: false,
@@ -268,6 +278,43 @@ describe('seeding from config/apps.json', () => {
     db.close();
   });
 
+  test('a partially-seeded registry is left alone rather than half-inserted', async () => {
+    // The guard is all-or-nothing by design: once ANY app exists, the file
+    // stops being consulted. This pins that, and would fail if the guard were
+    // ever relaxed to "insert the ones that are missing" without making the
+    // insert conflict-tolerant.
+    const db = freshDb();
+    const seedPath = writeSeed([exampleApp(), exampleApp({ id: 'second-service' })]);
+
+    const app = await buildServer({
+      logger: false,
+      db,
+      seedPath,
+      iconDir: mkdtempSync(join(tmpdir(), 'haven-icons-')),
+    });
+    assert.equal((await app.inject({ method: 'GET', url: '/api/apps' })).json().apps.length, 2);
+    await app.inject({ method: 'DELETE', url: '/api/apps/second-service' });
+    await app.close();
+
+    const decision = seedApps(db, { path: seedPath });
+    assert.equal(decision.reason, 'registry not empty');
+    assert.equal(decision.seeded, 0);
+
+    const reopened = await buildServer({
+      logger: false,
+      db,
+      seedPath,
+      iconDir: mkdtempSync(join(tmpdir(), 'haven-icons-')),
+    });
+    const ids = (await reopened.inject({ method: 'GET', url: '/api/apps' }))
+      .json()
+      .apps.map((a) => a.id);
+    assert.deepEqual(ids, ['example-service']);
+
+    await reopened.close();
+    db.close();
+  });
+
   test('a missing seed file is not an error', async () => {
     const db = freshDb();
     const app = await serverWith(db);
@@ -282,7 +329,9 @@ describe('seeding from config/apps.json', () => {
 
   test('the shipped example config is itself a valid seed', async () => {
     // Guards against the example drifting out of sync with the validator.
-    const example = JSON.parse(readFileSync(new URL('../../config/apps.example.json', import.meta.url), 'utf8'));
+    const example = JSON.parse(
+      readFileSync(new URL('../../config/apps.example.json', import.meta.url), 'utf8')
+    );
     const db = freshDb();
     const seedDir = mkdtempSync(join(tmpdir(), 'haven-seed-'));
     const seedPath = join(seedDir, 'apps.json');

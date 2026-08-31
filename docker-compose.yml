@@ -1,0 +1,24 @@
+services:
+  haven:
+    image: ghcr.io/zaida-3do/haven:latest
+    build:
+      context: .
+      args:
+        APP_VERSION: ${HAVEN_VERSION:-dev}
+    container_name: haven
+    ports:
+      - '${HAVEN_PORT:-8080}:8080'
+    volumes:
+      # SQLite file + uploaded icons. Nothing persistent lives in the image.
+      - haven-data:/data
+      # Real config, kept out of the repo. See config/*.example.json.
+      - ./config:/app/config:ro
+    env_file:
+      - .env
+    environment:
+      HAVEN_DB_PATH: /data/haven.db
+      HAVEN_HOST: 0.0.0.0
+    restart: unless-stopped
+
+volumes:
+  haven-data:

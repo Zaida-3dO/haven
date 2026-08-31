@@ -1,0 +1,181 @@
+name: CI
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      workflows: ${{ steps.filter.outputs.workflows }}
+      docker: ${{ steps.filter.outputs.docker }}
+      server: ${{ steps.filter.outputs.server }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            workflows:
+              - '.github/workflows/**'
+            docker:
+              - 'Dockerfile'
+              - '.dockerignore'
+              - 'docker-compose.yml'
+              - '.github/workflows/release.yml'
+            server:
+              - 'server/**'
+              - 'package.json'
+              - 'package-lock.json'
+            web:
+              - 'web/**'
+              - 'package.json'
+              - 'package-lock.json'
+
+  secrets-scan:
+    name: Secret & PII scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: No real config committed
+        run: bash scripts/check-no-secrets.sh
+
+  format:
+    name: Format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install --no-audit --no-fund --prefer-offline
+      - run: npm run format:check
+
+  server:
+    name: Server test & lint
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install --no-audit --no-fund --prefer-offline
+      - run: npm run lint --workspace=server --if-present
+      - run: npm run test --workspace=server
+
+  server-gate:
+    name: Server (required)
+    needs: [changes, server]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pass — server not changed
+        if: needs.changes.outputs.server == 'false'
+        run: echo "No server files changed, skipping"
+      - name: Fail — server job failed
+        if: needs.changes.outputs.server == 'true' && needs.server.result != 'success'
+        run: exit 1
+
+  web:
+    name: Web test, lint & build
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install --no-audit --no-fund --prefer-offline
+      - run: npm run lint --workspace=web --if-present
+      - run: npm run test --workspace=web --if-present
+      - run: npm run build --workspace=web
+
+  web-gate:
+    name: Web (required)
+    needs: [changes, web]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pass — web not changed
+        if: needs.changes.outputs.web == 'false'
+        run: echo "No web files changed, skipping"
+      - name: Fail — web job failed
+        if: needs.changes.outputs.web == 'true' && needs.web.result != 'success'
+        run: exit 1
+
+  actionlint:
+    name: Lint workflows
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: raven-actions/actionlint@v2
+
+  actionlint-gate:
+    name: Actionlint (required)
+    needs: [changes, actionlint]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pass — workflows not changed
+        if: needs.changes.outputs.workflows == 'false'
+        run: echo "No workflow files changed, skipping"
+      - name: Fail — actionlint failed
+        if: needs.changes.outputs.workflows == 'true' && needs.actionlint.result != 'success'
+        run: exit 1
+
+  docker:
+    name: Docker build (dry run)
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  docker-gate:
+    name: Docker (required)
+    needs: [changes, docker]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pass — docker files not changed
+        if: needs.changes.outputs.docker == 'false'
+        run: echo "No Docker-relevant files changed, skipping"
+      - name: Fail — docker build failed
+        if: needs.changes.outputs.docker == 'true' && needs.docker.result != 'success'
+        run: exit 1

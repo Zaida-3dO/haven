@@ -1,0 +1,152 @@
+name: Release
+
+# Cuts a version tag, publishes a multi-arch image to GHCR, and creates a
+# GitHub Release. With no input it bumps the MINOR version — so the common
+# case is: run the workflow, get the next minor.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Which part to bump when no explicit version is given'
+        type: choice
+        options: [minor, patch, major]
+        default: minor
+      version:
+        description: 'Explicit version tag (e.g. v1.2.0). Overrides "bump" when set.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Determine and push version tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version
+        id: tag
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch --tags --force
+
+          if [ -n "$INPUT_VERSION" ]; then
+            next="$INPUT_VERSION"
+            case "$next" in
+              v[0-9]*.[0-9]*.[0-9]*) ;;
+              *) echo "::error::version must look like v1.2.3, got '$next'"; exit 1 ;;
+            esac
+          else
+            latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname | head -n1)
+            if [ -z "$latest" ]; then
+              next="v0.1.0"
+            else
+              major=$(echo "${latest#v}" | cut -d. -f1)
+              minor=$(echo "${latest#v}" | cut -d. -f2)
+              patch=$(echo "${latest#v}" | cut -d. -f3)
+              case "${INPUT_BUMP:-minor}" in
+                major) next="v$((major + 1)).0.0" ;;
+                patch) next="v${major}.${minor}.$((patch + 1))" ;;
+                *)     next="v${major}.$((minor + 1)).0" ;;
+              esac
+            fi
+          fi
+
+          if git rev-parse "$next" >/dev/null 2>&1; then
+            echo "::error::tag $next already exists"
+            exit 1
+          fi
+
+          echo "Tagging $next"
+          git tag -a "$next" -m "Release $next"
+          git push origin "$next"
+
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          echo "version=${next#v}" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish image to GHCR & create Release
+    needs: tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern=v{{version}},value=${{ needs.tag.outputs.tag }}
+            type=semver,pattern=v{{major}}.{{minor}},value=${{ needs.tag.outputs.tag }}
+            type=semver,pattern=v{{major}},value=${{ needs.tag.outputs.tag }}
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            APP_VERSION=${{ needs.tag.outputs.tag }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes \
+            --notes-start-tag "$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname | sed -n 2p)" \
+            || gh release create "$TAG" --title "$TAG" --generate-notes
+
+      - name: Summary
+        env:
+          TAG: ${{ needs.tag.outputs.tag }}
+        run: |
+          {
+            echo "### Released \`$TAG\`"
+            echo
+            echo "Image: \`ghcr.io/${{ github.repository }}:$TAG\`"
+            echo
+            echo '```bash'
+            echo "docker pull ghcr.io/${{ github.repository }}:$TAG"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

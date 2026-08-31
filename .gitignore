@@ -1,0 +1,48 @@
+# ── Secrets & credentials ────────────────────────────────────────────────
+# Nothing in this list may ever be committed. See docs/SECURITY.md.
+.env
+.env.*
+!.env.example
+config/*.json
+!config/*.example.json
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+certs/
+*.pem
+*.key
+
+# ── Personal / private assets ────────────────────────────────────────────
+# Floor plans, home photos and anything else identifying the flat stay out
+# of a public repo. Mount them at runtime instead.
+assets/private/
+uploads/
+
+# ── Build output ─────────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# ── Tooling noise ────────────────────────────────────────────────────────
+.playwright-mcp/
+playwright-report/
+test-results/
+.vite/
+.cache/
+
+# ── Editor / OS ──────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+*.swp
+
+# ── Claude Code internal ─────────────────────────────────────────────────
+.claude/settings.local.json
+
+# Private, un-redacted working docs. Never committed.
+.private/

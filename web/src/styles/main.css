@@ -1,0 +1,28 @@
+:root {
+  color-scheme: light dark;
+  --haven-bg: #f7f7f8;
+  --haven-fg: #16161a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --haven-bg: #101014;
+    --haven-fg: #e8e8ea;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--haven-bg);
+  color: var(--haven-fg);
+  font:
+    14px/1.5 system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+}
+
+.haven-boot {
+  padding: 2rem;
+  opacity: 0.7;
+}

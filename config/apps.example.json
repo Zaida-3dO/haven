@@ -1,0 +1,28 @@
+{
+  "$comment": [
+    "App registry seed. Copy to `config/apps.json` (gitignored) and fill in",
+    "your own services. THIS FILE IS AN EXAMPLE ONLY — never put real",
+    "hostnames, LAN IPs, ports or tokens in it. A committed app registry",
+    "maps your entire internal network to anyone reading the repo.",
+    "See docs/SECURITY.md."
+  ],
+  "version": 1,
+  "apps": [
+    {
+      "id": "example-service",
+      "name": "Example Service",
+      "description": "What this service is for.",
+      "category": "tools",
+      "icon": "example.svg",
+      "urls": [
+        { "title": "Open", "url": "https://example.invalid", "primary": true },
+        { "title": "Open Local", "url": "https://example.local.invalid" },
+        { "title": "Open via Tailscale", "url": "https://example.ts.invalid" }
+      ],
+      "version": {
+        "latestUrl": "https://api.github.com/repos/example/example/releases/latest",
+        "currentContainerId": "example-container"
+      }
+    }
+  ]
+}

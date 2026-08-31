@@ -5,6 +5,7 @@ import { seedApps } from './db/apps-store.js';
 import { registerAppRoutes } from './routes/apps.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerLayoutRoutes } from './routes/layout.js';
+import { registerTorrentRoutes } from './routes/torrents.js';
 
 /**
  * Builds the Fastify instance without starting it, so tests can drive it
@@ -16,6 +17,8 @@ import { registerLayoutRoutes } from './routes/layout.js';
  *     given, the caller owns its lifetime and `app.close()` leaves it open.
  *   - `seedPath`: where to read the app-registry seed from.
  *   - `iconDir`: where uploaded icons are written.
+ *   - `torrentConnector`: a qBittorrent connector double. Tests pass a stub,
+ *     so no test ever makes a live call.
  */
 export async function buildServer(opts = {}) {
   const {
@@ -23,6 +26,7 @@ export async function buildServer(opts = {}) {
     db: providedDb,
     seedPath = config.appsConfigPath,
     iconDir = config.iconDir,
+    torrentConnector,
     ...fastifyOpts
   } = opts;
 
@@ -46,6 +50,9 @@ export async function buildServer(opts = {}) {
   await registerHealthRoutes(app);
   await registerLayoutRoutes(app);
   await registerAppRoutes(app, { db, iconDir });
+  // The connector is injectable so tests can drive a stubbed qBittorrent
+  // without a live service; left absent it reads the environment.
+  await registerTorrentRoutes(app, { connector: torrentConnector });
 
   return app;
 }

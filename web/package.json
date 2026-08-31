@@ -7,8 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test \"test/**/*.test.js\"",
-    "lint": "eslint src test"
+    "test": "node --test \"test/**/*.test.js\" && npm run test:tz",
+    "lint": "eslint src test",
+    "test:tz": "node ../scripts/test-timezones.mjs \"test/calendar-group.test.js\""
   },
   "dependencies": {
     "gridstack": "^13.2.0"

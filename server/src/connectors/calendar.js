@@ -31,7 +31,7 @@
  */
 
 import { config } from '../config.js';
-import { parseIcs, sortEvents, IcsParseError } from './ics-parse.js';
+import { parseIcs, sortEvents } from './ics-parse.js';
 
 /** Calendars change slowly; a long cache is correct, not a compromise. */
 export const DEFAULT_CACHE_MS = 15 * 60_000;
@@ -174,8 +174,11 @@ async function fetchFeed(feed, cached, { fetchImpl, timeoutMs, signal }) {
       signal: controller.signal,
     });
   } catch (error) {
-    // NEVER let this through unredacted — undici puts the full URL in it.
-    throw new CalendarError(redactError(error), 'FEED_UNREACHABLE');
+    // Undici puts the full URL in this message. It is redacted at the single
+    // choke point in `loadFeed`, which every error path funnels through —
+    // deliberately NOT scrubbed a second time here, because a duplicate scrub
+    // would keep the tests green if the real one were ever removed.
+    throw new CalendarError(error.message, 'FEED_UNREACHABLE');
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener?.('abort', onAbort);
@@ -269,10 +272,15 @@ export function createCalendarConnector({
       });
       return { feed, events, stale: false, problem: null };
     } catch (error) {
-      const message =
-        error instanceof CalendarError || error instanceof IcsParseError
-          ? redactError(error)
-          : redactError(error);
+      /**
+       * THE choke point. Every error a caller can observe — transport, HTTP
+       * status, parse, timeout, anything `ical.js` throws — passes through
+       * here, and nothing reaches a caller or a log without being redacted
+       * first. Keeping it to exactly one place is deliberate: a second,
+       * partial scrub elsewhere would mask the removal of this one and make
+       * the tripwire test unable to detect it.
+       */
+      const message = redactError(error);
 
       // Log by feed id — NEVER the URL.
       logger?.warn?.({ feedId: feed.id }, `Calendar feed failed: ${message}`);

@@ -22,9 +22,8 @@ const {
   calendarConfigSchema,
   CALENDAR_WIDGET_TYPE,
 } = await import('../src/widgets/calendar/calendar-widget.js');
-const { register: registerCalendar, definition: calendarDefinition } = await import(
-  '../src/widgets/calendar/index.js'
-);
+const { register: registerCalendar, definition: calendarDefinition } =
+  await import('../src/widgets/calendar/index.js');
 
 /**
  * The widget builds DOM through the global `document`, so the fake document

@@ -19,11 +19,15 @@ async function serverWith(routes, { icsUrl = FAKE_FEED_URL } = {}) {
     dbPath: ':memory:',
     logger: false,
     seedPath: 'config/does-not-exist.json',
-    calendarConnector: createCalendarConnector({
-      icsUrl,
-      fetchImpl: createFakeFetch(routes),
-      now: () => NOW,
-    }),
+    // The widget routes take their connectors here, alongside the weather and
+    // torrent ones, so no test needs a real feed URL or the network.
+    widgets: {
+      calendarConnector: createCalendarConnector({
+        icsUrl,
+        fetchImpl: createFakeFetch(routes),
+        now: () => NOW,
+      }),
+    },
   });
   return app;
 }

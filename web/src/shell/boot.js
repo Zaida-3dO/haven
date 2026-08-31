@@ -15,6 +15,7 @@ import { registry } from './registry.js';
 import { createAddPanel } from './add-panel.js';
 import { createEditMode, createEditToolbar } from './edit-mode.js';
 import { connectGrid } from './dashboard-grid.js';
+import { connectSettings } from './settings-panel.js';
 import { createLayoutClient } from './layout-client.js';
 import { installDeepLinks, mountGrid } from './grid.js';
 import { startClockTicks } from './clock-source.js';
@@ -109,7 +110,21 @@ export async function bootDashboard(
   const dashboard = new Dashboard({ registry, container: root });
   const gridHandle = mountGrid({ root });
 
-  const grid = connectGrid({ dashboard, gridHandle, registry });
+  // The settings panel is built before the grid so the gear can be wired to
+  // it directly. Until now that callback was a no-op and every widget option
+  // was reachable only by editing the database.
+  const settingsPanel = connectSettings({
+    dashboard,
+    registry,
+    onError: (error) => console.error('Haven: saving widget settings failed.', error),
+  });
+
+  const grid = connectGrid({
+    dashboard,
+    gridHandle,
+    registry,
+    onSettings: (widgetId) => settingsPanel.open(widgetId),
+  });
 
   // Geometry comes from the server; which widgets exist comes from the roster.
   // A layout that fails to load must not leave a blank page, so the widgets are
@@ -154,6 +169,7 @@ export async function bootDashboard(
   if (chrome) {
     chrome.prepend(toolbar.el);
     chrome.appendChild(addPanel.el);
+    chrome.appendChild(settingsPanel.el);
   }
 
   const teardownDeepLinks = installDeepLinks(gridHandle);
@@ -176,10 +192,12 @@ export async function bootDashboard(
     grid,
     editMode,
     addPanel,
+    settingsPanel,
     toolbar,
     router,
     pages,
     destroy() {
+      settingsPanel.close();
       teardownDeepLinks();
       router?.destroy();
       dashboard.destroy();

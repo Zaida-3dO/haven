@@ -300,3 +300,100 @@ body {
 .page__error {
   opacity: 0.8;
 }
+
+/*
+ * The settings panel — the one generated settings form (schema.js →
+ * buildFormModel). No widget ships its own, so there is exactly one block of
+ * form styling in the whole shell.
+ */
+.haven-settings {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--haven-fg) 15%, transparent);
+  border-radius: 10px;
+}
+
+.haven-settings[hidden] {
+  display: none;
+}
+
+.haven-settings__heading {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+}
+
+.haven-settings__fields {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.haven-settings__field {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.haven-settings__label {
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+.haven-settings__input {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--haven-fg) 20%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.haven-settings__input:focus-visible,
+.haven-settings__save:focus-visible,
+.haven-settings__cancel:focus-visible {
+  outline: 2px solid #4c8dff;
+  outline-offset: 2px;
+}
+
+.haven-settings__input[aria-invalid='true'] {
+  border-color: #e2544a;
+}
+
+.haven-settings__help {
+  margin: 0;
+  font-size: 0.7rem;
+  opacity: 0.6;
+}
+
+/* Errors sit under the field that caused them, not in a list at the bottom. */
+.haven-settings__error {
+  margin: 0;
+  font-size: 0.7rem;
+  color: #e2544a;
+}
+
+.haven-settings__error[hidden],
+.haven-settings__summary[hidden] {
+  display: none;
+}
+
+.haven-settings__summary {
+  margin: 0.75rem 0 0;
+  font-size: 0.75rem;
+  color: #e2544a;
+}
+
+.haven-settings__actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.haven-settings__save,
+.haven-settings__cancel {
+  padding: 0.35rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--haven-fg) 20%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}

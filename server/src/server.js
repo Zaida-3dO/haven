@@ -18,8 +18,8 @@ import { registerWidgetRoutes } from './routes/widgets.js';
  *     given, the caller owns its lifetime and `app.close()` leaves it open.
  *   - `seedPath`: where to read the app-registry seed from.
  *   - `iconDir`: where uploaded icons are written.
- *   - `widgets`: connector overrides for the widget routes. Tests inject a
- *     stubbed weather connector here so no test needs a key or the network.
+ *   - `widgets`: connector overrides for the widget routes. Tests inject
+ *     stubbed connectors here so no test needs a key or the network.
  */
 export async function buildServer(opts = {}) {
   const {

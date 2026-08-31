@@ -22,6 +22,7 @@ import { register as registerClock } from '../widgets/clock/index.js';
 import { defineHeroWidget } from '../widgets/hero/index.js';
 import { register as registerApps } from '../widgets/apps/index.js';
 import { register as registerTorrents } from '../widgets/torrents/index.js';
+import { register as registerCalendar } from '../widgets/calendar/index.js';
 
 /**
  * The widget instances on the dashboard.
@@ -39,6 +40,7 @@ const DEFAULT_INSTANCES = [
   { id: 'apps-main', type: 'apps', config: {} },
   { id: 'clock-local', type: 'clock', config: { label: 'Local time', source: 'local' } },
   { id: 'torrents', type: 'torrents', config: { maxRows: 6 } },
+  { id: 'calendar', type: 'calendar', config: { title: 'Calendar', maxEvents: 25 } },
   {
     id: 'clock-tokyo',
     type: 'clock',
@@ -59,6 +61,8 @@ export async function bootDashboard(root, { chrome = root.parentElement, instanc
   registerClock(registry);
   registerApps(registry);
   registerTorrents(registry);
+  registerCalendar(registry);
+
   // The hero needs no per-instance wiring: its rotation rides the shared
   // ticker, which the element subscribes to on connect.
   defineHeroWidget({ registry });

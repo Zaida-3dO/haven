@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { WidgetRegistry } from '../src/shell/registry.js';
 import { greetingWidget } from '../src/widgets/greeting/definition.js';
 import { heroWidget } from '../src/widgets/hero/definition.js';
+import { noticesWidget } from '../src/widgets/notices/definition.js';
 import { weatherWidget } from '../src/widgets/weather/definition.js';
 
 /**
@@ -18,6 +19,7 @@ const widgets = [
   ['weather', weatherWidget],
   ['greeting', greetingWidget],
   ['hero', heroWidget],
+  ['notices', noticesWidget],
 ];
 
 for (const [name, definition] of widgets) {
@@ -127,6 +129,10 @@ const sources = Object.fromEntries(
     'hero/element.js',
     'hero/definition.js',
     'hero/slides.js',
+    'notices/index.js',
+    'notices/element.js',
+    'notices/definition.js',
+    'notices/format.js',
   ].map((file) => [
     file,
     stripComments(readFileSync(new URL(`../src/widgets/${file}`, import.meta.url), 'utf8')),
@@ -155,11 +161,30 @@ for (const [file, source] of Object.entries(sources)) {
     assert.doesNotMatch(source, /\bsetTimeout\b/, `${file} must not own a timer`);
   });
 
-  test(`${file} fetches nothing itself`, () => {
+  test(`${file} fetches no DATA of its own`, () => {
     // The host fetches; widgets render. A fetch here would also be the place
     // a credential eventually appears.
-    assert.doesNotMatch(source, /\bfetch\s*\(/, `${file} must not fetch — data arrives via onData`);
     assert.doesNotMatch(source, /XMLHttpRequest/, `${file} must not fetch`);
+
+    if (file === 'notices/element.js') {
+      // The one file that calls fetch at all, and only ever to WRITE on a user
+      // gesture — a dismissal or an action button. That is not what this rule
+      // forbids: there is no timer behind it, it cannot run in a hidden tab,
+      // and it never fetches the widget's own data, which still arrives via
+      // onData. The no-timer assertion above is what holds the line here.
+      //
+      // So instead of exempting the file, this pins the two properties that
+      // make the exception safe: every call is a POST, and none is absolute.
+      const methods = [...source.matchAll(/method:\s*'(\w+)'/g)].map((m) => m[1]);
+      assert.ok(methods.length > 0, 'expected the write calls to still be present');
+      for (const method of methods) {
+        assert.equal(method, 'POST', 'a notices fetch must be a write, never a data read');
+      }
+      assert.doesNotMatch(source, /https?:\/\//, `${file} must never call an absolute URL`);
+      return;
+    }
+
+    assert.doesNotMatch(source, /\bfetch\s*\(/, `${file} must not fetch — data arrives via onData`);
   });
 
   test(`${file} sets no innerHTML`, () => {

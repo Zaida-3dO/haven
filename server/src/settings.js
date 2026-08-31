@@ -35,6 +35,15 @@ export const SETTINGS_DEFAULTS = Object.freeze({
     latitude: null,
     longitude: null,
   }),
+  notices: Object.freeze({
+    /**
+     * Extra Home Assistant entities to surface as notices, beyond the
+     * `persistent_notification.*` ones that are always included. Entity ids
+     * name devices in someone's home, so the list is a deployment setting and
+     * ships empty — see docs/SECURITY.md.
+     */
+    haEntities: Object.freeze([]),
+  }),
 });
 
 const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -75,6 +84,23 @@ function normaliseWeather(raw = {}) {
 }
 
 /**
+ * Normalise the notices block.
+ *
+ * Entity ids are filtered to HA's `domain.object_id` shape rather than passed
+ * through: the value goes into a request to Home Assistant, and a hand-edited
+ * JSON file is not a trusted source.
+ */
+function normaliseNotices(raw = {}) {
+  const entities = Array.isArray(raw.haEntities) ? raw.haEntities : [];
+
+  return {
+    haEntities: entities
+      .filter((id) => typeof id === 'string' && /^[a-z_]+\.[a-z0-9_]+$/.test(id.trim()))
+      .map((id) => id.trim()),
+  };
+}
+
+/**
  * Read and normalise the settings file.
  *
  * A missing file is not an error. A malformed one is logged and then treated
@@ -107,5 +133,6 @@ export function loadSettings({ path = DEFAULT_SETTINGS_PATH, logger } = {}) {
   return {
     version: Number.isInteger(raw.version) ? raw.version : SETTINGS_DEFAULTS.version,
     weather: normaliseWeather(isPlainObject(raw.weather) ? raw.weather : {}),
+    notices: normaliseNotices(isPlainObject(raw.notices) ? raw.notices : {}),
   };
 }

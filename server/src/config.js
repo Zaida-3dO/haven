@@ -37,6 +37,18 @@ export const config = {
    */
   secretKey: process.env.HAVEN_SECRET_KEY ?? null,
 
+  /**
+   * Calendar feeds — one or more ICS URLs.
+   *
+   * A "secret address in iCal format" is a BEARER CREDENTIAL: holding it is
+   * holding read access to the calendar. It therefore lives only here, is
+   * never sent to the browser, and is never interpolated into a log line or
+   * an error message. See `server/src/connectors/calendar.js`.
+   *
+   * Accepts `url` or a comma-separated `Name|url` list.
+   */
+  calendarIcsUrl: process.env.HAVEN_CALENDAR_ICS_URL ?? null,
+
   /** Version reported by /api/health. Injected at image build time. */
   version: process.env.HAVEN_VERSION ?? 'dev',
 

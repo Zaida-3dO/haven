@@ -140,11 +140,14 @@ describe('dataSource', () => {
     assert.match(request.url, /\/api\/apps\/dashboard/);
   });
 
-  test('passes the category through as a query parameter', () => {
-    assert.match(dataSource({ category: 'media' }).url, /category=media/);
-  });
-
-  test('omits the category for the All pseudo-category', () => {
+  /**
+   * The configured category must NOT be sent to the server. The widget has
+   * category TABS, and the config field only picks which one it opens on — so
+   * a server-filtered payload could only ever contain one category, and every
+   * other tab would be unclickable because its apps were never fetched.
+   */
+  test('never sends the category to the server, so the tabs stay usable', () => {
+    assert.ok(!dataSource({ category: 'media' }).url.includes('category='));
     assert.ok(!dataSource({ category: ALL_CATEGORY }).url.includes('category='));
   });
 
@@ -157,14 +160,17 @@ describe('dataSource', () => {
     assert.equal(dataSource({ category: 'media' }).key, dataSource({ category: 'media' }).key);
   });
 
-  test('different categories do not share a cache key', () => {
-    assert.notEqual(dataSource({ category: 'media' }).key, dataSource({ category: 'ai' }).key);
+  /**
+   * Every widget fetches the same full list, so widgets configured for
+   * different categories genuinely share one cached response.
+   */
+  test('widgets on different categories share one request', () => {
+    assert.equal(dataSource({ category: 'media' }).key, dataSource({ category: 'ai' }).key);
+    assert.equal(dataSource({ category: 'media' }).url, dataSource({ category: 'ai' }).url);
   });
 
-  test('encodes a category so it cannot break out of the query string', () => {
-    const url = dataSource({ category: 'a&b=c' }).url;
-    assert.ok(!url.includes('a&b=c'));
-    assert.match(url, /a%26b%3Dc/);
+  test('hiding versions does not share a key with showing them', () => {
+    assert.notEqual(dataSource({}).key, dataSource({ showVersions: 'off' }).key);
   });
 });
 

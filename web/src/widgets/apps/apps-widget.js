@@ -106,18 +106,32 @@ export const APPS_CONFIG_SCHEMA = Object.freeze([
  * The URL is `/api/*` like everything else: the browser never calls GitHub, so
  * the token stays on the server. Reachability is deliberately NOT fetched here
  * — it is probed in the browser, which is the entire point of the dots.
+ *
+ * ## Why the configured category is NOT sent to the server
+ *
+ * The route supports `?category=`, and using it here would be the obvious
+ * thing. It is wrong: the widget has category TABS, and the config field only
+ * chooses which tab it opens on ("Tabs still switch between them", per the
+ * field's own help text). If the server pre-filtered, the payload could only
+ * ever contain one category — the tab bar would render a single tab and
+ * clicking it would do nothing, because the other categories were never
+ * fetched.
+ *
+ * So the widget fetches the whole registry and filters in the browser via
+ * `filterByCategory`. The list is tens of rows, so this is cheap, and it has
+ * the side benefit that every apps widget shares one cached response no matter
+ * which category each is configured for.
  */
 export function dataSource(config = {}) {
-  const category = config.category && config.category !== ALL_CATEGORY ? config.category : null;
   const params = new URLSearchParams();
-  if (category) params.set('category', category);
   if (config.showVersions === 'off') params.set('versions', 'false');
   const query = params.toString();
 
   return {
-    // An explicit key so two apps widgets on the same category and version
-    // setting collapse to one request rather than two.
-    key: `apps:${category ?? 'all'}:${config.showVersions === 'off' ? 'noversions' : 'versions'}`,
+    // An explicit key so two apps widgets collapse to one request rather than
+    // two. It does NOT include the category — see below; every widget fetches
+    // the same full list, so they can genuinely share one response.
+    key: `apps:all:${config.showVersions === 'off' ? 'noversions' : 'versions'}`,
     url: query ? `/api/apps/dashboard?${query}` : '/api/apps/dashboard',
   };
 }
@@ -169,6 +183,7 @@ export class AppsWidget extends ElementBase {
   #category = ALL_CATEGORY;
   #sort = SORT.VISITS;
   #tracker = null;
+  #trackerTtlMs = null;
   #shadow = null;
   #openMenuId = null;
 
@@ -191,12 +206,22 @@ export class AppsWidget extends ElementBase {
     this.#sort = config.sort ?? SORT.VISITS;
 
     // The tracker owns no timer; only a TTL. The host decides when to refresh.
-    this.#tracker = new StatusTracker({
-      ttlMs: config.statusTtlMs ?? 60_000,
-      // A dot changing patches that one dot rather than rebuilding the grid,
-      // so the open menu and scroll position survive a probe finishing.
-      onChange: (id) => this.#patchCard(id),
-    });
+    //
+    // Rebuilt ONLY when the TTL actually changes. `setConfig` may be called
+    // again at any time (the host re-calls it on a late-registration rebuild),
+    // and a new tracker starts with no results — so rebuilding unconditionally
+    // would reset every dot to unknown and re-probe the whole grid on a config
+    // touch that did not concern reachability at all.
+    const ttlMs = config.statusTtlMs ?? 60_000;
+    if (!this.#tracker || this.#trackerTtlMs !== ttlMs) {
+      this.#trackerTtlMs = ttlMs;
+      this.#tracker = new StatusTracker({
+        ttlMs,
+        // A dot changing patches that one dot rather than rebuilding the grid,
+        // so the open menu and scroll position survive a probe finishing.
+        onChange: (id) => this.#patchCard(id),
+      });
+    }
   }
 
   onData(data) {
@@ -350,7 +375,11 @@ export class AppsWidget extends ElementBase {
     el.appendChild(head);
 
     if (card.version.known) el.appendChild(this.#renderVersions(card));
-    if (card.secondaries.length) el.appendChild(this.#renderMenu(card));
+    // The menu container is always present, even when empty. A probe resolving
+    // to a different variant changes which URLs are secondary, so a card that
+    // has no menu now may need one a moment later — and `#patchCard` can only
+    // refill a container that exists.
+    el.appendChild(this.#renderMenu(card));
 
     return el;
   }
@@ -427,6 +456,28 @@ export class AppsWidget extends ElementBase {
   #renderMenu(card) {
     const wrap = document.createElement('div');
     wrap.className = 'menu';
+    this.#fillMenu(wrap, card);
+    return wrap;
+  }
+
+  /**
+   * Fills (or refills) a menu container.
+   *
+   * Split out from `#renderMenu` so `#patchCard` can rebuild the menu in place
+   * when a probe resolves. That is not a nicety: `secondaryUrls` excludes the
+   * RESOLVED target, so if the menu is not refilled after a probe falls through
+   * to a non-primary variant, the card ends up offering that variant as a "more
+   * way in" while the main link already points at it — breaking the one
+   * invariant the menu exists to hold, in exactly the split-network case the
+   * resolution logic was built for.
+   */
+  #fillMenu(wrap, card) {
+    // Nothing to offer: leave the container empty so it takes no space. It
+    // still exists in the DOM so a later patch can fill it.
+    if (!card.secondaries.length) {
+      wrap.replaceChildren();
+      return wrap;
+    }
 
     const toggle = document.createElement('button');
     toggle.type = 'button';
@@ -438,7 +489,6 @@ export class AppsWidget extends ElementBase {
       this.#openMenuId = this.#openMenuId === card.id ? null : card.id;
       this.render();
     });
-    wrap.appendChild(toggle);
 
     const list = document.createElement('ul');
     list.className = `menu__list${open ? ' menu__list--open' : ''}`;
@@ -459,7 +509,7 @@ export class AppsWidget extends ElementBase {
       list.appendChild(li);
     }
 
-    wrap.appendChild(list);
+    wrap.replaceChildren(toggle, list);
     return wrap;
   }
 
@@ -515,11 +565,21 @@ export class AppsWidget extends ElementBase {
     }
 
     // The resolved URL may have changed, so the click target follows the dot.
+    // `href` is set even when it is null — falling back to the old value would
+    // leave a card linking somewhere the probe has just ruled out.
     const link = card.querySelector('.card__name');
-    if (link && fresh.href) {
-      link.href = fresh.href;
+    if (link) {
+      link.href = fresh.href ?? '#';
       link.title = fresh.urlHint;
     }
+
+    // And the menu, because `secondaryUrls` excludes the RESOLVED target: if a
+    // probe fell through to a non-primary variant, the menu must stop offering
+    // that variant and start offering the one it replaced. Leaving this out
+    // desyncs the menu from the main link on exactly the split-network setups
+    // the whole feature exists for.
+    const menu = card.querySelector('.menu');
+    if (menu) this.#fillMenu(menu, fresh);
   }
 
   onResize() {

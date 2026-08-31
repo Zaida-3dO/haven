@@ -448,3 +448,35 @@ describe('safeUrl', () => {
     assert.equal(card.href, 'https://example.invalid');
   });
 });
+
+describe('versionPair without a server-computed status', () => {
+  /**
+   * The server normally sends `status`, but a cached payload from an older
+   * build may not. Reporting "no update" in that case would silently hide the
+   * one thing the feature exists to show.
+   */
+  test('compares the strings itself when status is absent', () => {
+    const pair = versionPair(appFixture(), {
+      'example-service': { current: '1.0.0', latest: '1.3.0' },
+    });
+
+    assert.equal(pair.differs, true);
+    assert.match(pair.label, /Update available/);
+  });
+
+  test('treats a leading v as noise, like the server does', () => {
+    const pair = versionPair(appFixture(), {
+      'example-service': { current: '1.2.3', latest: 'v1.2.3' },
+    });
+
+    assert.equal(pair.differs, false);
+  });
+
+  test('still defers to the server status when it is present', () => {
+    const pair = versionPair(appFixture(), {
+      'example-service': { current: '1.0.0', latest: '1.3.0', status: 'same' },
+    });
+
+    assert.equal(pair.differs, false);
+  });
+});

@@ -172,9 +172,22 @@ export function versionPair(app, versions = {}) {
   const current = info?.current ?? null;
   const latest = info?.latest ?? null;
 
-  // `status` is computed on the server; recompute defensively so a card is
-  // still right if the field is absent (an older cached payload, say).
-  const differs = Boolean(current && latest && info?.status === 'differs');
+  // `status` is computed on the server, but it is not trusted blindly: if the
+  // field is missing (an older cached payload, say) the two strings are
+  // compared here rather than silently reporting "no update". The comparison
+  // mirrors the server's — normalise a leading `v`, compare case-insensitively
+  // — because tags in the wild are `v1.2.3`, `1.2.3` and worse, and the only
+  // question being asked is "are these the same?".
+  const normalise = (v) =>
+    String(v)
+      .trim()
+      .toLowerCase()
+      .replace(/^v(?=\d)/, '');
+  const differs = Boolean(
+    current &&
+    latest &&
+    (info?.status ? info.status === 'differs' : normalise(current) !== normalise(latest))
+  );
 
   return {
     current,

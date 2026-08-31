@@ -21,7 +21,14 @@ function scriptedConnector(initial = { status: RESULT.OK, torrents: [] }) {
 }
 
 async function serverWith(connector, opts = {}) {
-  return buildServer({ logger: false, dbPath: ':memory:', torrentConnector: connector, ...opts });
+  // Connectors are injected through the `widgets` bag, which is how every
+  // widget route takes its overrides — so no test needs a live service.
+  return buildServer({
+    logger: false,
+    dbPath: ':memory:',
+    widgets: { torrentConnector: connector },
+    ...opts,
+  });
 }
 
 test('GET /api/widgets/torrents returns the normalised list', async (t) => {

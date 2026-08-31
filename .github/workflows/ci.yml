@@ -36,6 +36,13 @@ jobs:
               - '.dockerignore'
               - 'docker-compose.yml'
               - '.github/workflows/release.yml'
+              # The image installs from the lockfile, so a dependency change
+              # can break the build on its own — a stale hasInstallScript
+              # flag did exactly that and reached main unnoticed.
+              - 'package.json'
+              - 'package-lock.json'
+              - 'server/package.json'
+              - 'web/package.json'
             server:
               - 'server/**'
               - 'package.json'

@@ -5,7 +5,15 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY web/package.json web/
 COPY server/package.json server/
-RUN npm install --no-audit --no-fund --prefer-offline
+
+# Only the web workspace is built in this stage, so only its dependencies are
+# installed. `--workspace=web` alone is not enough: npm still resolves the
+# whole tree, so better-sqlite3 — a native module belonging to the server —
+# lands in a stage that deliberately has no python3/make/g++, and the build
+# dies in node-gyp. `--ignore-scripts` is the belt to that braces: nothing in
+# a front-end build should be running an install script.
+RUN npm install --workspace=web --include-workspace-root \
+    --ignore-scripts --no-audit --no-fund --prefer-offline
 
 COPY web/ web/
 RUN npm run build --workspace=web

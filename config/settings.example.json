@@ -1,14 +1,17 @@
 {
   "$comment": [
     "Non-secret app settings. Copy to `config/settings.json` (gitignored).",
-    "Secrets belong in `.env`, never here."
+    "Secrets belong in `.env`, never here.",
+    "weather.latitude/longitude are null until you set them: the weather widget",
+    "then shows a `not configured` hint rather than the weather somewhere you",
+    "do not live. 0,0 is a real place in the Atlantic, so it is not a placeholder."
   ],
   "version": 1,
   "weather": {
     "units": "metric",
-    "locationName": "Your City",
-    "latitude": 0.0,
-    "longitude": 0.0
+    "locationName": null,
+    "latitude": null,
+    "longitude": null
   },
   "grid": {
     "breakpoints": { "mobile": 768 },

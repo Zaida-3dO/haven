@@ -86,6 +86,16 @@ export function createEditMode({
     onModeChange(next);
   };
 
+  /**
+   * Whether a breakpoint may be extracted at all — see `hasCachedLayout` in
+   * grid-layout.js for the GridStack behaviour this exists to defend against.
+   *
+   * A handle that does not implement `hasLayoutFor` is treated as arranged, so
+   * this cannot make an otherwise-working handle unsaveable.
+   */
+  const canSave = (breakpoint) =>
+    typeof gridHandle.hasLayoutFor !== 'function' || gridHandle.hasLayoutFor(breakpoint);
+
   return {
     get mode() {
       return mode;
@@ -117,11 +127,25 @@ export function createEditMode({
      * **Only the edited breakpoint is sent.** The layout API leaves any
      * breakpoint absent from a PUT untouched, so editing desktop cannot
      * clobber a mobile layout that was arranged separately.
+     *
+     * **Every breakpoint is guarded before it is extracted.** `extract` is
+     * only meaningful for a breakpoint GridStack actually holds a layout for;
+     * for any other, `grid.save(..., column)` silently returns the geometry of
+     * the column currently rendered, which would persist desktop geometry into
+     * the mobile row — the auto-reflow DESIGN §3 rejects. Today the only
+     * breakpoint saved is the rendered one, which always passes; the guard is
+     * here so that stays true if a "save both breakpoints" path is ever added.
      */
     async save() {
       if (mode !== MODE.EDIT) return null;
 
       const breakpoint = gridHandle.breakpoint();
+      if (!canSave(breakpoint)) {
+        throw new Error(
+          `createEditMode.save: refusing to save the ${breakpoint} breakpoint, ` +
+            'which has never been arranged — GridStack would substitute the rendered column.'
+        );
+      }
       const nodes = gridHandle.extract(breakpoint);
 
       try {

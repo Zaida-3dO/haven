@@ -255,12 +255,12 @@ export function resolveCurrent(containerId, { versions = config.containerVersion
  * as old as whenever someone last edited it, which nothing here knows — and
  * inventing "now" would claim a freshness that does not exist.
  */
-export function currentVersionSource(reader) {
+export function currentVersionSource(reader, { envVersions = config.containerVersions } = {}) {
   const file = reader?.read?.() ?? { versions: {}, generatedAt: null };
   const fileVersions = file.versions ?? {};
 
   return {
-    versions: { ...config.containerVersions, ...fileVersions },
+    versions: { ...envVersions, ...fileVersions },
     currentAsOf: Object.keys(fileVersions).length > 0 ? (file.generatedAt ?? null) : null,
   };
 }

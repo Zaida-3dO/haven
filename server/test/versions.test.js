@@ -666,19 +666,52 @@ describe('the container versions file, end to end', () => {
 describe('currentVersionSource — precedence', () => {
   const readerOf = (value) => ({ read: () => value });
 
+  /**
+   * The env map is injected rather than read from `config`, which is frozen at
+   * import from the environment. Without injecting it these tests would run
+   * against an EMPTY env map, and "file wins" would pass for either merge
+   * order — a hollow test that proves nothing about precedence.
+   */
+  const envMap = { 'example-container': 'from-env', 'example-env-only': '0.0.1' };
+
   test('the file wins over the env map for the same container', () => {
     const source = currentVersionSource(
-      readerOf({ versions: { 'example-container': '9.9.9' }, generatedAt: '2026-08-30T00:00:00Z' })
+      readerOf({
+        versions: { 'example-container': 'from-file' },
+        generatedAt: '2026-08-30T00:00:00Z',
+      }),
+      { envVersions: envMap }
     );
 
-    assert.equal(source.versions['example-container'], '9.9.9');
+    assert.equal(source.versions['example-container'], 'from-file');
     assert.equal(source.currentAsOf, '2026-08-30T00:00:00Z');
+  });
+
+  test('a container the file does not know about still resolves from the env map', () => {
+    // Merged, not replaced: adopting the file must not make containers the
+    // writer has never heard of vanish from the dashboard.
+    const source = currentVersionSource(
+      readerOf({ versions: { 'example-container': 'from-file' }, generatedAt: null }),
+      { envVersions: envMap }
+    );
+
+    assert.equal(source.versions['example-env-only'], '0.0.1');
+  });
+
+  test('with no file the env map is used unchanged', () => {
+    const source = currentVersionSource(readerOf({ versions: {}, generatedAt: null }), {
+      envVersions: envMap,
+    });
+
+    assert.deepEqual(source.versions, envMap);
   });
 
   test('with no file there is no timestamp to report', () => {
     // The env map's age is whenever someone last edited it, which nothing here
     // knows. Reporting "now" would claim a freshness that does not exist.
-    const source = currentVersionSource(readerOf({ versions: {}, generatedAt: null }));
+    const source = currentVersionSource(readerOf({ versions: {}, generatedAt: null }), {
+      envVersions: envMap,
+    });
 
     assert.equal(source.currentAsOf, null);
   });

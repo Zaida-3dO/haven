@@ -18,6 +18,7 @@ import { connectGrid } from './dashboard-grid.js';
 import { connectSettings } from './settings-panel.js';
 import { createLayoutClient } from './layout-client.js';
 import { createInstancesClient, secretKeysOf } from './instances-client.js';
+import { reconcileRoster } from './roster.js';
 import { installDeepLinks, mountGrid } from './grid.js';
 import { startClockTicks } from './clock-source.js';
 import { register as registerClock } from '../widgets/clock/index.js';
@@ -54,26 +55,6 @@ const FALLBACK_INSTANCES = [
     config: { label: 'Tokyo', source: 'timezone', timezone: 'Asia/Tokyo', showSeconds: 'yes' },
   },
 ];
-
-/**
- * Drops roster entries the layout still references but that no longer exist,
- * and vice versa — the dangling-reference guard.
- *
- * A layout node whose `widgetId` names an instance that is gone must not blank
- * the dashboard: it is skipped and the rest loads. `connectGrid.load` already
- * walks the ROSTER and looks geometry up per entry, so an extra layout node is
- * inert by construction. This exists for the other direction and for the
- * explicit `widgetId` spelling, so the intent is stated rather than relied on
- * as an accident of iteration order.
- */
-export function reconcileRoster(roster = [], layoutNodes = []) {
-  const known = new Set(roster.map((entry) => entry?.id).filter(Boolean));
-  const usable = layoutNodes.filter((node) => {
-    const target = node?.widgetId ?? node?.id;
-    return typeof target === 'string' && known.has(target);
-  });
-  return { roster: roster.filter((entry) => entry && typeof entry.id === 'string'), usable };
-}
 
 /**
  * Boots the grid-backed dashboard into `root`.

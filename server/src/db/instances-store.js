@@ -53,7 +53,7 @@ export const SECRET_SET = '__haven_secret_set__';
 /** Credential name for one instance's secret field. */
 export const secretName = (instanceId, key) => `widget:${instanceId}:${key}`;
 
-const COLUMNS = 'id, type, config, config_version, created_at, updated_at';
+const COLUMNS = 'id, type, config, config_version, sort_order, created_at, updated_at';
 
 const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -89,6 +89,7 @@ function toInstance(row) {
     type: row.type,
     config,
     configVersion: row.config_version ?? 1,
+    sortOrder: row.sort_order ?? 0,
     createdAt: row.created_at ?? null,
     updatedAt: row.updated_at ?? null,
   };
@@ -150,12 +151,18 @@ export function validateInstance(payload, { requireId = true } = {}) {
     }
   }
 
+  const sortOrder = payload.sortOrder;
+  if (sortOrder !== undefined && !Number.isInteger(sortOrder)) {
+    throw new InstanceValidationError('sortOrder must be an integer.');
+  }
+
   const clean = {
     type: payload.type,
     config: payload.config ?? {},
     configVersion: version ?? 1,
     secretKeys: payload.secretKeys ?? [],
   };
+  if (sortOrder !== undefined) clean.sortOrder = sortOrder;
   if (typeof payload.id === 'string') clean.id = payload.id;
 
   return clean;
@@ -167,18 +174,24 @@ export function createInstanceStore(db, { credentials } = {}) {
   const credentialStore = credentials ?? createCredentialStore(db);
 
   const insert = db.prepare(`
-    INSERT INTO widgets (id, type, config, config_version)
-    VALUES (@id, @type, @config, @config_version)
+    INSERT INTO widgets (id, type, config, config_version, sort_order)
+    VALUES (@id, @type, @config, @config_version, @sort_order)
   `);
 
   const update = db.prepare(`
     UPDATE widgets SET
       type = @type, config = @config, config_version = @config_version,
-      updated_at = datetime('now')
+      sort_order = @sort_order, updated_at = datetime('now')
     WHERE id = @id
   `);
 
-  const selectAll = db.prepare(`SELECT ${COLUMNS} FROM widgets ORDER BY created_at ASC, id ASC`);
+  // `sort_order` first, and NOT `created_at`: a seed writes every row inside
+  // one `datetime('now')` second, so ordering by it collapses to the id
+  // tiebreaker and silently alphabetises the dashboard. See migration 004.
+  const selectAll = db.prepare(
+    `SELECT ${COLUMNS} FROM widgets ORDER BY sort_order ASC, created_at ASC, id ASC`
+  );
+  const nextSort = db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM widgets');
   const selectOne = db.prepare(`SELECT ${COLUMNS} FROM widgets WHERE id = ?`);
   const deleteOne = db.prepare('DELETE FROM widgets WHERE id = ?');
   const countRows = db.prepare('SELECT COUNT(*) AS n FROM widgets');
@@ -204,7 +217,7 @@ export function createInstanceStore(db, { credentials } = {}) {
     const writes = [];
     const deletes = [];
 
-    for (const key of secretKeys) {
+    for (const key of secretKeys ?? []) {
       const incoming = config[key];
 
       if (incoming === undefined || incoming === SECRET_SET) {
@@ -266,13 +279,18 @@ export function createInstanceStore(db, { credentials } = {}) {
         null
       );
 
+      // A new widget goes to the end of the roster unless told otherwise, so
+      // adding one never reshuffles what is already there.
+      const sortOrder = validated.sortOrder ?? nextSort.get().next;
+
       const write = db.transaction(() => {
         persistSecrets(validated.id, { writes, deletes });
         insert.run({
           id: validated.id,
           type: validated.type,
           config: JSON.stringify(stored),
-          config_version: validated.configVersion,
+          config_version: validated.configVersion ?? 1,
+          sort_order: sortOrder,
         });
       });
 
@@ -302,7 +320,9 @@ export function createInstanceStore(db, { credentials } = {}) {
           id,
           type: validated.type,
           config: JSON.stringify(stored),
-          config_version: validated.configVersion,
+          config_version: validated.configVersion ?? 1,
+          // An update that says nothing about placement keeps its place.
+          sort_order: validated.sortOrder ?? previous.sortOrder,
         });
       });
 
@@ -444,10 +464,13 @@ export function seedInstances(db, { path, logger, defaults = DEFAULT_INSTANCES }
   let seeded = 0;
   try {
     const insertAll = db.transaction((rows) => {
-      for (const entry of rows) {
-        store.create(validateInstance(entry));
+      rows.forEach((entry, index) => {
+        // The declaration order IS the roster order — hero as a banner, then
+        // the apps grid. Stamped explicitly rather than left to insertion
+        // order, which `created_at` cannot express at seed speed.
+        store.create(validateInstance({ sortOrder: index, ...entry }));
         seeded += 1;
-      }
+      });
     });
     insertAll(entries);
   } catch (err) {

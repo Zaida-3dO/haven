@@ -286,8 +286,14 @@ export class HavenHeroWidget extends ElementBase {
     // More than one slide, or there is nothing to navigate between.
     nodes.dots.hidden = this.#slides.length <= 1;
 
-    for (const [i, dot] of nodes.dots.children.entries()) {
-      setAttr(dot, 'aria-current', String(i === this.#index));
+    // `children` is an HTMLCollection, which — unlike NodeList — has no
+    // `.entries()`. Calling it threw on every render and the error boundary
+    // drew "Hero failed" in place of the whole carousel. The fake DOM used in
+    // tests backs `children` with a plain array, which DOES have `.entries()`,
+    // so the suite stayed green and only a browser could see it.
+    const dots = Array.from(nodes.dots.children);
+    for (let i = 0; i < dots.length; i += 1) {
+      setAttr(dots[i], 'aria-current', String(i === this.#index));
     }
   }
 

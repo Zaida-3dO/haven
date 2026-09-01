@@ -20,6 +20,7 @@ import { createLayoutClient } from './layout-client.js';
 import { createInstancesClient, secretKeysOf } from './instances-client.js';
 import { reconcileRoster } from './roster.js';
 import { installDeepLinks, mountGrid } from './grid.js';
+import { SearchUI } from './search-ui.js';
 import { startClockTicks } from './clock-source.js';
 import { register as registerClock } from '../widgets/clock/index.js';
 import { defineHeroWidget } from '../widgets/hero/index.js';
@@ -253,6 +254,26 @@ export async function bootDashboard(
   const teardownDeepLinks = installDeepLinks(gridHandle);
 
   /**
+   * Global search.
+   *
+   * Mounted here because nothing else was mounting it: `SearchUI` was built,
+   * unit-tested and complete, but `boot.js` never imported it — so the whole
+   * feature was unreachable in the running app and Ctrl/Cmd-K did nothing.
+   * A browser found that in seconds; the test suite could not, because every
+   * test constructs `SearchUI` directly and so never asks whether anything
+   * calls it.
+   *
+   * It reuses the deep-link seam rather than reaching into the grid: jumping
+   * to a result is the same act as following a `#widget-id` link, and one
+   * scroll-and-highlight implementation is enough.
+   */
+  const searchUI = new SearchUI(dashboard.searchIndex, {
+    navigateToWidget: (id) => gridHandle.focus(id),
+  });
+  searchUI.mount(chrome ?? document.body);
+  const teardownSearchShortcut = searchUI.attachShortcut();
+
+  /**
    * Subpage routing.
    *
    * The dashboard is deliberately left mounted underneath a subpage rather
@@ -271,11 +292,13 @@ export async function bootDashboard(
     editMode,
     addPanel,
     settingsPanel,
+    searchUI,
     toolbar,
     router,
     pages,
     destroy() {
       settingsPanel.close();
+      teardownSearchShortcut();
       teardownDeepLinks();
       router?.destroy();
       dashboard.destroy();

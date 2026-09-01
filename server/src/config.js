@@ -26,6 +26,14 @@ export const config = {
   iconDir: process.env.HAVEN_ICON_DIR ?? './data/icons',
 
   /**
+   * The built web shell. The Dockerfile copies `web/dist` to `/app/web/dist`
+   * and the server runs with `/app` as its working directory, so the default
+   * resolves correctly both in the image and from a source checkout after
+   * `npm run build`.
+   */
+  webDir: process.env.HAVEN_WEB_DIR ?? './web/dist',
+
+  /**
    * Seed for the app registry. Read once, on first boot, when the table is
    * empty; the database is the source of truth afterwards.
    */

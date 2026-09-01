@@ -28,15 +28,18 @@
  */
 
 /** How the header's clock renders the time. Locale-driven, 24h from the OS. */
-function formatTime(date, locale) {
-  return new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(date);
+function formatTime(date, locale, timeZone) {
+  return new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', timeZone }).format(
+    date
+  );
 }
 
-function formatDate(date, locale) {
+function formatDate(date, locale, timeZone) {
   return new Intl.DateTimeFormat(locale, {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
+    timeZone,
   }).format(date);
 }
 
@@ -53,6 +56,12 @@ function formatDate(date, locale) {
  * @param {() => Date} [deps.now]    injectable clock, so tests are not
  *                                   dependent on the wall clock
  * @param {string} [deps.locale]
+ * @param {string} [deps.timeZone] left undefined in the app, so the clock
+ *                                 follows the VIEWER's zone, which is what a
+ *                                 wall clock must do. Tests pin it: without
+ *                                 that the assertions silently depend on the
+ *                                 runner's TZ, and this suite passed locally
+ *                                 in BST and failed in CI's UTC.
  */
 export function createHeader({
   title = 'Haven',
@@ -60,6 +69,7 @@ export function createHeader({
   document: doc = globalThis.document,
   now = () => new Date(),
   locale = undefined,
+  timeZone = undefined,
 } = {}) {
   const el = doc.createElement('header');
   el.className = 'haven-header';
@@ -123,8 +133,8 @@ export function createHeader({
 
   function tick() {
     const at = now();
-    time.textContent = formatTime(at, locale);
-    dateEl.textContent = formatDate(at, locale);
+    time.textContent = formatTime(at, locale, timeZone);
+    dateEl.textContent = formatDate(at, locale, timeZone);
   }
   tick();
 

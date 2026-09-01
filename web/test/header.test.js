@@ -55,14 +55,23 @@ function find(header, className) {
   return flatten(header.el).find((el) => el.className === className);
 }
 
-/** A fixed instant, so nothing here depends on the wall clock. */
+/**
+ * A fixed instant AND a fixed zone, so nothing here depends on the machine.
+ *
+ * The instant alone is not enough: these assertions first ran without a
+ * `timeZone` and so formatted in whatever zone the runner was in. They passed
+ * locally (BST, UTC+1 — "11:30") and failed in CI (UTC — "10:30"). The repo
+ * already runs `calendar-group` under five zones for exactly this reason.
+ */
 const AT = new Date('2026-09-01T10:30:00Z');
+const TZ = 'Europe/London';
 
 function build(overrides = {}) {
   return createHeader({
     document: fakeDocument(),
     now: () => AT,
     locale: 'en-GB',
+    timeZone: TZ,
     ...overrides,
   });
 }
@@ -105,6 +114,7 @@ describe('the app header', () => {
       document: fakeDocument(),
       now: () => at,
       locale: 'en-GB',
+      timeZone: TZ,
     });
     assert.equal(find(header, 'haven-header__time').textContent, '11:30');
 

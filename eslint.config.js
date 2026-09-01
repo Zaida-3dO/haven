@@ -41,6 +41,21 @@ export default [
   },
 
   {
+    // Repo-level scripts — Node, ES modules. Same rules as the server: they
+    // are Node programs that happen to live outside a workspace, and until
+    // this block existed `scripts/*.mjs` was linted by nothing at all.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'module',
+      globals: { ...globals.node },
+    },
+    rules: {
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
+    },
+  },
+
+  {
     // Config files run in Node regardless of which workspace they sit in.
     files: ['**/*.config.js', 'eslint.config.js'],
     languageOptions: {

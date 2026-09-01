@@ -1,0 +1,95 @@
+{
+  "$comment": [
+    "A whole dashboard in one file, for `node scripts/haven-seed.mjs apply`.",
+    "Copy to `config/dashboard.json` (gitignored) and describe your own.",
+    "THIS FILE IS AN EXAMPLE ONLY. A real seed file is the single most",
+    "dangerous thing in this repo to commit: it maps not just every service",
+    "URL like apps.json does, but every widget's configured endpoint too.",
+    "Every hostname below is `.invalid` on purpose. See docs/SECURITY.md.",
+    "",
+    "Secrets never belong here. A `secret`-typed widget field listed in",
+    "`secretKeys` is encrypted server-side and read back only as the sentinel",
+    "`__haven_secret_set__`, which `apply` omits rather than sending. Put the",
+    "real value in the file once to set it, then remove it -- or set it in the",
+    "settings panel and never write it down here at all."
+  ],
+  "version": 1,
+
+  "apps": [
+    {
+      "id": "example-service",
+      "name": "Example Service",
+      "description": "What this service is for.",
+      "category": "tools",
+      "iconFile": "./icons/example-service.png",
+      "urls": [
+        { "title": "Open", "url": "https://example.invalid", "primary": true },
+        { "title": "Open Local", "url": "https://example.local.invalid" },
+        { "title": "Open via Tailscale", "url": "https://example.ts.invalid" }
+      ],
+      "version": {
+        "latestUrl": "https://api.github.com/repos/example/example/releases/latest",
+        "currentContainerId": "example-container"
+      }
+    },
+    {
+      "$comment": [
+        "An app in the OLD dashboard's shape. `apply` accepts both and maps",
+        "this one through scripts/migrate-apps.mjs, so an existing apps.json",
+        "can be pasted in whole rather than converted first."
+      ],
+      "id": "legacy-service",
+      "name": "Legacy Service",
+      "category": "media",
+      "url": "https://legacy.invalid",
+      "localUrl": "https://legacy.local.invalid",
+      "releasesUrl": "https://api.github.com/repos/example/legacy/releases/latest"
+    },
+    {
+      "id": "featured-service",
+      "name": "Featured Service",
+      "description": "Appears as a hero slide.",
+      "category": "personal",
+      "urls": [{ "title": "Open", "url": "https://featured.invalid", "primary": true }],
+      "featured": { "tagline": "The one-line pitch shown on the hero slide." },
+      "sortOrder": 0
+    }
+  ],
+
+  "instances": [
+    { "id": "hero-main", "type": "hero", "config": { "rotateSeconds": 8, "showTagline": true } },
+    { "id": "apps-main", "type": "apps", "config": {} },
+    {
+      "id": "clock-local",
+      "type": "clock",
+      "config": { "label": "Local time", "source": "local" }
+    },
+    {
+      "$comment": [
+        "`secretKeys` names the config fields to route to the encrypted",
+        "credential store instead of the config blob. Set the real value here",
+        "once, apply, then delete the line -- `apply` treats an absent secret",
+        "as untouched and leaves the stored one alone."
+      ],
+      "id": "calendar-main",
+      "type": "calendar",
+      "config": { "title": "Calendar", "maxEvents": 25 },
+      "secretKeys": ["icsUrl"]
+    }
+  ],
+
+  "layout": {
+    "desktop": [
+      { "id": "hero-main", "x": 0, "y": 0, "w": 12, "h": 3 },
+      { "id": "apps-main", "x": 0, "y": 3, "w": 8, "h": 6 },
+      { "id": "clock-local", "x": 8, "y": 3, "w": 4, "h": 2 },
+      { "id": "calendar-main", "x": 8, "y": 5, "w": 4, "h": 4 }
+    ],
+    "mobile": [
+      { "id": "hero-main", "x": 0, "y": 0, "w": 4, "h": 2 },
+      { "id": "apps-main", "x": 0, "y": 2, "w": 4, "h": 6 },
+      { "id": "clock-local", "x": 0, "y": 8, "w": 4, "h": 2 },
+      { "id": "calendar-main", "x": 0, "y": 10, "w": 4, "h": 4 }
+    ]
+  }
+}

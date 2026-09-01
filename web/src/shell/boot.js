@@ -13,6 +13,7 @@
 import { Dashboard } from './dashboard.js';
 import { registry } from './registry.js';
 import { createAddPanel } from './add-panel.js';
+import { createHeader } from './header.js';
 import { createEditMode, createEditToolbar } from './edit-mode.js';
 import { connectGrid } from './dashboard-grid.js';
 import { connectSettings } from './settings-panel.js';
@@ -245,10 +246,30 @@ export async function bootDashboard(
 
   const toolbar = createEditToolbar({ editMode });
 
+  /**
+   * The header.
+   *
+   * Built before the toolbar is prepended so it can be prepended AFTER it and
+   * therefore end up above it — `prepend` puts each new node first, so the
+   * last prepend wins. The header goes outside `#haven-chrome`'s padding
+   * (inserted before it in the body) so its bar spans the full window width
+   * the way a fixed header must, rather than being inset by the chrome's
+   * gutter.
+   *
+   * Its search button opens the SAME palette the Ctrl/Cmd-K shortcut opens —
+   * `searchUI` is constructed below, so this reads it lazily through a
+   * closure rather than capturing an undefined value now.
+   */
+  const header = createHeader({
+    onSearch: () => searchUI?.open(),
+  });
+
   if (chrome) {
     chrome.prepend(toolbar.el);
     chrome.appendChild(addPanel.el);
     chrome.appendChild(settingsPanel.el);
+    // Full-bleed: before the chrome element, not inside its padded box.
+    chrome.parentElement?.insertBefore(header.el, chrome);
   }
 
   const teardownDeepLinks = installDeepLinks(gridHandle);
@@ -294,10 +315,15 @@ export async function bootDashboard(
     settingsPanel,
     searchUI,
     toolbar,
+    header,
     router,
     pages,
     destroy() {
       settingsPanel.close();
+      // The header's clock holds an interval; a boot torn down without this
+      // leaks one timer per boot.
+      header.destroy();
+      header.el.remove();
       teardownSearchShortcut();
       teardownDeepLinks();
       router?.destroy();

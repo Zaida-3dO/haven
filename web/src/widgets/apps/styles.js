@@ -6,15 +6,28 @@
  * shadow root does not see the document's stylesheet, which is the point of
  * using one.
  *
- * Colours come from custom properties with fallbacks, so the widget inherits
- * the shell's theme where one is set and still renders standalone in a test
- * page where none is.
+ * ## Custom properties DO cross the shadow boundary
+ *
+ * That is why this works at all: `--haven-*` inherits through the shadow root
+ * even though rules do not, so the widget follows the shell's theme.
+ *
+ * ## Why the fallbacks are gone
+ *
+ * Every colour used to be written `var(--haven-surface, #202124)` — a DARK
+ * fallback. When the shell's theme was light and a token happened to be
+ * undefined, the widget took the dark fallback for a background while its text
+ * followed the real light theme, and the sort control rendered near-black on
+ * near-black. The tokens are all defined in `main.css` now, in both themes, so
+ * a fallback can only ever fire when the design is already broken — at which
+ * point it does not rescue the widget, it hides the breakage. They are removed
+ * deliberately: if a token goes missing, this should look obviously wrong
+ * rather than subtly wrong.
  */
 export const STYLES = `
   :host {
     display: block;
     container-type: inline-size;
-    color: var(--haven-fg, #e8eaed);
+    color: var(--haven-fg);
     font-family: var(--haven-font, system-ui, -apple-system, 'Segoe UI', sans-serif);
   }
 
@@ -33,56 +46,90 @@ export const STYLES = `
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
+    gap: var(--haven-space-2, 8px);
   }
 
   .tabs {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.25rem;
+    gap: var(--haven-space-2, 8px);
   }
 
+  /* Real pills with counts, matching the dashboard this replaces. 36px tall
+     rather than the 22px they were — a pill you cannot hit is a decoration. */
   .tab {
-    padding: 0.25rem 0.6rem;
-    border: 1px solid var(--haven-border, #3c4043);
-    border-radius: 999px;
-    background: transparent;
-    color: inherit;
+    min-height: 36px;
+    padding: var(--haven-space-2, 8px) var(--haven-space-4, 16px);
+    border: 1px solid var(--haven-border);
+    border-radius: var(--haven-radius-pill, 999px);
+    background: var(--haven-surface);
+    color: var(--haven-fg-secondary);
     font: inherit;
-    font-size: 0.8rem;
+    font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
+    transition:
+      background 120ms ease,
+      border-color 120ms ease,
+      color 120ms ease;
   }
 
-  .tab:hover,
+  .tab:hover {
+    border-color: var(--haven-accent);
+    background: var(--haven-surface-hover);
+    color: var(--haven-fg);
+  }
+
   .tab:focus-visible {
-    border-color: var(--haven-accent, #8ab4f8);
+    outline: 2px solid var(--haven-accent);
+    outline-offset: 2px;
   }
 
+  /* The selected tab is filled amber. "aria-selected" already carries this for
+     assistive tech; the fill carries it visually, and the weight change means
+     it is not colour alone. */
   .tab--active {
-    background: var(--haven-accent, #8ab4f8);
-    border-color: var(--haven-accent, #8ab4f8);
-    color: var(--haven-accent-fg, #202124);
+    border-color: var(--haven-accent);
+    background: var(--haven-accent);
+    color: var(--haven-accent-fg);
+    font-weight: 600;
+  }
+
+  .tab--active:hover {
+    background: var(--haven-accent-hover);
+    color: var(--haven-accent-fg);
   }
 
   .sort {
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
-    font-size: 0.8rem;
+    gap: var(--haven-space-2, 8px);
+    color: var(--haven-fg-secondary);
+    font-size: 12px;
   }
 
   .sort__select {
-    padding: 0.2rem 0.4rem;
-    border: 1px solid var(--haven-border, #3c4043);
-    border-radius: 6px;
-    background: var(--haven-surface, #202124);
-    /* Both halves come from the same theme, deliberately. Taking the text
-       via color:inherit while the background came from the fallback above
-       rendered this near-black on near-black in a light theme. Pin the
-       pair so they cannot come from different places again. */
-    color: var(--haven-fg, #e8e8ea);
+    min-height: 36px;
+    padding: var(--haven-space-2, 8px) var(--haven-space-3, 12px);
+    border: 1px solid var(--haven-border);
+    border-radius: var(--haven-radius-sm, 8px);
+    /* Both halves come from the same theme, deliberately. Taking the text via
+       color:inherit while the background came from a dark fallback rendered
+       this near-black on near-black in a light theme. */
+    background: var(--haven-surface);
+    color: var(--haven-fg);
     font: inherit;
-    font-size: 0.8rem;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .sort__select:hover {
+    border-color: var(--haven-accent);
+  }
+
+  .sort__select:focus-visible {
+    outline: 2px solid var(--haven-accent);
+    outline-offset: 2px;
   }
 
   /* ── Card grid ────────────────────────────────────────────────────── */
@@ -91,103 +138,181 @@ export const STYLES = `
     display: grid;
     /* auto-fill + minmax is what makes this responsive without a media query:
        the grid becomes a single column on a phone on its own. */
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
-    gap: 0.6rem;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
+    gap: var(--haven-space-3, 12px);
     overflow-y: auto;
     min-height: 0;
+    padding: 2px;
   }
 
-  /* Below the mobile breakpoint, force one column and drop the padding a
-     little — a two-column grid of 15rem cards is unusable on a narrow phone. */
+  /* Below the mobile breakpoint, two columns rather than one: these cards are
+     square-ish and centred, so a single column of them wastes most of a phone
+     screen on whitespace. */
   @container (max-width: 26rem) {
     .grid {
-      grid-template-columns: 1fr;
-    }
-    .card {
-      padding: 0.5rem;
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--haven-space-2, 8px);
     }
   }
 
+  /* The card.
+   *
+   * Centred, icon above name, matching the dashboard this replaces. The old
+   * layout was a left-aligned text row with a small icon beside it, which read
+   * as a list item rather than a tile you press.
+   *
+   * "position: relative" because the status dot is positioned into the corner
+   * rather than sitting in the text flow. */
   .card {
+    position: relative;
     display: flex;
     flex-direction: column;
-    gap: 0.45rem;
-    padding: 0.65rem;
-    border: 1px solid var(--haven-border, #3c4043);
-    border-radius: 10px;
-    background: var(--haven-surface, #202124);
+    align-items: center;
+    gap: var(--haven-space-2, 8px);
+    padding: var(--haven-space-5, 20px) var(--haven-space-3, 12px);
+    border: 1px solid var(--haven-border);
+    border-radius: var(--haven-radius, 12px);
+    background: var(--haven-surface);
+    text-align: center;
+    transition:
+      transform 140ms ease,
+      border-color 140ms ease,
+      background 140ms ease,
+      box-shadow 140ms ease;
+  }
+
+  /* The hover lift. Applied to the CARD on hover-within, so hovering anywhere
+     on the tile responds — not just the link text. */
+  .card:hover,
+  .card:focus-within {
+    transform: translateY(-2px);
+    border-color: var(--haven-accent);
+    background: var(--haven-surface-hover);
+    box-shadow: var(--haven-shadow-lg, 0 10px 15px -3px rgb(0 0 0 / 40%));
+  }
+
+  /* Transform-based motion is the kind that causes trouble for people who ask
+     for less of it. The colour change stays; only the movement goes. */
+  @media (prefers-reduced-motion: reduce) {
+    .card {
+      transition: border-color 140ms ease, background 140ms ease;
+    }
+
+    .card:hover,
+    .card:focus-within {
+      transform: none;
+    }
   }
 
   .card__head {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
+    display: contents;
   }
 
   .card__icon {
-    width: 28px;
-    height: 28px;
+    width: 44px;
+    height: 44px;
     flex: 0 0 auto;
     object-fit: contain;
-    border-radius: 6px;
+    border-radius: var(--haven-radius-sm, 8px);
   }
 
   .card__titles {
-    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
     min-width: 0;
+    width: 100%;
   }
 
   .card__name {
     display: block;
-    color: inherit;
+    color: var(--haven-fg);
+    font-size: 13px;
     font-weight: 600;
     text-decoration: none;
     overflow-wrap: anywhere;
   }
 
+  /* The whole card is the click target, not just the six characters of the
+     name. A stretched link keeps ONE anchor — so the accessible name, the
+     keyboard tab stop and the context menu are all still the link's — while
+     making the hit area the full tile, which is what gets it past 44x44. */
+  .card__name::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+
   .card__name:hover,
   .card__name:focus-visible {
-    color: var(--haven-accent, #8ab4f8);
-    text-decoration: underline;
+    color: var(--haven-accent);
+  }
+
+  .card__name:focus-visible {
+    outline: none;
+  }
+
+  /* The ring goes on the CARD, because the link's own box is just the text —
+     an outline there would draw a thin rectangle around the name instead of
+     around the thing that looks focused. */
+  .card:focus-within {
+    outline: 2px solid var(--haven-accent);
+    outline-offset: 2px;
   }
 
   .card__description {
-    margin: 0.15rem 0 0;
-    font-size: 0.78rem;
-    opacity: 0.75;
+    margin: 0;
+    color: var(--haven-fg-secondary);
+    font-size: 11px;
+    line-height: 1.4;
     overflow-wrap: anywhere;
   }
 
   /* ── Status dot ───────────────────────────────────────────────────── */
 
   /* Colour is a redundant cue only. The meaning is carried by title,
-     aria-label and the visually-hidden text inside the dot. */
+     aria-label and the visually-hidden text inside the dot — and, since the
+     dot now sits in the card corner where there is no adjacent text, by SHAPE
+     as well: reachable is a filled disc, unreachable is a ring, unknown is a
+     smaller muted disc. Colour is never the only carrier.
+   *
+   * "z-index: 1" puts it above ".card__name::after", the stretched link
+   * overlay. Without it the dot is underneath a transparent anchor and its
+   * "title" tooltip never appears — the overlay eats the pointer. */
   .dot {
-    position: relative;
+    position: absolute;
+    top: var(--haven-space-2, 8px);
+    right: var(--haven-space-2, 8px);
+    z-index: 1;
     flex: 0 0 auto;
     width: 10px;
     height: 10px;
-    margin-top: 0.3rem;
     border-radius: 50%;
-    background: var(--haven-unknown, #9aa0a6);
-    border: 1px solid rgba(0, 0, 0, 0.35);
+    background: var(--haven-unknown);
   }
 
   .dot--reachable {
-    background: var(--haven-ok, #34a853);
+    background: var(--haven-ok);
   }
 
+  /* A RING rather than a disc: unreachable is distinguishable from reachable
+     without perceiving the red/green difference. */
   .dot--unreachable {
-    background: var(--haven-bad, #ea4335);
+    background: transparent;
+    border: 2px solid var(--haven-bad);
   }
 
   .dot--checking {
-    background: var(--haven-warn, #fbbc04);
+    background: var(--haven-warn);
     animation: haven-pulse 1.2s ease-in-out infinite;
   }
 
   .dot--unknown {
-    background: var(--haven-unknown, #9aa0a6);
+    width: 8px;
+    height: 8px;
+    margin: 1px;
+    background: var(--haven-unknown);
   }
 
   @keyframes haven-pulse {
@@ -207,109 +332,134 @@ export const STYLES = `
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.4rem;
-    font-size: 0.72rem;
+    justify-content: center;
+    gap: var(--haven-space-1, 4px);
+    font-size: 10px;
   }
 
   .version {
     display: inline-flex;
     align-items: baseline;
-    gap: 0.25rem;
-    padding: 0.1rem 0.35rem;
-    border: 1px solid var(--haven-border, #3c4043);
-    border-radius: 5px;
+    gap: var(--haven-space-1, 4px);
+    padding: 2px var(--haven-space-2, 8px);
+    border: 1px solid var(--haven-border);
+    border-radius: var(--haven-radius-sm, 8px);
+    color: var(--haven-fg-secondary);
     font-variant-numeric: tabular-nums;
   }
 
   .version__tag {
-    font-size: 0.62rem;
+    color: var(--haven-muted);
+    font-size: 9px;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
-    opacity: 0.6;
+    letter-spacing: 0.04em;
   }
 
   /* The difference between the two is the whole point of the feature, so it
      gets a colour AND a text badge rather than colour alone. */
   .versions--update .version--latest {
-    border-color: var(--haven-warn, #fbbc04);
-    color: var(--haven-warn, #fbbc04);
+    border-color: var(--haven-warn);
+    color: var(--haven-warn);
   }
 
   .badge {
-    padding: 0.05rem 0.35rem;
-    border-radius: 999px;
-    font-size: 0.65rem;
-    font-weight: 600;
+    padding: 2px var(--haven-space-2, 8px);
+    border-radius: var(--haven-radius-pill, 999px);
+    font-size: 9px;
+    font-weight: 700;
     text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 
   .badge--update {
-    background: var(--haven-warn, #fbbc04);
-    color: var(--haven-accent-fg, #202124);
+    background: var(--haven-warn);
+    color: var(--haven-accent-fg);
   }
 
   /* How old the running-version reading is. Quiet by default — it is context,
      not an alert — until it is old enough to be untrustworthy, at which point
      it is the most important thing in the row. */
   .version__age {
-    font-size: 0.62rem;
-    opacity: 0.55;
+    color: var(--haven-muted);
+    font-size: 9px;
     font-variant-numeric: tabular-nums;
   }
 
   .version__age--stale {
-    opacity: 1;
-    color: var(--haven-warn, #fbbc04);
+    color: var(--haven-warn);
   }
 
   /* ── Secondary URL menu ───────────────────────────────────────────── */
 
+  /* Above the stretched card link, or it cannot be clicked at all — the
+     overlay covers the whole card including this button. */
+  .menu {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+  }
+
   .menu__toggle {
-    padding: 0.2rem 0.45rem;
-    border: 1px dashed var(--haven-border, #3c4043);
-    border-radius: 6px;
+    min-height: 28px;
+    padding: var(--haven-space-1, 4px) var(--haven-space-2, 8px);
+    border: 1px solid var(--haven-border);
+    border-radius: var(--haven-radius-sm, 8px);
     background: transparent;
-    color: inherit;
+    color: var(--haven-fg-secondary);
     font: inherit;
-    font-size: 0.72rem;
+    font-size: 10px;
     cursor: pointer;
   }
 
   .menu__toggle:hover,
   .menu__toggle:focus-visible {
-    border-style: solid;
-    border-color: var(--haven-accent, #8ab4f8);
+    border-color: var(--haven-accent);
+    color: var(--haven-fg);
   }
 
   .menu__list {
     list-style: none;
-    margin: 0.35rem 0 0;
+    margin: var(--haven-space-2, 8px) 0 0;
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 2px;
+  }
+
+  /* A closed menu is closed.
+   *
+   * The widget marks the collapsed list with the "hidden" ATTRIBUTE, which the
+   * UA stylesheet implements as "display: none" — at UA specificity, which any
+   * author "display" declaration beats. So the rule above silently re-showed
+   * every collapsed menu, and each card rendered its secondary URLs unprompted
+   * under a toggle that claimed to be collapsed. A browser caught this; the
+   * unit tests could not, because they assert on the "hidden" property and it
+   * was correctly true the whole time. */
+  .menu__list[hidden] {
+    display: none;
   }
 
   .menu__list a {
     display: block;
-    padding: 0.2rem 0.35rem;
-    border-radius: 5px;
-    color: inherit;
-    font-size: 0.75rem;
+    padding: var(--haven-space-2, 8px);
+    border-radius: var(--haven-radius-sm, 8px);
+    color: var(--haven-fg-secondary);
+    font-size: 11px;
     text-decoration: none;
   }
 
   .menu__list a:hover,
   .menu__list a:focus-visible {
-    background: var(--haven-hover, #2d2e31);
-    color: var(--haven-accent, #8ab4f8);
+    background: var(--haven-surface-hover);
+    color: var(--haven-accent);
   }
 
   .empty {
+    grid-column: 1 / -1;
     margin: 0;
-    padding: 1rem;
-    opacity: 0.65;
-    font-size: 0.85rem;
+    padding: var(--haven-space-8, 32px);
+    color: var(--haven-fg-secondary);
+    font-size: 13px;
     text-align: center;
   }
 

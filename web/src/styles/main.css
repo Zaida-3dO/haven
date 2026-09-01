@@ -4,44 +4,290 @@
 
 /* The theme, as tokens.
  *
- * `--haven-surface` and `--haven-border` are derived from `--haven-fg` rather
- * than hardcoded, so they follow the theme automatically and there is no
- * second palette to keep in sync.
+ * Haven is a DARK product. The dashboard it replaces is deep navy with an
+ * amber accent, it is looked at in a hallway at night as often as at a desk,
+ * and it was previously defined light-first with a `prefers-color-scheme:
+ * dark` override bolted on. That was backwards: the default branch of the
+ * stylesheet was the theme nobody uses, so the theme everybody uses was the
+ * one no rule was written against. Dark is now the base, and light is the
+ * opt-in variant.
  *
- * They exist because widgets were already referencing them. A widget writing
- * `var(--haven-surface, #202124)` against an undefined token silently got the
- * fallback — a DARK surface — while its text followed the real light theme,
- * which rendered the apps widget's sort control as near-black on near-black
- * and made it completely unreadable. Nothing caught it: unit tests run against
- * a fake DOM with no CSS, so the first thing to notice was a browser.
+ * Palette is taken from the dashboard being replaced so the two read as the
+ * same product. The names are Haven's `--haven-*` convention rather than the
+ * original's, because these are consumed by widgets that already use that
+ * prefix.
  *
- * Define a token before a widget can reach for it. A fallback that only ever
- * applies when the design is broken is not a safety net; it is a disguise. */
+ * ## Why every token is stated, not derived
+ *
+ * The previous version derived `--haven-surface` and `--haven-border` from
+ * `--haven-fg` with `color-mix`. That is elegant and it is wrong for this
+ * palette: the real one is not a single hue at varying alpha, it is four
+ * hand-picked navies (`bg`, `bg-elevated`, `surface`, `surface-hover`) whose
+ * relationship is not a formula. Deriving them produced grey, which is most
+ * of why the build read as a wireframe.
+ *
+ * ## The rule that fallbacks broke once already
+ *
+ * A widget writing `var(--haven-surface, #202124)` against an UNDEFINED token
+ * silently got the fallback — a dark surface — while its text followed the
+ * real light theme, rendering the apps widget's sort control near-black on
+ * near-black. Define a token before a widget reaches for it. A fallback that
+ * only applies when the design is broken is not a safety net, it is a
+ * disguise. Every token a widget uses is defined here, in both themes. */
 :root {
-  color-scheme: light dark;
-  --haven-bg: #f7f7f8;
-  --haven-fg: #16161a;
-  --haven-surface: color-mix(in srgb, var(--haven-fg) 4%, var(--haven-bg));
-  --haven-border: color-mix(in srgb, var(--haven-fg) 20%, transparent);
-  --haven-muted: color-mix(in srgb, var(--haven-fg) 62%, transparent);
+  color-scheme: dark;
+
+  /* ── Surfaces, darkest to lightest ──────────────────────────────────── */
+  --haven-bg: #0f1419;
+  --haven-bg-elevated: #1a1f26;
+  --haven-surface: #242b33;
+  --haven-surface-hover: #2d353f;
+
+  /* ── Text ───────────────────────────────────────────────────────────── */
+  --haven-fg: #ffffff;
+  --haven-fg-secondary: #9ca3af;
+  --haven-muted: #6b7280;
+
+  /* ── Lines and accent ───────────────────────────────────────────────── */
+  --haven-border: #374151;
+  --haven-accent: #f59e0b;
+  --haven-accent-hover: #d97706;
+  /* Text placed ON the accent. Amber is a light colour, so this is dark in
+     both themes — it does NOT flip with the rest of the palette. */
+  --haven-accent-fg: #1a1f26;
+
+  /* ── Status ─────────────────────────────────────────────────────────── */
+  --haven-ok: #10b981;
+  --haven-bad: #ef4444;
+  --haven-warn: #f59e0b;
+  --haven-unknown: #6b7280;
+
+  /* ── Radius ─────────────────────────────────────────────────────────── */
+  --haven-radius: 12px;
+  --haven-radius-sm: 8px;
+  --haven-radius-pill: 999px;
+
+  /* ── Elevation. One direction: down and away from the viewer. ───────── */
+  --haven-shadow: 0 4px 6px -1px rgb(0 0 0 / 30%);
+  --haven-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 40%);
+
+  /* ── Spacing: a strict 4px scale. ────────────────────────────────────
+     An audit found only half the spacing values in the build were divisible
+     by 4, which is what makes a layout look hand-nudged rather than designed.
+     Every padding, gap and margin below comes from this scale. */
+  --haven-space-1: 4px;
+  --haven-space-2: 8px;
+  --haven-space-3: 12px;
+  --haven-space-4: 16px;
+  --haven-space-5: 20px;
+  --haven-space-6: 24px;
+  --haven-space-8: 32px;
+  --haven-space-10: 40px;
+
+  --haven-header-height: 70px;
+
+  /* Focus. One ring, used everywhere, and it is the accent so it reads as
+     part of the design rather than the browser's default blue. */
+  --haven-focus: var(--haven-accent);
+
+  --haven-font: system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --haven-bg: #101014;
-    --haven-fg: #e8e8ea;
+/* The light variant.
+ *
+ * Opt-in two ways: the OS preference, and an explicit `data-theme` on the root
+ * for a future in-app toggle. Both set the same tokens, so there is one light
+ * palette rather than two that drift.
+ *
+ * Note `--haven-accent-fg` is NOT redefined: text on amber stays dark in both
+ * themes, because the accent itself does not change. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+    --haven-bg: #f4f5f7;
+    --haven-bg-elevated: #ffffff;
+    --haven-surface: #ffffff;
+    --haven-surface-hover: #eef0f3;
+    --haven-fg: #16161a;
+    --haven-fg-secondary: #4b5563;
+    --haven-muted: #6b7280;
+    --haven-border: #d3d7de;
+    --haven-shadow: 0 4px 6px -1px rgb(15 20 25 / 10%);
+    --haven-shadow-lg: 0 10px 15px -3px rgb(15 20 25 / 15%);
   }
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --haven-bg: #f4f5f7;
+  --haven-bg-elevated: #ffffff;
+  --haven-surface: #ffffff;
+  --haven-surface-hover: #eef0f3;
+  --haven-fg: #16161a;
+  --haven-fg-secondary: #4b5563;
+  --haven-muted: #6b7280;
+  --haven-border: #d3d7de;
+  --haven-shadow: 0 4px 6px -1px rgb(15 20 25 / 10%);
+  --haven-shadow-lg: 0 10px 15px -3px rgb(15 20 25 / 15%);
 }
 
 body {
   margin: 0;
   background: var(--haven-bg);
   color: var(--haven-fg);
-  font:
-    14px/1.5 system-ui,
-    -apple-system,
-    'Segoe UI',
-    sans-serif;
+  font: 14px/1.5 var(--haven-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+.haven-boot {
+  padding: var(--haven-space-8);
+  color: var(--haven-fg-secondary);
+}
+
+/* ── The app header (DESIGN: the fixed 70px bar) ──────────────────────────
+ *
+ * The single biggest visual difference between Haven and the dashboard it
+ * replaces was that Haven had no header at all — just a bare "Edit dashboard"
+ * button floating on the page. The bar carries three things, left to right:
+ * the wordmark, a search field, and a status cluster.
+ *
+ * The search field here is a BUTTON that opens the existing command palette,
+ * not a second input. There is already a working search (Ctrl/Cmd-K, with its
+ * own index and ARIA wiring); adding a real input in the header would mean two
+ * search UIs with two behaviours. This looks like the original's field and
+ * defers to the palette that already exists — so the affordance is discoverable
+ * for people who will never guess a keyboard shortcut, which is the actual
+ * problem with a shortcut-only search.
+ *
+ * It is `position: sticky` rather than `fixed` so it participates in layout and
+ * nothing needs a magic top-padding to avoid being hidden under it. */
+
+.haven-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: var(--haven-space-6);
+  height: var(--haven-header-height);
+  padding: 0 var(--haven-space-8);
+  border-bottom: 1px solid var(--haven-border);
+  background: var(--haven-bg-elevated);
+}
+
+.haven-header__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--haven-space-3);
+  flex: 0 0 auto;
+}
+
+/* The mark. A rounded amber tile with the initial — enough to read as a logo
+   without shipping an image the repo would then have to license. */
+.haven-header__mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--haven-radius-sm);
+  background: var(--haven-accent);
+  color: var(--haven-accent-fg);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* The page's one `<h1>`. There was no h1 anywhere before this, which left the
+   document with no top-level heading for a screen reader to land on. */
+.haven-header__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.haven-header__search {
+  display: flex;
+  align-items: center;
+  gap: var(--haven-space-2);
+  width: min(100%, 420px);
+  min-height: 40px;
+  margin: 0 auto;
+  padding: var(--haven-space-2) var(--haven-space-4);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-pill);
+  background: var(--haven-bg);
+  color: var(--haven-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.haven-header__search:hover {
+  border-color: var(--haven-accent);
+  background: var(--haven-surface);
+}
+
+.haven-header__search-hint {
+  margin-left: auto;
+  padding: 2px var(--haven-space-2);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-sm);
+  color: var(--haven-fg-secondary);
+  font-size: 11px;
+}
+
+/* The right-hand cluster: clock over date, mirroring the original's
+   weather/clock block. Time is the one thing on a wall dashboard that is read
+   from across the room, so it is the largest text in the header. */
+.haven-header__status {
+  display: flex;
+  align-items: center;
+  gap: var(--haven-space-4);
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.haven-header__clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
+}
+
+.haven-header__time {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.haven-header__date {
+  color: var(--haven-fg-secondary);
+  font-size: 12px;
+}
+
+/* Below the mobile breakpoint the search label collapses to its icon and the
+   date drops — 70px of header cannot hold three full clusters on a phone. */
+@media (max-width: 640px) {
+  .haven-header {
+    gap: var(--haven-space-3);
+    padding: 0 var(--haven-space-4);
+  }
+
+  .haven-header__title,
+  .haven-header__search-text,
+  .haven-header__search-hint,
+  .haven-header__date {
+    display: none;
+  }
+
+  .haven-header__search {
+    width: auto;
+    margin: 0 0 0 auto;
+  }
 }
 
 .haven-boot {
@@ -65,69 +311,119 @@ body {
 --------------------------------------------------------------------------- */
 
 #haven-chrome {
-  padding: 1rem;
+  padding: var(--haven-space-6) var(--haven-space-8) var(--haven-space-10);
+}
+
+@media (max-width: 640px) {
+  #haven-chrome {
+    padding: var(--haven-space-4) var(--haven-space-4) var(--haven-space-8);
+  }
 }
 
 .haven-toolbar {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--haven-space-2);
   align-items: center;
-  margin-bottom: 1rem;
+  margin-bottom: var(--haven-space-6);
 }
 
+/* Buttons.
+ *
+ * `min-height: 40px` on every control, and 44px on the primary toolbar
+ * buttons: a 28px-tall button is a miss on a touchscreen, and this dashboard
+ * is used on a tablet on a wall. */
 .haven-toolbar button {
-  padding: 0.4rem 0.9rem;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 20%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--haven-fg) 4%, transparent);
-  color: inherit;
+  min-height: 40px;
+  padding: var(--haven-space-2) var(--haven-space-4);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-sm);
+  background: var(--haven-surface);
+  color: var(--haven-fg);
   font: inherit;
+  font-weight: 500;
   cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
 }
 
-/* A visible focus ring is what makes the toolbar usable without a mouse. */
+.haven-toolbar button:hover {
+  border-color: var(--haven-accent);
+  background: var(--haven-surface-hover);
+}
+
+/* Save is the affirmative action in edit mode, so it is the only filled
+   button in the chrome. */
+.haven-toolbar__save {
+  border-color: var(--haven-accent) !important;
+  background: var(--haven-accent) !important;
+  color: var(--haven-accent-fg) !important;
+}
+
+.haven-toolbar__save:hover {
+  background: var(--haven-accent-hover) !important;
+}
+
+/* A visible focus ring is what makes the chrome usable without a mouse. One
+   ring, one colour, everywhere. */
 .haven-toolbar button:focus-visible,
 .haven-widget__control:focus-visible,
-.haven-add-panel__add:focus-visible {
-  outline: 2px solid #4c8dff;
+.haven-add-panel__add:focus-visible,
+.haven-header__search:focus-visible {
+  outline: 2px solid var(--haven-focus);
   outline-offset: 2px;
 }
+
+/* ── Widget tiles ────────────────────────────────────────────────────────
+ *
+ * A tile should read as a designed card, not a `1px solid` box: a real
+ * surface a step above the page background, a 12px radius matching the app
+ * cards inside it, and a shadow that puts it in front of the page rather than
+ * drawn on it. */
 
 .haven-widget-tile {
   display: flex;
   flex-direction: column;
   overflow: hidden;
   height: 100%;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 12%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--haven-fg) 3%, transparent);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius);
+  background: var(--haven-bg-elevated);
+  box-shadow: var(--haven-shadow);
 }
 
 .haven-widget__handle {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.35rem 0.6rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--haven-fg) 10%, transparent);
+  gap: var(--haven-space-2);
+  padding: var(--haven-space-3) var(--haven-space-4);
+  border-bottom: 1px solid var(--haven-border);
+  /* A hair lighter than the tile body, which is what separates the header
+     band from the content without a second border. */
+  background: var(--haven-surface);
 }
 
 .haven-widget__title {
-  font-size: 0.75rem;
+  color: var(--haven-fg-secondary);
+  font-size: 11px;
   font-weight: 600;
-  opacity: 0.75;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .haven-widget__body {
   flex: 1;
   min-height: 0;
+  padding: var(--haven-space-4);
+  overflow: auto;
   transition: opacity 120ms ease;
 }
 
 /* View mode: nothing moves, and none of the editing affordances are shown. */
 .haven-widget__controls {
   display: none;
-  gap: 0.25rem;
+  gap: var(--haven-space-1);
 }
 
 .haven-widget__handle {
@@ -149,22 +445,38 @@ body {
   pointer-events: none;
 }
 
+/* Edit mode gets a dashed accent outline on every tile, so it is obvious at a
+   glance which mode the dashboard is in without reading the toolbar. */
+.haven-grid--edit-mode .haven-widget-tile {
+  border-style: dashed;
+  border-color: var(--haven-accent);
+}
+
 .haven-widget__control {
-  padding: 0.15rem 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 20%, transparent);
-  border-radius: 5px;
-  background: transparent;
-  color: inherit;
-  font-size: 0.7rem;
+  min-width: 28px;
+  min-height: 28px;
+  padding: var(--haven-space-1) var(--haven-space-2);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-sm);
+  background: var(--haven-bg);
+  color: var(--haven-fg);
+  font-size: 12px;
   cursor: pointer;
+}
+
+.haven-widget__control:hover {
+  border-color: var(--haven-accent);
+  background: var(--haven-surface-hover);
 }
 
 /* The add-widget panel. */
 .haven-add-panel {
-  margin-top: 1rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 15%, transparent);
-  border-radius: 10px;
+  margin-top: var(--haven-space-4);
+  padding: var(--haven-space-4) var(--haven-space-5);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius);
+  background: var(--haven-bg-elevated);
+  box-shadow: var(--haven-shadow);
 }
 
 .haven-add-panel[hidden] {
@@ -172,31 +484,44 @@ body {
 }
 
 .haven-add-panel__heading {
-  margin: 0 0 0.5rem;
-  font-size: 0.85rem;
+  margin: 0 0 var(--haven-space-3);
+  color: var(--haven-fg-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .haven-add-panel__list {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--haven-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .haven-add-panel__add {
-  padding: 0.35rem 0.8rem;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 20%, transparent);
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
+  min-height: 40px;
+  padding: var(--haven-space-2) var(--haven-space-4);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-sm);
+  background: var(--haven-surface);
+  color: var(--haven-fg);
   font: inherit;
   cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.haven-add-panel__add:hover {
+  border-color: var(--haven-accent);
+  background: var(--haven-surface-hover);
 }
 
 .haven-add-panel__empty {
-  opacity: 0.6;
+  color: var(--haven-muted);
 }
 
 /* `#widget-id` deep links: scroll, then say which one you landed on. */
@@ -207,7 +532,7 @@ body {
 @keyframes haven-deep-link {
   0%,
   60% {
-    box-shadow: 0 0 0 3px #4c8dff;
+    box-shadow: 0 0 0 3px var(--haven-accent);
   }
   100% {
     box-shadow: 0 0 0 0 transparent;
@@ -217,14 +542,15 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .haven-widget--deep-linked .haven-widget-tile {
     animation: none;
-    box-shadow: 0 0 0 3px #4c8dff;
+    box-shadow: 0 0 0 3px var(--haven-accent);
   }
 }
 
 /* The error tile a failed widget renders. It never blanks the dashboard. */
 .haven-widget__error {
-  padding: 0.6rem;
-  font-size: 0.8rem;
+  padding: var(--haven-space-4);
+  color: var(--haven-bad);
+  font-size: 13px;
 }
 
 /* ── Subpages (DESIGN §6.9) ─────────────────────────────────────────────
@@ -235,7 +561,7 @@ body {
 .haven-page {
   max-width: 72rem;
   margin: 0 auto;
-  padding: 1rem;
+  padding: var(--haven-space-6) var(--haven-space-8);
 }
 
 .haven-page[hidden] {
@@ -243,55 +569,66 @@ body {
 }
 
 .page__header {
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--haven-space-6);
 }
 
 .page__back {
-  font-size: 0.8rem;
-  opacity: 0.8;
+  color: var(--haven-fg-secondary);
+  font-size: 13px;
+}
+
+.page__back:hover {
+  color: var(--haven-accent);
 }
 
 .page__title {
-  margin: 0.25rem 0 0;
-  font-size: 1.75rem;
+  margin: var(--haven-space-1) 0 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .page__summary {
-  margin: 0.25rem 0 0;
-  opacity: 0.75;
+  margin: var(--haven-space-1) 0 0;
+  color: var(--haven-fg-secondary);
 }
 
 .page__section {
-  margin-bottom: 2rem;
+  margin-bottom: var(--haven-space-8);
 }
 
 .page__section-title {
-  font-size: 1rem;
+  color: var(--haven-fg-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  opacity: 0.7;
 }
 
 .page__stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: 1rem;
+  gap: var(--haven-space-4);
 }
 
 .page__stat {
   display: flex;
   flex-direction: column;
+  padding: var(--haven-space-4);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius);
+  background: var(--haven-bg-elevated);
 }
 
 .page__stat-value {
-  font-size: 1.75rem;
+  font-size: 28px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
 .page__stat-label {
-  font-size: 0.75rem;
-  opacity: 0.7;
+  color: var(--haven-fg-secondary);
+  font-size: 12px;
 }
 
 .page__table {
@@ -302,21 +639,26 @@ body {
 .page__th,
 .page__td {
   text-align: left;
-  padding: 0.4rem 0.5rem;
-  border-bottom: 1px solid rgb(255 255 255 / 12%);
+  padding: var(--haven-space-3);
+  /* Was a hardcoded white alpha — invisible on a light background. */
+  border-bottom: 1px solid var(--haven-border);
 }
 
 .page__th {
-  font-size: 0.75rem;
-  text-transform: uppercase;
+  color: var(--haven-fg-secondary);
+  font-size: 12px;
+  font-weight: 600;
   letter-spacing: 0.04em;
-  opacity: 0.7;
+  text-transform: uppercase;
 }
 
 .page__empty,
-.page__missing,
+.page__missing {
+  color: var(--haven-fg-secondary);
+}
+
 .page__error {
-  opacity: 0.8;
+  color: var(--haven-bad);
 }
 
 /*
@@ -325,10 +667,12 @@ body {
  * form styling in the whole shell.
  */
 .haven-settings {
-  margin-top: 1rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 15%, transparent);
-  border-radius: 10px;
+  margin-top: var(--haven-space-4);
+  padding: var(--haven-space-4) var(--haven-space-5);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius);
+  background: var(--haven-bg-elevated);
+  box-shadow: var(--haven-shadow);
 }
 
 .haven-settings[hidden] {
@@ -336,56 +680,65 @@ body {
 }
 
 .haven-settings__heading {
-  margin: 0 0 0.75rem;
-  font-size: 0.85rem;
+  margin: 0 0 var(--haven-space-4);
+  color: var(--haven-fg-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .haven-settings__fields {
   display: grid;
-  gap: 0.75rem;
+  gap: var(--haven-space-4);
 }
 
 .haven-settings__field {
   display: grid;
-  gap: 0.2rem;
+  gap: var(--haven-space-1);
 }
 
 .haven-settings__label {
-  font-size: 0.75rem;
-  opacity: 0.85;
+  color: var(--haven-fg-secondary);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .haven-settings__input {
-  padding: 0.35rem 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 20%, transparent);
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
+  min-height: 40px;
+  padding: var(--haven-space-2) var(--haven-space-3);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-sm);
+  /* Both halves from the same theme, deliberately — an input taking its
+     background from a fallback while its text follows the real theme is the
+     near-black-on-near-black bug this stylesheet already shipped once. */
+  background: var(--haven-bg);
+  color: var(--haven-fg);
   font: inherit;
 }
 
 .haven-settings__input:focus-visible,
 .haven-settings__save:focus-visible,
 .haven-settings__cancel:focus-visible {
-  outline: 2px solid #4c8dff;
+  outline: 2px solid var(--haven-focus);
   outline-offset: 2px;
 }
 
 .haven-settings__input[aria-invalid='true'] {
-  border-color: #e2544a;
+  border-color: var(--haven-bad);
 }
 
 .haven-settings__help {
   margin: 0;
-  font-size: 0.7rem;
-  opacity: 0.6;
+  color: var(--haven-muted);
+  font-size: 12px;
 }
 
 /* Errors sit under the field that caused them, not in a list at the bottom. */
 .haven-settings__error {
   margin: 0;
-  font-size: 0.7rem;
-  color: #e2544a;
+  color: var(--haven-bad);
+  font-size: 12px;
 }
 
 .haven-settings__error[hidden],
@@ -394,26 +747,44 @@ body {
 }
 
 .haven-settings__summary {
-  margin: 0.75rem 0 0;
-  font-size: 0.75rem;
-  color: #e2544a;
+  margin: var(--haven-space-4) 0 0;
+  color: var(--haven-bad);
+  font-size: 12px;
 }
 
 .haven-settings__actions {
   display: flex;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
+  gap: var(--haven-space-2);
+  margin-top: var(--haven-space-4);
 }
 
 .haven-settings__save,
 .haven-settings__cancel {
-  padding: 0.35rem 0.8rem;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 20%, transparent);
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
+  min-height: 40px;
+  padding: var(--haven-space-2) var(--haven-space-4);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-sm);
+  background: var(--haven-surface);
+  color: var(--haven-fg);
   font: inherit;
   cursor: pointer;
+}
+
+/* Save is the affirmative action, so it is filled. */
+.haven-settings__save {
+  border-color: var(--haven-accent);
+  background: var(--haven-accent);
+  color: var(--haven-accent-fg);
+  font-weight: 500;
+}
+
+.haven-settings__save:hover {
+  background: var(--haven-accent-hover);
+}
+
+.haven-settings__cancel:hover {
+  border-color: var(--haven-accent);
+  background: var(--haven-surface-hover);
 }
 
 /* ── Global search palette ────────────────────────────────────────────────
@@ -434,7 +805,7 @@ body {
   align-content: start;
   justify-items: center;
   padding-top: 12vh;
-  background: color-mix(in srgb, var(--haven-bg) 70%, transparent);
+  background: rgb(15 20 25 / 72%);
   backdrop-filter: blur(2px);
 }
 
@@ -447,30 +818,32 @@ body {
 
 .haven-search__input {
   width: min(90vw, 34rem);
-  padding: 0.75rem 1rem;
+  min-height: 48px;
+  padding: var(--haven-space-3) var(--haven-space-4);
   border: 1px solid var(--haven-border);
-  border-radius: 10px;
-  background: var(--haven-bg);
+  border-radius: var(--haven-radius);
+  background: var(--haven-bg-elevated);
   color: var(--haven-fg);
   font: inherit;
-  font-size: 1rem;
-  box-shadow: 0 8px 30px color-mix(in srgb, var(--haven-fg) 15%, transparent);
+  font-size: 16px;
+  box-shadow: var(--haven-shadow-lg);
 }
 
 .haven-search__input:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--haven-fg) 45%, transparent);
+  border-color: var(--haven-accent);
+  outline: 2px solid var(--haven-focus);
   outline-offset: 2px;
 }
 
 .haven-search__results {
   width: min(90vw, 34rem);
   max-height: 55vh;
-  margin-top: 0.5rem;
+  margin-top: var(--haven-space-2);
   overflow-y: auto;
   border: 1px solid var(--haven-border);
-  border-radius: 10px;
-  background: var(--haven-bg);
-  box-shadow: 0 8px 30px color-mix(in srgb, var(--haven-fg) 15%, transparent);
+  border-radius: var(--haven-radius);
+  background: var(--haven-bg-elevated);
+  box-shadow: var(--haven-shadow-lg);
 }
 
 .haven-search__results:empty {
@@ -479,16 +852,18 @@ body {
 
 .haven-search__group-label {
   margin: 0;
-  padding: 0.5rem 0.85rem 0.25rem;
-  color: var(--haven-muted);
-  font-size: 0.7rem;
+  padding: var(--haven-space-3) var(--haven-space-4) var(--haven-space-1);
+  color: var(--haven-fg-secondary);
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .haven-search__option {
-  padding: 0.5rem 0.85rem;
+  padding: var(--haven-space-3) var(--haven-space-4);
+  /* 44px minimum touch target — these are tapped on a tablet. */
+  min-height: 44px;
   cursor: pointer;
 }
 
@@ -496,7 +871,7 @@ body {
    and hovering it never disagree about which row is selected. */
 .haven-search__option--active,
 .haven-search__option:hover {
-  background: color-mix(in srgb, var(--haven-fg) 8%, transparent);
+  background: var(--haven-surface-hover);
 }
 
 /* Each part on its own line. They are spans, so without this the title,
@@ -514,8 +889,8 @@ body {
 
 .haven-search__option-subtitle,
 .haven-search__option-hint {
-  color: var(--haven-muted);
-  font-size: 0.8rem;
+  color: var(--haven-fg-secondary);
+  font-size: 13px;
 }
 
 /* The URL is the least important line and the most likely to be long. */
@@ -526,8 +901,8 @@ body {
 }
 
 .haven-search__message {
-  padding: 0.85rem;
-  color: var(--haven-muted);
+  padding: var(--haven-space-4);
+  color: var(--haven-fg-secondary);
 }
 
 /* Announced to screen readers, never shown — the visible list already says

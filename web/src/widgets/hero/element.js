@@ -37,8 +37,9 @@ const ElementBase = globalThis.HTMLElement ?? class {};
 
 const STYLES = `
   :host { display: block; height: 100%; container-type: inline-size; }
-  .hero { position: relative; height: 100%; overflow: hidden; border-radius: 0.5rem;
-          background: #1b1d21; color: #fff; }
+  .hero { position: relative; height: 100%; overflow: hidden;
+          border-radius: var(--haven-radius-sm, 8px);
+          background: var(--haven-surface); color: #fff; }
   .hero__slide { position: absolute; inset: 0; display: flex; flex-direction: column;
                  justify-content: flex-end; gap: 0.25rem; padding: 1rem 1.25rem;
                  text-decoration: none; color: inherit;
@@ -52,12 +53,16 @@ const STYLES = `
   .hero__tagline { font-size: clamp(0.8rem, 2cqw, 1rem); opacity: 0.85; }
   .hero__nav { position: absolute; z-index: 3; bottom: 0.6rem; right: 0.9rem;
                display: flex; gap: 0.35rem; }
+  /* A "display" declaration outranks the UA stylesheet's "[hidden]" rule, so
+     without this the nav stays visible when the element sets hidden — a
+     single-slide hero kept showing its one pointless dot. */
+  .hero__nav[hidden] { display: none; }
   .hero__dot { width: 0.5rem; height: 0.5rem; padding: 0; border: 0; border-radius: 50%;
                background: rgba(255, 255, 255, 0.4); cursor: pointer; }
   .hero__dot[aria-current='true'] { background: #fff; }
   .hero__empty { display: flex; align-items: center; justify-content: center;
-                 height: 100%; opacity: 0.7; font-size: 0.9rem; }
-  .hero__error { padding: 0.75rem; font-size: 0.85rem; }
+                 height: 100%; color: var(--haven-fg-secondary); font-size: 0.9rem; }
+  .hero__error { padding: 0.75rem; color: var(--haven-bad); font-size: 0.85rem; }
   .hero__error pre { overflow: auto; font-size: 0.7rem; opacity: 0.8; }
 
   /*

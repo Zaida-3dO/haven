@@ -425,6 +425,30 @@ body {
   transition: opacity 120ms ease;
 }
 
+/* The host's own tile element, mounted inside the body by `WidgetHost.mount`.
+ *
+ * ── Why this rule has to exist ───────────────────────────────────────────
+ * It is `display: block` with `height: auto` by default, so its height comes
+ * from its children. That is fine for a widget whose content is intrinsically
+ * tall — the apps grid sizes itself and the div grows to fit.
+ *
+ * It is fatal for a widget that sizes itself to its container. The hero sets
+ * `:host { height: 100% }`, and a percentage height resolves against the
+ * parent's height — which is `auto` here, so the percentage has nothing to
+ * resolve against and computes to zero. Parent waits on child, child waits on
+ * parent, and the hero rendered a complete, correct carousel into a box 0px
+ * tall. Nothing threw and nothing was missing from the DOM; it simply had no
+ * height to paint into, which is why the tile looked empty.
+ *
+ * Giving the tile the body's full height breaks the cycle: `height: 100%`
+ * against a `.haven-widget__body` that is already sized by `flex: 1`. A widget
+ * that sizes to its container now has a container to size to, and one that
+ * sizes to its content is unaffected — `overflow: auto` on the body still
+ * scrolls anything taller. */
+.haven-widget {
+  height: 100%;
+}
+
 /* View mode: nothing moves, and none of the editing affordances are shown. */
 .haven-widget__controls {
   display: none;

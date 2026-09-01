@@ -46,7 +46,12 @@
   /* ── Text ───────────────────────────────────────────────────────────── */
   --haven-fg: #ffffff;
   --haven-fg-secondary: #9ca3af;
-  --haven-muted: #6b7280;
+  /* Lighter than the palette this was taken from, deliberately. The original
+     dashboard's #6b7280 is 2.96:1 against a card in dark mode — below the AA
+     4.5 bar — and it IS used for real text (help lines, version tags, the
+     search hint), not just hairlines. #9099a6 is 4.97:1 on a card and still
+     reads as the quietest thing on screen. */
+  --haven-muted: #9099a6;
 
   /* ── Lines and accent ───────────────────────────────────────────────── */
   --haven-border: #374151;

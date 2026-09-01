@@ -76,7 +76,11 @@ export const STYLES = `
     border: 1px solid var(--haven-border, #3c4043);
     border-radius: 6px;
     background: var(--haven-surface, #202124);
-    color: inherit;
+    /* Both halves come from the same theme, deliberately. Taking the text
+       via color:inherit while the background came from the fallback above
+       rendered this near-black on near-black in a light theme. Pin the
+       pair so they cannot come from different places again. */
+    color: var(--haven-fg, #e8e8ea);
     font: inherit;
     font-size: 0.8rem;
   }

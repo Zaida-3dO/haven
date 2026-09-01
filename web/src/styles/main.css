@@ -2,10 +2,28 @@
    Imported here rather than in JS so the shell keeps a single stylesheet. */
 @import 'gridstack/dist/gridstack.css';
 
+/* The theme, as tokens.
+ *
+ * `--haven-surface` and `--haven-border` are derived from `--haven-fg` rather
+ * than hardcoded, so they follow the theme automatically and there is no
+ * second palette to keep in sync.
+ *
+ * They exist because widgets were already referencing them. A widget writing
+ * `var(--haven-surface, #202124)` against an undefined token silently got the
+ * fallback — a DARK surface — while its text followed the real light theme,
+ * which rendered the apps widget's sort control as near-black on near-black
+ * and made it completely unreadable. Nothing caught it: unit tests run against
+ * a fake DOM with no CSS, so the first thing to notice was a browser.
+ *
+ * Define a token before a widget can reach for it. A fallback that only ever
+ * applies when the design is broken is not a safety net; it is a disguise. */
 :root {
   color-scheme: light dark;
   --haven-bg: #f7f7f8;
   --haven-fg: #16161a;
+  --haven-surface: color-mix(in srgb, var(--haven-fg) 4%, var(--haven-bg));
+  --haven-border: color-mix(in srgb, var(--haven-fg) 20%, transparent);
+  --haven-muted: color-mix(in srgb, var(--haven-fg) 62%, transparent);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -396,4 +414,129 @@ body {
   color: inherit;
   font: inherit;
   cursor: pointer;
+}
+
+/* ── Global search palette ────────────────────────────────────────────────
+ *
+ * `SearchUI` renders into the light DOM and carries no styles of its own, so
+ * without these it draws as a bare input in the page flow — which is exactly
+ * how it shipped: functional, focusable, returning correct grouped results,
+ * and visually indistinguishable from a stray form field at the bottom of the
+ * page. Behaviour was tested; appearance had never been looked at.
+ */
+
+.haven-search {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  /* Just above centre — a centred overlay sits low once results push it down. */
+  align-content: start;
+  justify-items: center;
+  padding-top: 12vh;
+  background: color-mix(in srgb, var(--haven-bg) 70%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+/* Closed is the default: the element stays mounted so the shortcut and its
+   ARIA wiring survive, and only visibility changes. */
+.haven-search[hidden],
+.haven-search[data-state='closed'] {
+  display: none;
+}
+
+.haven-search__input {
+  width: min(90vw, 34rem);
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--haven-border);
+  border-radius: 10px;
+  background: var(--haven-bg);
+  color: var(--haven-fg);
+  font: inherit;
+  font-size: 1rem;
+  box-shadow: 0 8px 30px color-mix(in srgb, var(--haven-fg) 15%, transparent);
+}
+
+.haven-search__input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--haven-fg) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.haven-search__results {
+  width: min(90vw, 34rem);
+  max-height: 55vh;
+  margin-top: 0.5rem;
+  overflow-y: auto;
+  border: 1px solid var(--haven-border);
+  border-radius: 10px;
+  background: var(--haven-bg);
+  box-shadow: 0 8px 30px color-mix(in srgb, var(--haven-fg) 15%, transparent);
+}
+
+.haven-search__results:empty {
+  display: none;
+}
+
+.haven-search__group-label {
+  margin: 0;
+  padding: 0.5rem 0.85rem 0.25rem;
+  color: var(--haven-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.haven-search__option {
+  padding: 0.5rem 0.85rem;
+  cursor: pointer;
+}
+
+/* Keyboard and pointer highlight the same way, so arrowing through the list
+   and hovering it never disagree about which row is selected. */
+.haven-search__option--active,
+.haven-search__option:hover {
+  background: color-mix(in srgb, var(--haven-fg) 8%, transparent);
+}
+
+/* Each part on its own line. They are spans, so without this the title,
+   subtitle and URL run together as one unreadable string —
+   "JellyfinMedia serverhttps://…". */
+.haven-search__option-title,
+.haven-search__option-subtitle,
+.haven-search__option-hint {
+  display: block;
+}
+
+.haven-search__option-title {
+  font-weight: 500;
+}
+
+.haven-search__option-subtitle,
+.haven-search__option-hint {
+  color: var(--haven-muted);
+  font-size: 0.8rem;
+}
+
+/* The URL is the least important line and the most likely to be long. */
+.haven-search__option-hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.haven-search__message {
+  padding: 0.85rem;
+  color: var(--haven-muted);
+}
+
+/* Announced to screen readers, never shown — the visible list already says
+   what it says. */
+.haven-search__status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

@@ -173,12 +173,23 @@ export async function main(argv, { log = console.log, error = console.error } = 
 
 // Only run when invoked directly, so the pieces can be imported by tests —
 // the same guard `migrate-apps.mjs` uses.
+//
+// `process.exitCode` rather than `process.exit()`, deliberately. `fetch`'s
+// underlying sockets are still closing when the last await resolves, and
+// calling `process.exit()` on top of them aborts the process from inside libuv
+// (`Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)`) with status 127 —
+// on a run that SUCCEEDED. That would be worse than cosmetic: the one thing a
+// script wrapping this tool reads is the exit status, so a successful seed
+// reporting 127 breaks exactly the automation the tool exists for. Setting the
+// code and letting Node exit on its own drains the sockets first.
 if (process.argv[1] && process.argv[1].endsWith('haven-seed.mjs')) {
   main(process.argv.slice(2)).then(
-    (code) => process.exit(code),
+    (code) => {
+      process.exitCode = code;
+    },
     (err) => {
       console.error(`Seed failed: ${err.message}`);
-      process.exit(1);
+      process.exitCode = 1;
     }
   );
 }

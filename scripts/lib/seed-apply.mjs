@@ -28,9 +28,11 @@ import { dirname, resolve } from 'node:path';
 import { migrateRegistry } from '../migrate-apps.mjs';
 import { planApps, planInstances, planLayout } from './seed-plan.mjs';
 import {
+  SECRET_SET,
   SEED_VERSION,
   SeedValidationError,
   layoutReferences,
+  stripAnnotations,
   stripServerOwned,
   validateSeed,
 } from './seed-schema.mjs';
@@ -51,7 +53,10 @@ export function resolveSeed(doc) {
 
   const iconFiles = new Map();
   const forMigration = apps.map((app) => {
-    const { iconFile, ...rest } = app;
+    // `$comment` is stripped BEFORE the migration rather than after, so a file
+    // that documents itself does not get its own prose reported back as an
+    // unmapped unknown field.
+    const { iconFile, ...rest } = stripAnnotations(app);
     if (iconFile) iconFiles.set(app.id, iconFile);
     return rest;
   });
@@ -63,7 +68,12 @@ export function resolveSeed(doc) {
     ...(iconFiles.has(app.id) ? { iconFile: iconFiles.get(app.id) } : {}),
   }));
 
-  return { apps: resolvedApps, instances, layout, migration: report };
+  return {
+    apps: resolvedApps,
+    instances: instances.map(stripAnnotations),
+    layout,
+    migration: report,
+  };
 }
 
 /**
@@ -299,7 +309,25 @@ export async function exportSeed(client) {
       if (clean.icon === null) delete clean.icon;
       return clean;
     }),
-    instances: instances.map((instance) => stripServerOwned(instance)),
+    instances: instances.map((instance) => {
+      const clean = stripServerOwned(instance);
+
+      // Re-declare `secretKeys` from the sentinels the API returned.
+      //
+      // This is not cosmetic. `secretKeys` is what tells the server which
+      // config keys to route to the credential store; without it a later
+      // update treats the key as an ordinary field, and since `apply` strips
+      // the sentinel from the payload the key simply vanishes from the config
+      // blob. The credential itself survives in the store, orphaned, while the
+      // widget stops knowing a secret is set at all — a silent
+      // de-configuration that an exported-then-edited file would cause on the
+      // first unrelated change.
+      const secretKeys = Object.entries(clean.config ?? {})
+        .filter(([, value]) => value === SECRET_SET)
+        .map(([key]) => key);
+
+      return secretKeys.length ? { ...clean, secretKeys } : clean;
+    }),
     layout: {},
   };
 

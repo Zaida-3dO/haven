@@ -9,6 +9,7 @@ Three places, deliberately separated. See [SECURITY.md](SECURITY.md) for why.
 | Preferences | `config/settings.json` | No — `config/settings.example.json` ships defaults |
 | Running versions | `config/container-versions.json` | No — written by a refresher, not by hand |
 | Layout & widget state | SQLite on `/data` | No |
+| A whole dashboard | `config/dashboard.json` | No — `config/dashboard.example.json` ships `.invalid` entries. See [Seeding](#seeding-a-whole-dashboard--scriptshaven-seedmjs) |
 
 ```bash
 cp .env.example .env
@@ -225,4 +226,119 @@ Layout is **not** a config file — it's edited in the app (edit mode) and store
 in SQLite. Desktop and mobile are edited and stored separately; there is no
 auto-reflow, because a phone layout nobody chose is worse than no phone layout.
 
-Back it up by backing up `/data`.
+Back it up by backing up `/data` — or capture it as a file with
+`haven-seed.mjs export`, below, which is the only way to get a layout you
+arranged by hand into something you can diff, keep, and replay onto another
+install.
+
+## Seeding a whole dashboard — `scripts/haven-seed.mjs`
+
+Everything above configures one thing at a time. `haven-seed.mjs` does the
+other direction: one declarative file describing a **whole** dashboard — apps,
+widget instances, and layout — applied in one command.
+
+```bash
+# Apply a dashboard
+node scripts/haven-seed.mjs apply --file config/dashboard.json --base-url http://localhost:8480
+
+# See what would change, change nothing
+node scripts/haven-seed.mjs apply --file config/dashboard.json --dry-run
+
+# Capture a running Haven back into the same format
+node scripts/haven-seed.mjs export --out config/dashboard.json
+```
+
+`--base-url` defaults to `http://localhost:8480`, or `$HAVEN_BASE_URL`.
+
+> ### ⚠️ Never commit a real seed file
+>
+> This is the single most dangerous file in this repo to commit — more so than
+> `apps.json`, because it maps not only every service URL but every widget's
+> configured endpoint too. `config/*.json` is gitignored for exactly this
+> reason.
+>
+> Keep yours at `config/dashboard.json`. Commit only
+> `config/dashboard.example.json`, whose hostnames are all `.invalid`.
+> `scripts/check-no-secrets.sh` enforces the structural half of this; the rest
+> is you. See [SECURITY.md](SECURITY.md).
+
+### The file
+
+Three sections, one per API — `apps` → `/api/apps`, `instances` →
+`/api/instances`, `layout` → `/api/layout`. All three are optional. A full
+example is `config/dashboard.example.json`.
+
+```json
+{
+  "version": 1,
+  "apps": [
+    {
+      "id": "example-service",
+      "name": "Example Service",
+      "category": "tools",
+      "iconFile": "./icons/example-service.png",
+      "urls": [{ "title": "Open", "url": "https://example.invalid", "primary": true }]
+    }
+  ],
+  "instances": [{ "id": "clock-local", "type": "clock", "config": { "label": "Local time" } }],
+  "layout": {
+    "desktop": [{ "id": "clock-local", "x": 0, "y": 0, "w": 3, "h": 2 }]
+  }
+}
+```
+
+An `apps` entry may **also** be written in the old dashboard's shape — `url`,
+`localUrl`, `localIpUrl`, `remoteUrl`, `tailscaleUrl`, `releasesUrl` — and is
+mapped through [`scripts/migrate-apps.mjs`](../scripts/migrate-apps.mjs), the
+same code and the same probe ordering the standalone migration uses. One file
+may mix both shapes, so an existing `apps.json` can be pasted in whole rather
+than converted first.
+
+`$comment` is allowed on any entry and is stripped before anything is sent.
+
+### It converges rather than duplicating
+
+Applying twice is safe and is the intended workflow. Each item is compared
+against what the server holds and reported as **created**, **updated**,
+**skipped** or **failed**; an unchanged file is entirely skipped. So the way to
+fix a partly-failed run is to fix the one item and run the same command again.
+
+Exit status is non-zero if anything failed. A failure stops the run before the
+next *section* — sections depend on each other in order (apps → icons →
+instances → layout) — but everything already applied is listed by name, so a
+partial application is always legible rather than silent.
+
+A layout node naming an instance that neither the file nor the server defines
+is rejected **before anything is written**, rather than half-arranging the
+dashboard and failing at the end.
+
+### Icons
+
+`iconFile` is a path to a local image, resolved relative to the seed file, and
+uploaded via `POST /api/apps/:id/icon`. **A missing file is skipped, not a
+failure** — seed files get shared without their image assets, and a missing
+decoration should not stop a dashboard from being seeded. A file that exists
+but is rejected (wrong type, too large) *is* a failure.
+
+Do not confuse it with `icon`, which is the bare filename already stored on the
+app. `export` writes `icon`; only `iconFile` triggers an upload.
+
+### Secrets are never exported and never overwritten
+
+A widget config field named in `secretKeys` is encrypted server-side and stored
+outside the config blob. **The API never returns it** — it returns the sentinel
+`__haven_secret_set__`, meaning only "a value is set".
+
+So the round trip holds this line, matching what the settings panel does in the
+browser:
+
+- `export` writes the sentinel. It never invents a value it cannot see, and
+  never writes a placeholder that would overwrite a real credential.
+- `apply` **omits** a key whose value is the sentinel, so the server keeps what
+  it already has. Sending the sentinel back would store that literal string as
+  the credential; sending `""` would delete it.
+- To **set** a secret, put the real value in the file, apply once, then remove
+  the line. To **clear** one deliberately, set it to `""`.
+
+This means a seed file never needs to contain a credential, which is the whole
+reason the tool is safe to keep in `config/` and to hand to someone else.

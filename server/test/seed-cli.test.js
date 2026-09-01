@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -568,4 +568,159 @@ test('an empty document is valid — every section is optional', () => {
   assert.deepEqual(apps, []);
   assert.deepEqual(instances, []);
   assert.deepEqual(layout, {});
+});
+
+/**
+ * Regression: instances whose `sortOrder` the file does not state.
+ *
+ * `create` assigns the next free slot, so a four-instance file ends up with
+ * 0,1,2,3 on the server while the file states none of them. Comparing an
+ * unstated sortOrder against a default of 0 made three of those four re-PUT
+ * themselves on every run — converging on the right data, but rewriting the
+ * roster forever and reporting "updated" when nothing had changed.
+ */
+test('instances with no stated sortOrder are skipped on re-apply, not rewritten', async (t) => {
+  const { client } = await freshHaven(t);
+
+  const doc = seedDoc({
+    apps: [],
+    layout: {},
+    instances: [
+      { id: 'first', type: 'clock', config: {} },
+      { id: 'second', type: 'clock', config: {} },
+      { id: 'third', type: 'clock', config: {} },
+      { id: 'fourth', type: 'clock', config: {} },
+    ],
+  });
+
+  await applySeed({ client, doc });
+  const second = await applySeed({ client, doc });
+
+  assert.deepEqual(
+    second.results.map((r) => r.action),
+    ['skipped', 'skipped', 'skipped', 'skipped'],
+    'an unstated sortOrder means "wherever it already is", not position 0'
+  );
+});
+
+/**
+ * Regression: `$comment` is the convention every config/*.example.json here
+ * uses to explain itself, and the seed file is the one most in need of it.
+ * Left in the payload it reaches the API as an unexpected field and is
+ * reported as an unmapped unknown — the file's own documentation showing up
+ * as a warning about the file.
+ */
+test('$comment annotations are stripped and never reach the API', async (t) => {
+  const { client } = await freshHaven(t);
+
+  const result = await applySeed({
+    client,
+    doc: seedDoc({
+      apps: [{ ...app1, $comment: 'why this app is here' }],
+      instances: [{ id: 'clock-local', type: 'clock', config: {}, $comment: 'a note' }],
+      layout: {},
+    }),
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.migration.unknown, [], '$comment must not be reported as unmapped');
+
+  const [app] = await client.listApps();
+  assert.ok(!('$comment' in app), 'the annotation must not be stored');
+});
+
+/**
+ * The shipped example must actually work. An example file that fails to apply
+ * is worse than none: it is the first thing anyone runs, and it is what they
+ * copy. This applies it twice — once to prove it lands, once to prove the
+ * shipped file is genuinely idempotent rather than idempotent-in-theory.
+ */
+test('config/dashboard.example.json applies cleanly and is idempotent', async (t) => {
+  const { client } = await freshHaven(t);
+
+  const doc = JSON.parse(
+    await readFile(new URL('../../config/dashboard.example.json', import.meta.url), 'utf8')
+  );
+
+  const first = await applySeed({ client, doc, baseDir: 'config' });
+  assert.equal(first.ok, true, JSON.stringify(first.results.filter((r) => r.action === 'failed')));
+
+  const second = await applySeed({ client, doc, baseDir: 'config' });
+  assert.ok(
+    second.results.every((r) => r.action === 'skipped'),
+    `the shipped example must re-apply clean, got: ${JSON.stringify(
+      second.results.filter((r) => r.action !== 'skipped')
+    )}`
+  );
+});
+
+/**
+ * The secret test that actually bites.
+ *
+ * The round-trip test above is necessary but NOT sufficient, and it is worth
+ * saying why in the file: an unchanged instance is judged `skipped`, so no PUT
+ * is sent and no wipe *can* happen. It passes even against a build that would
+ * wipe the credential — mutation testing showed exactly that.
+ *
+ * The hazard needs an UPDATE, which is the realistic case: export the
+ * dashboard, rename a widget's title, re-apply. That fires a PUT carrying the
+ * whole config, sentinel included, and everything the secret contract is for
+ * has to hold on that one request.
+ *
+ * Two distinct ways it can go wrong, asserted separately:
+ *   - the credential is wiped or replaced by the sentinel string
+ *   - the sentinel is dropped from the config blob, orphaning a credential
+ *     that still exists while the widget stops knowing a secret is set
+ */
+test('editing an unrelated field does not disturb a stored secret', async (t) => {
+  const { client, credentials } = await freshHaven(t);
+
+  await applySeed({
+    client,
+    doc: seedDoc({
+      apps: [],
+      layout: {},
+      instances: [
+        {
+          id: 'private-feed',
+          type: 'calendar',
+          config: { title: 'Calendar', icsUrl: 'https://calendar.invalid/feed.ics' },
+          secretKeys: ['icsUrl'],
+        },
+      ],
+    }),
+  });
+
+  const name = secretName('private-feed', 'icsUrl');
+
+  const exported = await exportSeed(client);
+  assert.deepEqual(
+    exported.instances[0].secretKeys,
+    ['icsUrl'],
+    'export must re-declare secretKeys, or a later update routes the key as an ordinary field'
+  );
+
+  // The realistic edit: change something else entirely.
+  exported.instances[0].config.title = 'Renamed Calendar';
+
+  const result = await applySeed({ client, doc: exported });
+  assert.deepEqual(
+    result.results.filter((r) => r.kind === 'instance').map((r) => r.action),
+    ['updated'],
+    'this test is only meaningful if it actually fires a PUT'
+  );
+
+  assert.equal(
+    credentials.get(name),
+    'https://calendar.invalid/feed.ics',
+    'the stored credential must survive an unrelated edit'
+  );
+
+  const [live] = await client.listInstances();
+  assert.equal(live.config.title, 'Renamed Calendar', 'the intended edit must land');
+  assert.equal(
+    live.config.icsUrl,
+    SECRET_SET,
+    'the sentinel must remain, or the widget stops knowing a secret is set'
+  );
 });

@@ -188,8 +188,27 @@ export function layoutReferences(layout) {
  */
 const SERVER_OWNED = ['visitCount', 'createdAt', 'updatedAt'];
 
+/**
+ * Annotation keys, stripped everywhere.
+ *
+ * `$comment` is the convention every `config/*.example.json` in this repo
+ * already uses to explain itself, and a seed file is the one most in need of
+ * explaining — so it has to survive being read and then NOT be sent to the
+ * API. Left in, it reaches `POST /api/apps` as an unexpected field and shows
+ * up in the migration report as an unknown mapping, which is noise about the
+ * file's own documentation.
+ */
+const ANNOTATIONS = ['$comment', '$schema'];
+
 export function stripServerOwned(entry) {
   const rest = { ...entry };
-  for (const key of SERVER_OWNED) delete rest[key];
+  for (const key of [...SERVER_OWNED, ...ANNOTATIONS]) delete rest[key];
+  return rest;
+}
+
+/** Drops annotation keys only — used before the old-shape migration runs. */
+export function stripAnnotations(entry) {
+  const rest = { ...entry };
+  for (const key of ANNOTATIONS) delete rest[key];
   return rest;
 }

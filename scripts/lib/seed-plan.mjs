@@ -115,8 +115,16 @@ export function normaliseApp(app) {
  * — which is the only thing that can be known about it. Without this, a file
  * exported from a server with a stored secret would show that instance as
  * changed on every single apply, forever.
+ *
+ * `fallbackSortOrder` matters as much. A file that says nothing about
+ * placement is not asking for position 0 — `create` assigns the next free
+ * slot and `update` explicitly keeps the existing one, so an unstated
+ * `sortOrder` means "wherever it already is". Defaulting it to 0 here instead
+ * made every instance in a file that omits it compare unequal to a server that
+ * had assigned 1, 2, 3 — three of the four instances in the example file
+ * re-PUT themselves on every single run before this was fixed.
  */
-export function normaliseInstance(instance, secretKeys = new Set()) {
+export function normaliseInstance(instance, secretKeys = new Set(), fallbackSortOrder = 0) {
   const config = {};
   for (const [key, value] of Object.entries(instance.config ?? {})) {
     config[key] = secretKeys.has(key) ? SECRET_SET : value;
@@ -126,7 +134,7 @@ export function normaliseInstance(instance, secretKeys = new Set()) {
     type: instance.type,
     config,
     configVersion: instance.configVersion ?? 1,
-    sortOrder: instance.sortOrder ?? 0,
+    sortOrder: instance.sortOrder ?? fallbackSortOrder,
   };
 }
 
@@ -202,7 +210,10 @@ export function planInstances(desiredInstances, liveInstances) {
 
     const action = !live
       ? 'create'
-      : sameJson(normaliseInstance(instance, secretKeys), normaliseInstance(live, secretKeys))
+      : sameJson(
+            normaliseInstance(instance, secretKeys, live.sortOrder),
+            normaliseInstance(live, secretKeys, live.sortOrder)
+          )
         ? 'skip'
         : 'update';
 

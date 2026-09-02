@@ -21,7 +21,13 @@ export async function registerWidgetRoutes(app, opts = {}) {
   const weather =
     opts.weatherConnector ??
     createWeatherConnector({
-      settings: () => settings,
+      // `settings.weather`, not `settings`. The connector destructures
+      // `latitude`/`longitude` straight off what this returns, and they live
+      // under the `weather` key — so handing it the whole object made every
+      // deployment report `missing_location` with a perfectly valid
+      // settings.json sitting on disk, and the hint told the user to set
+      // fields they had already set.
+      settings: () => settings.weather,
       logger: app.log,
       ...opts.weatherOptions,
     });

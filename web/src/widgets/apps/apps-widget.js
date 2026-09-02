@@ -35,6 +35,7 @@ import { registry } from '../../shell/registry.js';
 import { STATUS, StatusTracker } from '../../lib/status.js';
 import { ALL_CATEGORY, CATEGORIES, SORT, SORT_OPTIONS, buildView } from './model.js';
 import { STYLES } from './styles.js';
+import { transparentField, TRANSPARENT_KEY } from '../../shell/transparent.js';
 
 export const WIDGET_TYPE = 'apps';
 export const WIDGET_TAG = 'haven-widget-apps';
@@ -88,6 +89,9 @@ export const APPS_CONFIG_SCHEMA = Object.freeze([
     max: 3_600_000,
     help: 'How long a reachability result is trusted before the next refresh re-probes.',
   },
+  // Default ON: the apps grid IS the front page. Its cards carry their own
+  // borders, so a second border around the whole grid is a box inside a box.
+  transparentField(true),
 ]);
 
 /**
@@ -701,6 +705,7 @@ export const appsWidgetDefinition = {
     sort: SORT.VISITS,
     showVersions: 'on',
     statusTtlMs: 60_000,
+    [TRANSPARENT_KEY]: true,
   }),
 };
 

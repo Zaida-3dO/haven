@@ -178,6 +178,18 @@ body {
   align-items: center;
   gap: var(--haven-space-6);
   height: var(--haven-header-height);
+  /* The border must be INSIDE the declared height.
+   *
+   * There is no global `border-box` reset in this stylesheet, so the header's
+   * default `content-box` sizing made it 70px tall PLUS a 1px bottom border —
+   * 71px on screen. The layout below it is sized `calc(100vh - 70px)`, so the
+   * two together came to 101vh and the page scrolled by exactly one pixel:
+   * enough to produce a scrollbar and to nudge the bottom-pinned Server Status
+   * card one pixel below the fold, which is the one thing this layout exists
+   * to prevent. Scoped to the header rather than fixed with a global reset,
+   * because a global `box-sizing` change would silently resize every padded
+   * element on the page. */
+  box-sizing: border-box;
   padding: 0 var(--haven-space-8);
   border-bottom: 1px solid var(--haven-border);
   background: var(--haven-bg-elevated);
@@ -412,13 +424,30 @@ body {
  * and the grid takes whatever is left, which is what stops the sidebar
  * shrinking as the app grid gets denser.
  *
- * `min-height` rather than `height`: the grid can be taller than the viewport
- * and must scroll the page, not overflow a fixed box. */
+ * ── Why the layout owns the scroll, and the PAGE does not ────────────────
+ * The sidebar must be full height and must not scroll: Server Status is
+ * pinned to its bottom and is meant to be glanceable at all times, and when
+ * the whole page scrolled it was the first thing to leave the screen.
+ *
+ * The fix is to move the scrollport off the document and onto the grid
+ * column. `height` (not `min-height`) pins the layout to exactly the space
+ * under the header, `overflow: hidden` stops a tall grid from stretching it,
+ * and `#haven-chrome` below takes `overflow-y: auto` — so a long app grid
+ * scrolls inside its own column while the sidebar beside it does not move.
+ * The sidebar then fills the row by default (`align-items: stretch`) and its
+ * `margin-top: auto` pin lands on the real viewport bottom.
+ *
+ * A consequence worth naming: `.haven-header` is `position: sticky`, which
+ * needs a scrolling ancestor to do anything. There no longer is one, so the
+ * sticky is inert — and the header stays put anyway, because the body no
+ * longer scrolls at all. It is left as-is rather than removed so the mobile
+ * branch below, where the page DOES scroll again, keeps working. */
 
 .haven-layout {
   display: grid;
   grid-template-columns: 1fr var(--haven-sidebar-width);
-  min-height: calc(100vh - var(--haven-header-height));
+  height: calc(100vh - var(--haven-header-height));
+  overflow: hidden;
 }
 
 /* The grid column must be allowed to be narrower than its content.
@@ -430,6 +459,14 @@ body {
  * the `1fr` track actually mean "the space that is left". */
 .haven-layout > #haven-chrome {
   min-width: 0;
+  /* The scrollport. This column is the ONLY thing on the page that scrolls
+     above 1024px, which is what keeps the sidebar fixed beside it. */
+  overflow-y: auto;
+  /* A grid item's default `min-height` is `auto` too, so without this the
+     column grows to its content's height and overflows the fixed-height
+     layout instead of scrolling inside it — the scrollbar would simply never
+     appear. Same trap as `min-width` above, on the other axis. */
+  min-height: 0;
 }
 
 /* ── The sidebar ─────────────────────────────────────────────────────────
@@ -444,6 +481,14 @@ body {
   padding: var(--haven-space-6);
   border-left: 1px solid var(--haven-border);
   background: var(--haven-bg-elevated);
+  /* Full height, never its own scrollbar. The whole point of pinning Server
+     Status to the bottom is that it is visible without scrolling; a sidebar
+     that scrolled internally would hide it again just as effectively as a
+     scrolling page did. If the cards ever outgrow the viewport they are
+     clipped, which is a visible prompt to remove one rather than a silent
+     hiding place. */
+  min-height: 0;
+  overflow: hidden;
 }
 
 .haven-sidebar__card {
@@ -484,17 +529,52 @@ body {
   min-width: 0;
 }
 
+/* ── The 3D home card needs an explicit height ───────────────────────────
+ *
+ * This is the SAME trap `percentage-height-contract.test.js` was written for,
+ * arriving in a new place. The iframe widget sets `:host { height: 100% }`,
+ * and a percentage height resolves against the parent's height. A sidebar
+ * card body is `height: auto` — its height comes from its children — so the
+ * percentage has nothing to resolve against and computes to zero. The 3D
+ * home would load, render its scene correctly, and paint into a 0px box.
+ *
+ * Every other sidebar widget is intrinsically tall (a forecast, an event
+ * list, a server list) and grows the body on its own, which is why no card
+ * has needed this until now. The 3D home is the first sidebar widget that
+ * sizes itself to its container, so it is the first that needs the container
+ * to have a size.
+ *
+ * 200px is chosen to match the live dashboard's own 3D home card and to fit
+ * alongside weather, calendar and a bottom-pinned status card in a 900px
+ * viewport without pushing the pin off screen. */
+.haven-sidebar__card--home3d .haven-sidebar__body {
+  height: 200px;
+}
+
 /* Below 1024px the sidebar stops being a column and stacks under the grid,
    losing its left border — matching the live dashboard's own breakpoint. A
    320px fixed track on a tablet leaves the app grid too narrow to be useful. */
 @media (max-width: 1024px) {
   .haven-layout {
     grid-template-columns: 1fr;
+    /* Back to a normal document flow: stacked, the two columns together are
+       taller than the viewport by definition, so the PAGE scrolls again and
+       the layout must be free to grow. A pinned full-height sidebar on a
+       phone would be a fixed panel you could never scroll past. */
+    height: auto;
+    min-height: calc(100vh - var(--haven-header-height));
+    overflow: visible;
+  }
+
+  /* The column stops being a scrollport; the document is the scrollport. */
+  .haven-layout > #haven-chrome {
+    overflow-y: visible;
   }
 
   .haven-sidebar {
     border-left: none;
     border-top: 1px solid var(--haven-border);
+    overflow: visible;
   }
 
   /* Nothing to pin to when the column is as tall as its contents. */
@@ -727,6 +807,56 @@ body {
 .haven-grid--edit-mode .haven-widget-tile {
   border-style: dashed;
   border-color: var(--haven-accent);
+}
+
+/* ── The transparent background option ───────────────────────────────────
+ *
+ * A per-widget config field, defaulting ON for the hero and the apps grid.
+ * See `web/src/shell/transparent.js` for why it is an option rather than two
+ * hardcoded exceptions.
+ *
+ * The dashboard Haven replaces draws its hero and its app grid straight onto
+ * the page: no border, no panel, no shadow. Ours wrapped both in a card, and
+ * the apps grid in particular ended up a bordered box full of bordered
+ * cards. This strips the tile back to a bare container.
+ *
+ * `background: none` rather than `transparent`: the tile sets a `background`
+ * shorthand, so a longhand `background-color` would leave any future image
+ * or gradient behind. The padding goes too — the tile's own padding is card
+ * padding, and a full-bleed banner inset by 16px is not full-bleed.
+ *
+ * NOTE this deliberately does NOT touch `overflow: hidden` on the tile. The
+ * hero clips its carousel to the tile's rounded corners, and a transparent
+ * tile still needs to clip. */
+.haven-widget-tile--transparent {
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+.haven-widget-tile--transparent .haven-widget__body {
+  padding: 0;
+}
+
+/* ── ...but ONLY in view mode ────────────────────────────────────────────
+ *
+ * Edit mode puts the chrome back, and that is the whole reason this is safe.
+ * A tile you cannot see is a tile you cannot drag, resize or aim a drop at —
+ * and with the option defaulting on for BOTH the hero and the apps grid, the
+ * two largest tiles on the dashboard would be invisible drop targets at
+ * once. The dashed accent border above is what you grab.
+ *
+ * The specificity works out because `.haven-grid--edit-mode .haven-widget-tile`
+ * is two classes against the single class above; the padding rule needs the
+ * same treatment or the body stays flush while the border returns. */
+.haven-grid--edit-mode .haven-widget-tile--transparent {
+  border-color: var(--haven-accent);
+  background: var(--haven-bg-elevated);
+  box-shadow: var(--haven-shadow);
+}
+
+.haven-grid--edit-mode .haven-widget-tile--transparent .haven-widget__body {
+  padding: var(--haven-space-4);
 }
 
 .haven-widget__control {

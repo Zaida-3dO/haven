@@ -6,6 +6,8 @@
  * data source can be asserted in a plain Node test.
  */
 
+import { transparentField, TRANSPARENT_KEY } from '../../shell/transparent.js';
+
 export const HERO_WIDGET_TYPE = 'hero';
 export const HERO_WIDGET_TAG = 'haven-widget-hero';
 
@@ -65,11 +67,15 @@ export const heroWidget = {
         { value: false, label: 'No' },
       ],
     },
+    // Default ON: the hero is a full-bleed banner, and the dashboard Haven
+    // replaces draws it straight onto the page with no card around it.
+    transparentField(true),
   ],
   /** "Add widget" must produce something that works immediately. */
   getStubConfig: () => ({
     rotateSeconds: DEFAULT_ROTATE_SECONDS,
     showTagline: true,
+    [TRANSPARENT_KEY]: true,
   }),
   /** How the host turns a config into a request. */
   dataSource: () => ({ key: HERO_FETCH_KEY, url: HERO_ENDPOINT }),

@@ -72,6 +72,12 @@ test('every shell module with a default-ish entry point is reachable from boot',
     'clock-source.js',
     'roster.js',
     'page-dom.js',
+    // The transparent-background option. Imported by `dashboard-grid.js`
+    // (which applies the class) and by the hero and apps definitions (which
+    // declare the field), never by boot — there is nothing for boot to wire.
+    // It is not unreachable: `transparent-option-contract.test.js` asserts
+    // all three of those consumers, which is the real guard here.
+    'transparent.js',
   ]);
 
   const unwired = readdirSync(shellDir)

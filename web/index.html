@@ -7,11 +7,18 @@
     <link rel="stylesheet" href="/src/styles/main.css" />
   </head>
   <body>
-    <div id="haven-chrome">
-      <div id="haven-grid" class="grid-stack"></div>
-      <!-- Subpages render here; the grid above stays mounted underneath so a
-           trip to a page does not reload every embed on the board. -->
-      <main id="haven-page" class="haven-page" hidden></main>
+    <!-- The two-part layout: an editable grid, and a fixed 320px column of
+         ambient readouts that is deliberately NOT editable. See
+         `web/src/shell/sidebar.js` for why the sidebar is plain layout rather
+         than more widgets on the grid. The sidebar element itself is built in
+         JS and appended here by `boot.js`. -->
+    <div id="haven-layout" class="haven-layout">
+      <div id="haven-chrome">
+        <div id="haven-grid" class="grid-stack"></div>
+        <!-- Subpages render here; the grid above stays mounted underneath so a
+             trip to a page does not reload every embed on the board. -->
+        <main id="haven-page" class="haven-page" hidden></main>
+      </div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

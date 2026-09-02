@@ -90,6 +90,9 @@
   --haven-space-10: 40px;
 
   --haven-header-height: 70px;
+  /* Matches the dashboard being replaced exactly. Below 1024px the sidebar
+     stops being a column and stacks under the grid — see `.haven-layout`. */
+  --haven-sidebar-width: 320px;
 
   /* Focus. One ring, used everywhere, and it is the accent so it reads as
      part of the design rather than the browser's default blue. */
@@ -300,6 +303,206 @@ body {
   opacity: 0.7;
 }
 
+/* ── The profile control ─────────────────────────────────────────────────
+ *
+ * "Edit dashboard" used to be a bare button in the top-left — the first thing
+ * on the page, and the most prominent position on screen given to the rarest
+ * action on a dashboard. It now lives in a dropdown behind this circular
+ * control at the right end of the header, which is the conventional home for
+ * "things about this session" and leaves room for the settings that follow it.
+ *
+ * See `web/src/shell/profile-menu.js` for the keyboard contract, which is the
+ * part of this that is easy to get wrong. */
+
+.haven-profile {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.haven-profile__trigger {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--haven-border);
+  /* A circle, which is what makes it read as a profile control rather than
+     as one more toolbar button. */
+  border-radius: 50%;
+  background: var(--haven-surface);
+  color: var(--haven-fg);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.haven-profile__trigger:hover,
+.haven-profile--open .haven-profile__trigger {
+  border-color: var(--haven-accent);
+  background: var(--haven-surface-hover);
+}
+
+.haven-profile__trigger:focus-visible {
+  outline: 2px solid var(--haven-focus);
+  outline-offset: 2px;
+}
+
+.haven-profile__avatar {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* The dropdown, anchored under the trigger's right edge. `z-index` above the
+   header's own 50 so it is not clipped by the bar it hangs from. */
+.haven-profile__menu {
+  position: absolute;
+  top: calc(100% + var(--haven-space-2));
+  right: 0;
+  z-index: 60;
+  min-width: 12rem;
+  padding: var(--haven-space-1);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-sm);
+  background: var(--haven-bg-elevated);
+  box-shadow: var(--haven-shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* A closed menu is closed.
+ *
+ * The same trap the apps widget's menu list hit: `hidden` is a UA-stylesheet
+ * `display: none`, and the author `display: flex` above beats it on
+ * specificity. Without this rule the dropdown renders permanently open under
+ * the header. It is asserted by a stylesheet contract test for that reason. */
+.haven-profile__menu[hidden] {
+  display: none;
+}
+
+.haven-profile__item {
+  padding: var(--haven-space-2) var(--haven-space-3);
+  border: none;
+  border-radius: var(--haven-radius-sm);
+  background: transparent;
+  color: var(--haven-fg);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.haven-profile__item:hover {
+  background: var(--haven-surface-hover);
+  color: var(--haven-accent);
+}
+
+.haven-profile__item:focus-visible {
+  outline: 2px solid var(--haven-focus);
+  outline-offset: -2px;
+}
+
+/* ── The two-column layout ───────────────────────────────────────────────
+ *
+ * An editable grid on the left, a fixed 320px column of ambient readouts on
+ * the right. `1fr var(--haven-sidebar-width)` — the sidebar is a fixed track
+ * and the grid takes whatever is left, which is what stops the sidebar
+ * shrinking as the app grid gets denser.
+ *
+ * `min-height` rather than `height`: the grid can be taller than the viewport
+ * and must scroll the page, not overflow a fixed box. */
+
+.haven-layout {
+  display: grid;
+  grid-template-columns: 1fr var(--haven-sidebar-width);
+  min-height: calc(100vh - var(--haven-header-height));
+}
+
+/* The grid column must be allowed to be narrower than its content.
+ *
+ * A grid item's default `min-width` is `auto`, which is "as wide as my
+ * contents demand" — so a wide app grid or a hero image would push the whole
+ * layout wider than the viewport and shove the sidebar off the right edge
+ * instead of being scrolled or reflowed itself. `min-width: 0` is what makes
+ * the `1fr` track actually mean "the space that is left". */
+.haven-layout > #haven-chrome {
+  min-width: 0;
+}
+
+/* ── The sidebar ─────────────────────────────────────────────────────────
+ *
+ * Deliberately NOT part of the grid and deliberately not editable — see the
+ * long note in `web/src/shell/sidebar.js`. */
+
+.haven-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--haven-space-4);
+  padding: var(--haven-space-6);
+  border-left: 1px solid var(--haven-border);
+  background: var(--haven-bg-elevated);
+}
+
+.haven-sidebar__card {
+  padding: var(--haven-space-4);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius);
+  background: var(--haven-surface);
+}
+
+/* Pinned to the bottom, matching the live dashboard's status card. `auto`
+   margin in a flex column consumes all the free space above it — which is
+   what puts it against the bottom edge without a fixed position. */
+.haven-sidebar__card--pinned {
+  margin-top: auto;
+}
+
+/* Sidebar cards KEEP their titles while grid tiles lost theirs, and that is
+   not a contradiction: these are content headings naming what the card shows,
+   not chrome naming a widget type. See `sidebar.js`. */
+.haven-sidebar__title {
+  display: flex;
+  align-items: center;
+  gap: var(--haven-space-2);
+  margin: 0 0 var(--haven-space-4);
+  color: var(--haven-fg-secondary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* 18px, matching the live dashboard's `.sidebar-title svg`. */
+.haven-sidebar__title svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.haven-sidebar__body {
+  min-width: 0;
+}
+
+/* Below 1024px the sidebar stops being a column and stacks under the grid,
+   losing its left border — matching the live dashboard's own breakpoint. A
+   320px fixed track on a tablet leaves the app grid too narrow to be useful. */
+@media (max-width: 1024px) {
+  .haven-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .haven-sidebar {
+    border-left: none;
+    border-top: 1px solid var(--haven-border);
+  }
+
+  /* Nothing to pin to when the column is as tall as its contents. */
+  .haven-sidebar__card--pinned {
+    margin-top: 0;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    The grid, edit mode and view mode.
 
@@ -330,6 +533,24 @@ body {
   gap: var(--haven-space-2);
   align-items: center;
   margin-bottom: var(--haven-space-6);
+}
+
+/* A hidden toolbar is hidden.
+ *
+ * The THIRD time this trap has been hit in this codebase, so it is worth
+ * stating plainly: `hidden` is implemented by the UA stylesheet as
+ * `display: none`, at UA specificity, which ANY author `display` declaration
+ * beats. The rule above is such a declaration. So `bar.hidden = true` set the
+ * attribute, the accessibility tree correctly treated the toolbar as hidden,
+ * every unit test asserting `toolbar.el.hidden === true` passed — and the
+ * "Edit dashboard" button went on rendering at the top-left of the page,
+ * which is the single thing this change set out to remove.
+ *
+ * A browser caught it in one screenshot. The tests could not, because they
+ * assert the property and the property was right the whole time. This is
+ * covered by a stylesheet contract test for exactly that reason. */
+.haven-toolbar[hidden] {
+  display: none;
 }
 
 /* Buttons.
@@ -397,8 +618,30 @@ body {
   box-shadow: var(--haven-shadow);
 }
 
+/* ── The widget handle is EDIT-MODE CHROME, not a content heading ────────
+ *
+ * It used to render in both modes, so every tile on the dashboard wore a
+ * "HERO" / "APPS" / "CLOCK" band across its top. The dashboard Haven replaces
+ * has none of these on its main grid, and it is right not to: a tile showing a
+ * clock does not need to be labelled "Clock". The band was widget chrome
+ * wearing the costume of a content heading.
+ *
+ * In EDIT mode it is exactly the right thing, and it stays: it is the drag
+ * handle (`handle` in the GridStack options), it names which widget you are
+ * about to move, and it carries the settings and remove controls. That is its
+ * real job, and it is only a job while you are editing.
+ *
+ * `display: none` rather than `visibility: hidden` — the band must take no
+ * vertical space in view mode, or every tile keeps a 45px empty strip and the
+ * change is cosmetic only. It is also what keeps the title out of the
+ * accessibility tree, so heading navigation is not littered with widget names.
+ *
+ * NOTE the asymmetry with the SIDEBAR, which is deliberate and not a
+ * contradiction: sidebar cards ("Weather", "Calendar", "Server Status") DO
+ * keep their titles, because those are content headings that name what the
+ * card is showing rather than chrome naming the widget type. */
 .haven-widget__handle {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: space-between;
   gap: var(--haven-space-2);
@@ -407,6 +650,11 @@ body {
   /* A hair lighter than the tile body, which is what separates the header
      band from the content without a second border. */
   background: var(--haven-surface);
+}
+
+/* Edit mode is the only mode that shows it. */
+.haven-grid--edit-mode .haven-widget__handle {
+  display: flex;
 }
 
 .haven-widget__title {

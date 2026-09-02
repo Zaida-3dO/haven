@@ -14,6 +14,8 @@ import { Dashboard } from './dashboard.js';
 import { registry } from './registry.js';
 import { createAddPanel } from './add-panel.js';
 import { createHeader } from './header.js';
+import { createProfileMenu } from './profile-menu.js';
+import { createSidebar } from './sidebar.js';
 import { createEditMode, createEditToolbar } from './edit-mode.js';
 import { connectGrid } from './dashboard-grid.js';
 import { connectSettings } from './settings-panel.js';
@@ -28,6 +30,8 @@ import { defineHeroWidget } from '../widgets/hero/index.js';
 import { register as registerApps } from '../widgets/apps/index.js';
 import { register as registerTorrents } from '../widgets/torrents/index.js';
 import { register as registerCalendar } from '../widgets/calendar/index.js';
+import { defineWeatherWidget } from '../widgets/weather/index.js';
+import { defineStatusWidget } from '../widgets/status/index.js';
 import { defineIframeWidget } from '../widgets/iframe/index.js';
 import { definePageWidget } from '../widgets/page/index.js';
 import { createRouter } from './router.js';
@@ -96,7 +100,13 @@ const FALLBACK_INSTANCES = [
  */
 export async function bootDashboard(
   root,
-  { chrome = root.parentElement, instances, pageRoot = null, pages = pageRegistry } = {}
+  {
+    chrome = root.parentElement,
+    instances,
+    pageRoot = null,
+    pages = pageRegistry,
+    layoutRoot = null,
+  } = {}
 ) {
   if (!root) throw new Error('bootDashboard: no root element');
 
@@ -110,6 +120,12 @@ export async function bootDashboard(
   defineHeroWidget({ registry });
   defineIframeWidget({ registry });
   definePageWidget({ registry });
+  // Both of these are mounted into the SIDEBAR rather than the grid, but they
+  // are registered the same way as everything else: the sidebar mounts real
+  // widget hosts, so they go through migration, validation, the error boundary
+  // and the host's schedule exactly like a grid tile does.
+  defineWeatherWidget({ registry });
+  defineStatusWidget({ registry });
 
   // Custom pages are authored once and placed twice — as a subpage below, and
   // as a `page` widget on the grid. Both read this one registry.
@@ -247,6 +263,42 @@ export async function bootDashboard(
   const toolbar = createEditToolbar({ editMode });
 
   /**
+   * The profile menu — where "Edit dashboard" lives now.
+   *
+   * It used to be a bare button in the top-left, the first thing on the page:
+   * the most prominent position on screen given to the rarest action. The
+   * dashboard Haven replaces has no edit affordance at all, and it is right
+   * not to — a dashboard is overwhelmingly a thing you look at.
+   *
+   * The item's label is kept in step with the toolbar's own toggle, so the
+   * menu says "Done editing" while you are editing rather than offering to
+   * enter a mode you are already in.
+   */
+  const profile = createProfileMenu({
+    items: [
+      {
+        id: 'edit',
+        label: 'Edit dashboard',
+        onSelect: () => {
+          editMode.toggle();
+          toolbar.sync();
+          syncProfileLabel();
+        },
+      },
+    ],
+  });
+
+  function syncProfileLabel() {
+    profile.setItemLabel('edit', editMode.isEditing ? 'Done editing' : 'Edit dashboard');
+  }
+
+  // The toolbar's own toggle and the menu item drive the same mode, so
+  // whichever one is used, the other's label has to follow.
+  toolbar.toggle.addEventListener('click', () => syncProfileLabel());
+  toolbar.save.addEventListener('click', () => syncProfileLabel());
+  toolbar.discard.addEventListener('click', () => syncProfileLabel());
+
+  /**
    * The header.
    *
    * Built before the toolbar is prepended so it can be prepended AFTER it and
@@ -262,15 +314,68 @@ export async function bootDashboard(
    */
   const header = createHeader({
     onSearch: () => searchUI?.open(),
+    profile: profile.el,
   });
 
   if (chrome) {
     chrome.prepend(toolbar.el);
     chrome.appendChild(addPanel.el);
     chrome.appendChild(settingsPanel.el);
-    // Full-bleed: before the chrome element, not inside its padded box.
-    chrome.parentElement?.insertBefore(header.el, chrome);
   }
+
+  /**
+   * The sidebar.
+   *
+   * Mounted as a sibling of `#haven-chrome` inside `.haven-layout`, which is
+   * the grid that gives it its 320px column. Its widgets are real hosts on the
+   * dashboard's own scheduler — they simply render into the sidebar's card
+   * bodies instead of into a GridStack tile.
+   *
+   * Order is weather · calendar · status, with status pinned to the bottom,
+   * matching the live dashboard (which runs weather · rooms · 3D home ·
+   * status). The calendar is OURS and deliberate: the live dashboard has no
+   * calendar at all, and a glanceable list of what is coming up is exactly the
+   * kind of ambient context this column is for.
+   */
+  const layoutEl = layoutRoot ?? chrome?.parentElement ?? null;
+  const sidebar = layoutEl
+    ? createSidebar({
+        cards: [
+          { id: 'weather', title: 'Weather', icon: 'weather' },
+          { id: 'calendar', title: 'Calendar', icon: 'calendar' },
+          { id: 'status', title: 'Server Status', icon: 'status', pinned: true },
+        ],
+      })
+    : null;
+
+  /** Widget instances that live in the sidebar rather than on the grid. */
+  const SIDEBAR_INSTANCES = [
+    { card: 'weather', id: 'sidebar-weather', type: 'weather', config: {} },
+    {
+      card: 'calendar',
+      id: 'sidebar-calendar',
+      type: 'calendar',
+      config: { title: 'Calendar', maxEvents: 8 },
+    },
+    { card: 'status', id: 'sidebar-status', type: 'status', config: {} },
+  ];
+
+  if (sidebar) {
+    layoutEl.appendChild(sidebar.el);
+    for (const entry of SIDEBAR_INSTANCES) {
+      const body = sidebar.bodies.get(entry.card);
+      if (!body) continue;
+      // `dashboard.add` and not `grid.place`: these get a host, a config, the
+      // error boundary and a scheduled refresh, but no GridStack node — which
+      // is the whole distinction between the sidebar and the grid.
+      dashboard.add({ id: entry.id, type: entry.type, config: entry.config }, body);
+    }
+  }
+
+  // Full-bleed: before the LAYOUT element, not inside the chrome's padded box,
+  // so the bar spans the whole window above both columns.
+  if (layoutEl) layoutEl.parentElement?.insertBefore(header.el, layoutEl);
+  else chrome?.parentElement?.insertBefore(header.el, chrome);
 
   const teardownDeepLinks = installDeepLinks(gridHandle);
 
@@ -316,10 +421,17 @@ export async function bootDashboard(
     searchUI,
     toolbar,
     header,
+    profile,
+    sidebar,
     router,
     pages,
     destroy() {
       settingsPanel.close();
+      // The profile menu holds a capture-phase document click listener; a boot
+      // torn down without this leaks one per boot and keeps the whole menu
+      // closure alive.
+      profile.destroy();
+      sidebar?.el.remove();
       // The header's clock holds an interval; a boot torn down without this
       // leaks one timer per boot.
       header.destroy();

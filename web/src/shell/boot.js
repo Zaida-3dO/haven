@@ -66,21 +66,10 @@ const FALLBACK_INSTANCES = [
     type: 'clock',
     config: { label: 'Tokyo', source: 'timezone', timezone: 'Asia/Tokyo', showSeconds: 'yes' },
   },
-  // The 3D home preview — the iframe widget's first consumer. A relative path,
-  // because the 3D home is served from Haven's own origin and an absolute
-  // internal address must never be committed to a public repo.
-  {
-    id: 'embed-home3d',
-    type: 'iframe',
-    config: {
-      url: HOME_3D_URL,
-      title: '3D home',
-      scroll: 'no',
-      allowForms: 'no',
-      allowPopups: 'no',
-      allowSameOrigin: 'no',
-    },
-  },
+  // NOTE the 3D home is deliberately NOT here. It is a SIDEBAR card, matching
+  // the live dashboard, and the sidebar builds its own instances further down
+  // — see `SIDEBAR_INSTANCES`. Leaving a copy here as well would mount the
+  // same embed twice and load the 3D scene twice with it.
   // A summary tile linking through to the Library Analytics subpage. The page
   // itself is a whole screen with its own header, so the tile links rather
   // than trying to squeeze it into four cells.
@@ -169,6 +158,10 @@ export async function bootDashboard(
     dashboard,
     registry,
     onSaved: (widgetId, config) => {
+      // Chrome options live on the TILE, which `setConfig` does not touch —
+      // it updates the widget inside it. Without this the transparent option
+      // would save correctly and appear to do nothing until the next reload.
+      grid?.refreshChrome?.(widgetId);
       // Fire-and-report: the widget has already been updated in place by
       // `setConfig`, so a failed write must not undo that or throw into the
       // panel's close path. It is logged, and the next load reveals it.
@@ -331,11 +324,17 @@ export async function bootDashboard(
    * dashboard's own scheduler — they simply render into the sidebar's card
    * bodies instead of into a GridStack tile.
    *
-   * Order is weather · calendar · status, with status pinned to the bottom,
-   * matching the live dashboard (which runs weather · rooms · 3D home ·
-   * status). The calendar is OURS and deliberate: the live dashboard has no
-   * calendar at all, and a glanceable list of what is coming up is exactly the
-   * kind of ambient context this column is for.
+   * Order is weather · calendar · 3D home · status, with status pinned to the
+   * bottom, matching the live dashboard (which runs weather · rooms · 3D home
+   * · status). The calendar is OURS and deliberate, standing where the live
+   * dashboard has its rooms list: the live one has no calendar at all, and a
+   * glanceable list of what is coming up is exactly the kind of ambient
+   * context this column is for.
+   *
+   * The 3D home moved here FROM the main grid. It is an ambient readout —
+   * something you glance at — rather than something you interact with on the
+   * board, which is the same test every other card in this column passes, and
+   * it is where the live dashboard puts it.
    */
   const layoutEl = layoutRoot ?? chrome?.parentElement ?? null;
   const sidebar = layoutEl
@@ -343,6 +342,7 @@ export async function bootDashboard(
         cards: [
           { id: 'weather', title: 'Weather', icon: 'weather' },
           { id: 'calendar', title: 'Calendar', icon: 'calendar' },
+          { id: 'home3d', title: '3D Home', icon: 'home3d' },
           { id: 'status', title: 'Server Status', icon: 'status', pinned: true },
         ],
       })
@@ -356,6 +356,22 @@ export async function bootDashboard(
       id: 'sidebar-calendar',
       type: 'calendar',
       config: { title: 'Calendar', maxEvents: 8 },
+    },
+    // A relative path, because the 3D home is served from Haven's own origin
+    // and an absolute internal address must never be committed to a public
+    // repo. The sandbox stays as locked down as it was on the grid.
+    {
+      card: 'home3d',
+      id: 'sidebar-home3d',
+      type: 'iframe',
+      config: {
+        url: HOME_3D_URL,
+        title: '3D home',
+        scroll: 'no',
+        allowForms: 'no',
+        allowPopups: 'no',
+        allowSameOrigin: 'no',
+      },
     },
     { card: 'status', id: 'sidebar-status', type: 'status', config: {} },
   ];

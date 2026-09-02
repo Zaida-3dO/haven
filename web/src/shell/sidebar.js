@@ -68,7 +68,7 @@ function createIcon(paths, doc) {
   return svg;
 }
 
-/** The three icons, as path data. Traced to match the live dashboard's set. */
+/** The sidebar icons, as path data. Traced to match the live dashboard's set. */
 export const SIDEBAR_ICONS = Object.freeze({
   weather: ['M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6 2A3.5 3.5 0 0 0 6.5 19z'],
   calendar: [
@@ -81,6 +81,9 @@ export const SIDEBAR_ICONS = Object.freeze({
     'M4 14h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2z',
     'M6 6h.01M6 18h.01',
   ],
+  // A house outline, for the 3D home card. The live dashboard uses the same
+  // shape for its own "3D Home" sidebar card.
+  home3d: ['M3 10.5 12 3l9 7.5', 'M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5'],
 });
 
 /**
@@ -93,13 +96,20 @@ export const SIDEBAR_ICONS = Object.freeze({
  * @returns {{el, body, title}}
  */
 export function createSidebarCard({
+  id = null,
   title,
   icon = null,
   pinned = false,
   document: doc = globalThis.document,
 } = {}) {
   const el = doc.createElement('section');
-  el.className = `haven-sidebar__card${pinned ? ' haven-sidebar__card--pinned' : ''}`;
+  // A per-card modifier from the card's id, so a card with a widget that
+  // needs particular treatment can be styled without the stylesheet reaching
+  // for `:nth-child`, which breaks the moment the order changes. The 3D home
+  // is the first user: its iframe sizes to its container, so its body needs
+  // an explicit height or it collapses to 0px.
+  const idClass = id ? ` haven-sidebar__card--${id}` : '';
+  el.className = `haven-sidebar__card${idClass}${pinned ? ' haven-sidebar__card--pinned' : ''}`;
 
   const heading = doc.createElement('h2');
   heading.className = 'haven-sidebar__title';
@@ -130,6 +140,7 @@ export function createSidebarCard({
  *
  * @param {object} [deps]
  * @param {Array<{id: string, title: string, icon?: string, pinned?: boolean}>} [deps.cards]
+ *   `id` also becomes a `haven-sidebar__card--<id>` modifier class.
  * @returns {{el, bodies: Map<string, HTMLElement>, cards: Map<string, object>}}
  */
 export function createSidebar({ cards = [], document: doc = globalThis.document } = {}) {
@@ -144,6 +155,7 @@ export function createSidebar({ cards = [], document: doc = globalThis.document 
 
   for (const spec of cards) {
     const card = createSidebarCard({
+      id: spec.id,
       title: spec.title,
       icon: spec.icon,
       pinned: spec.pinned,

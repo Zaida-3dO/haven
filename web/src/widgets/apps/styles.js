@@ -168,6 +168,11 @@ export const STYLES = `
     display: flex;
     flex-direction: column;
     align-items: center;
+    /* A minimum height so a card with a menu and one without are the same
+       size. Without it the grid rows are ragged: a card whose app has no
+       secondary URLs and no known version renders no kebab (.menu:empty)
+       and comes out ~28px shorter than its neighbours. */
+    min-height: 9.5rem;
     gap: var(--haven-space-2, 8px);
     padding: var(--haven-space-5, 20px) var(--haven-space-3, 12px);
     border: 1px solid var(--haven-border);
@@ -389,41 +394,84 @@ export const STYLES = `
     color: var(--haven-warn);
   }
 
-  /* ── Secondary URL menu ───────────────────────────────────────────── */
+  /* ── The kebab menu ───────────────────────────────────────────────── */
 
-  /* Above the stretched card link, or it cannot be clicked at all — the
+  /* Bottom-right of the card, on the same row as the description — matching
+     the dashboard this replaces, whose ".app-card-menu-row" is exactly this
+     pairing.
+
+     "z-index: 1" puts it above the stretched card link
+     (".card__name::after"), or the button cannot be clicked at all: the
      overlay covers the whole card including this button. */
   .menu {
     position: relative;
     z-index: 1;
+    display: flex;
+    justify-content: flex-end;
     width: 100%;
+    margin-top: auto;
   }
 
+  /* An empty menu container must occupy nothing. A card with no secondaries
+     and no known version renders the container with no children, and without
+     this the flex box still claims a row of height on every such card. */
+  .menu:empty {
+    display: none;
+  }
+
+  /* 28px is the smallest this can be and still be a real touch target beside
+     the 44px card icon; the glyph inside is 14px. */
   .menu__toggle {
-    min-height: 28px;
-    padding: var(--haven-space-1, 4px) var(--haven-space-2, 8px);
-    border: 1px solid var(--haven-border);
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid transparent;
     border-radius: var(--haven-radius-sm, 8px);
     background: transparent;
     color: var(--haven-fg-secondary);
     font: inherit;
-    font-size: 10px;
+    font-size: 14px;
+    line-height: 1;
     cursor: pointer;
   }
 
   .menu__toggle:hover,
   .menu__toggle:focus-visible {
     border-color: var(--haven-accent);
+    background: var(--haven-surface-hover);
     color: var(--haven-fg);
   }
 
+  .menu__toggle:focus-visible {
+    outline: 2px solid var(--haven-accent);
+    outline-offset: 1px;
+  }
+
+  /* The open menu is a POPOVER anchored to the card's bottom-right, not a
+     block that pushes the card taller. An inline list re-flowed the whole
+     grid every time one card's menu opened, shoving every card after it down
+     the page — which is the behaviour that makes an inline disclosure feel
+     broken on a grid. */
   .menu__list {
+    position: absolute;
+    top: calc(100% + var(--haven-space-1, 4px));
+    right: 0;
+    z-index: 2;
+    min-width: 11rem;
+    max-width: 16rem;
     list-style: none;
-    margin: var(--haven-space-2, 8px) 0 0;
-    padding: 0;
+    margin: 0;
+    padding: var(--haven-space-1, 4px);
+    border: 1px solid var(--haven-border);
+    border-radius: var(--haven-radius-sm, 8px);
+    background: var(--haven-bg-elevated);
+    box-shadow: var(--haven-shadow-lg, 0 10px 15px -3px rgb(0 0 0 / 40%));
     display: flex;
     flex-direction: column;
     gap: 2px;
+    text-align: left;
   }
 
   /* A closed menu is closed.
@@ -434,24 +482,41 @@ export const STYLES = `
    * every collapsed menu, and each card rendered its secondary URLs unprompted
    * under a toggle that claimed to be collapsed. A browser caught this; the
    * unit tests could not, because they assert on the "hidden" property and it
-   * was correctly true the whole time. */
+   * was correctly true the whole time.
+   *
+   * The trap is UNCHANGED by the move to a popover — ".menu__list" still
+   * declares "display: flex", so this override is still the only thing
+   * keeping a closed menu closed. Deleting it reopens the exact same bug. */
   .menu__list[hidden] {
     display: none;
   }
 
-  .menu__list a {
+  .menu__item {
     display: block;
     padding: var(--haven-space-2, 8px);
     border-radius: var(--haven-radius-sm, 8px);
     color: var(--haven-fg-secondary);
     font-size: 11px;
     text-decoration: none;
+    overflow-wrap: anywhere;
   }
 
-  .menu__list a:hover,
-  .menu__list a:focus-visible {
+  .menu__item:hover,
+  .menu__item:focus-visible {
     background: var(--haven-surface-hover);
     color: var(--haven-accent);
+  }
+
+  /* The version pair sits inside the menu now, so it is laid out left-aligned
+     with the items above it rather than centred as a card-face chip row. */
+  .menu__versions-row {
+    padding: var(--haven-space-2, 8px);
+    border-top: 1px solid var(--haven-border);
+    margin-top: var(--haven-space-1, 4px);
+  }
+
+  .menu__versions-row .versions {
+    justify-content: flex-start;
   }
 
   .empty {

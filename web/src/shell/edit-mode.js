@@ -170,6 +170,23 @@ export function createEditMode({
  *
  * Everything here is a real `<button>` rather than a styled div, which is what
  * makes the whole toolbar keyboard-reachable without any extra key handling.
+ *
+ * ## Why the whole bar is hidden in view mode
+ *
+ * "Edit dashboard" used to be the first thing on the page — a button floating
+ * above the dashboard, given the most prominent position on screen for the
+ * rarest action. It has moved into the header's profile menu (see
+ * `profile-menu.js`), and the toolbar now appears ONLY while editing, where
+ * Save and Discard are the two things you actually need.
+ *
+ * The `toggle` button is kept and still works: it becomes "Done editing"
+ * inside edit mode, so there is a way out of edit mode that does not require
+ * finding the profile menu again. It is simply never visible in view mode,
+ * because in view mode the whole bar is not.
+ *
+ * `bar.hidden` rather than a class, so the toolbar leaves the accessibility
+ * tree in view mode instead of offering three unreachable buttons to a screen
+ * reader.
  */
 export function createEditToolbar({ editMode, document: doc = globalThis.document } = {}) {
   const bar = doc.createElement('div');
@@ -218,6 +235,8 @@ export function createEditToolbar({ editMode, document: doc = globalThis.documen
     toggle.textContent = editing ? 'Done editing' : 'Edit dashboard';
     save.hidden = !editing;
     discard.hidden = !editing;
+    // The bar itself only exists while editing — see the note above.
+    bar.hidden = !editing;
   }
 
   bar.append(toggle, save, discard);

@@ -52,6 +52,10 @@ function formatDate(date, locale, timeZone) {
  * @param {object} [deps]
  * @param {string} [deps.title]      the product name shown beside the mark
  * @param {() => void} [deps.onSearch] opens the global search palette
+ * @param {HTMLElement} [deps.profile] the profile control, appended at the end
+ *   of the status cluster. Built by the caller rather than here so the header
+ *   does not have to know what is in its menu — `boot.js` owns edit mode, so
+ *   `boot.js` builds the item that enters it.
  * @param {Document} [deps.document]
  * @param {() => Date} [deps.now]    injectable clock, so tests are not
  *                                   dependent on the wall clock
@@ -66,6 +70,7 @@ function formatDate(date, locale, timeZone) {
 export function createHeader({
   title = 'Haven',
   onSearch = null,
+  profile = null,
   document: doc = globalThis.document,
   now = () => new Date(),
   locale = undefined,
@@ -130,6 +135,12 @@ export function createHeader({
 
   clock.append(time, dateEl);
   status.appendChild(clock);
+
+  // The profile control sits at the RIGHT END of the header — the conventional
+  // home for "things about this session", and the reason the "Edit dashboard"
+  // button is no longer the first thing on the page. See `profile-menu.js` for
+  // why that move was the right one.
+  if (profile) status.appendChild(profile);
 
   function tick() {
     const at = now();

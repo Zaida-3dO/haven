@@ -138,8 +138,8 @@ export const STYLES = `
     display: grid;
     /* auto-fill + minmax is what makes this responsive without a media query:
        the grid becomes a single column on a phone on its own. */
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
-    gap: var(--haven-space-3, 12px);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 13.5rem), 1fr));
+    gap: var(--haven-space-4, 16px);
     overflow-y: auto;
     min-height: 0;
     padding: 2px;
@@ -172,7 +172,7 @@ export const STYLES = `
        size. Without it the grid rows are ragged: a card whose app has no
        secondary URLs and no known version renders no kebab (.menu:empty)
        and comes out ~28px shorter than its neighbours. */
-    min-height: 9.5rem;
+    min-height: 10.5rem;
     gap: var(--haven-space-2, 8px);
     padding: var(--haven-space-5, 20px) var(--haven-space-3, 12px);
     border: 1px solid var(--haven-border);
@@ -213,9 +213,12 @@ export const STYLES = `
     display: contents;
   }
 
+  /* 56px, matching the live dashboard. 44px read as a list-item icon rather
+     than the tile-sized mark a launcher card wants -- measured side by side
+     against the dashboard being replaced. */
   .card__icon {
-    width: 44px;
-    height: 44px;
+    width: 56px;
+    height: 56px;
     flex: 0 0 auto;
     object-fit: contain;
     border-radius: var(--haven-radius-sm, 8px);
@@ -229,10 +232,12 @@ export const STYLES = `
     width: 100%;
   }
 
+  /* 16px, matching the live dashboard. At 13px the app name was the same
+     visual weight as its own description, so the card had no clear subject. */
   .card__name {
     display: block;
     color: var(--haven-fg);
-    font-size: 13px;
+    font-size: 16px;
     font-weight: 600;
     text-decoration: none;
     overflow-wrap: anywhere;
@@ -269,7 +274,7 @@ export const STYLES = `
   .card__description {
     margin: 0;
     color: var(--haven-fg-secondary);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.4;
     overflow-wrap: anywhere;
   }

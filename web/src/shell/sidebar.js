@@ -33,6 +33,22 @@
  * summary of everything above it, and it is the one card whose height does not
  * depend on its content, so it is the only one that can sit against the bottom
  * edge without leaving a ragged gap.
+ *
+ * ## Why the unpinned cards live in their own scrollport
+ *
+ * The pin only guarantees "visible without scrolling" while the cards ABOVE it
+ * fit. They stopped fitting: with a real forecast the weather card is 282px
+ * rather than the 92px "not configured" stub, and weather + calendar + 3D home
+ * + status + gaps came to 960px in an 830px column at 1440x900. The sidebar was
+ * `overflow: hidden`, so the surplus was not scrolled but CLIPPED — Server
+ * Status rendered at y=915 in a 900px viewport and was unreachable by any
+ * means. Strictly worse than the scrolling page it replaced.
+ *
+ * So the unpinned cards go inside `.haven-sidebar__scroll`, which is the flex
+ * child that gets to shrink, and the pinned card stays its sibling — outside
+ * the scrollport, so it holds the bottom edge no matter how tall the cards
+ * above it get. Overflow becomes reachable instead of clipped, and the one
+ * card the column exists to show is the one that never moves.
  */
 
 /**
@@ -135,13 +151,23 @@ export function createSidebarCard({
  * Widgets are NOT mounted here — this returns the card bodies and lets the
  * caller (`boot.js`) mount hosts into them, because mounting is the
  * dashboard's job and the sidebar has no business knowing what a widget host
- * is. The order of `cards` is the order they appear, and the last card with
- * `pinned: true` is pushed to the bottom.
+ * is. The order of `cards` is the order they appear, and a card with
+ * `pinned: true` is held against the bottom.
+ *
+ * Unpinned cards are appended to a `.haven-sidebar__scroll` wrapper and pinned
+ * cards are appended to the sidebar itself, so the pin is a SIBLING of the
+ * scrollport rather than a child of it. That is the whole mechanism: a child
+ * of the scrollport can be scrolled out of view, and the pinned card must not
+ * be. See the note at the top of this file.
+ *
+ * The wrapper is created unconditionally, not lazily on the first unpinned
+ * card, so the stylesheet's `flex: 1 1 auto; min-height: 0` always has an
+ * element to land on and the DOM shape does not depend on card order.
  *
  * @param {object} [deps]
  * @param {Array<{id: string, title: string, icon?: string, pinned?: boolean}>} [deps.cards]
  *   `id` also becomes a `haven-sidebar__card--<id>` modifier class.
- * @returns {{el, bodies: Map<string, HTMLElement>, cards: Map<string, object>}}
+ * @returns {{el, scroll, bodies: Map<string, HTMLElement>, cards: Map<string, object>}}
  */
 export function createSidebar({ cards = [], document: doc = globalThis.document } = {}) {
   const el = doc.createElement('aside');
@@ -149,6 +175,13 @@ export function createSidebar({ cards = [], document: doc = globalThis.document 
   // Named, so a screen reader's landmark list distinguishes it from the main
   // grid rather than offering two anonymous regions.
   el.setAttribute('aria-label', 'Dashboard sidebar');
+
+  // The scrollport for everything that is not pinned. It is a plain <div> and
+  // carries no landmark role: it is a layout box, and announcing it as a
+  // region would put a second, meaningless landmark inside the sidebar's own.
+  const scroll = doc.createElement('div');
+  scroll.className = 'haven-sidebar__scroll';
+  el.appendChild(scroll);
 
   const bodies = new Map();
   const built = new Map();
@@ -161,12 +194,15 @@ export function createSidebar({ cards = [], document: doc = globalThis.document 
       pinned: spec.pinned,
       document: doc,
     });
-    el.appendChild(card.el);
+    // The pinned card is the sidebar's own child; everything else goes in the
+    // scrollport. Appending a pinned card to `scroll` would let it scroll out
+    // of view, which is the exact bug this structure exists to prevent.
+    (spec.pinned ? el : scroll).appendChild(card.el);
     bodies.set(spec.id, card.body);
     built.set(spec.id, card);
   }
 
-  return { el, bodies, cards: built };
+  return { el, scroll, bodies, cards: built };
 }
 
 export default { createSidebar, createSidebarCard, SIDEBAR_ICONS };

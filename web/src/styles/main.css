@@ -481,14 +481,46 @@ body {
   padding: var(--haven-space-6);
   border-left: 1px solid var(--haven-border);
   background: var(--haven-bg-elevated);
-  /* Full height, never its own scrollbar. The whole point of pinning Server
-     Status to the bottom is that it is visible without scrolling; a sidebar
-     that scrolled internally would hide it again just as effectively as a
-     scrolling page did. If the cards ever outgrow the viewport they are
-     clipped, which is a visible prompt to remove one rather than a silent
-     hiding place. */
+  /* Full height, and never ITSELF a scrollport. The pinned Server Status card
+     is a direct child of this box, so anything that scrolled here would carry
+     the pin with it and hide the one card the column exists to show. The
+     scrolling happens one level in, in `.haven-sidebar__scroll` below. */
   min-height: 0;
   overflow: hidden;
+}
+
+/* ── The scrollport for the unpinned cards ───────────────────────────────
+ *
+ * The pin alone only works while the cards above it fit, and they stopped
+ * fitting. Measured on the deployment at 1440x900: weather 282px (a real
+ * 4-day forecast — it was a 92px "not configured" stub when the pin was
+ * built and measured) + calendar 221 + 3D home 271 + status 92, plus 48px of
+ * gaps and 48px of padding, is 960px of content in an 830px column. With the
+ * sidebar `overflow: hidden` that surplus was CLIPPED, not scrolled: Server
+ * Status painted at y=915 in a 900px viewport and could not be reached by
+ * scrolling, dragging or keyboard. Strictly worse than the scrolling page the
+ * pin replaced.
+ *
+ * So the unpinned cards scroll here and the pinned card stays outside as a
+ * sibling. `flex: 1 1 auto` lets this box absorb the free space and, more
+ * importantly, SHRINK below its content; `min-height: 0` is what actually
+ * permits that shrink, because a flex item's default `min-height: auto` means
+ * "never smaller than my content" and would push the pin off the bottom again
+ * with the scrollbar never appearing — the same trap as the grid column above.
+ *
+ * The negative margin + matching padding keep the scrollbar off the card
+ * edges: without them the cards would sit flush against the scrollbar gutter
+ * and lose their alignment with the pinned card below. */
+.haven-sidebar__scroll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--haven-space-4);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* Room for the scrollbar without the cards shifting when it appears. */
+  margin-right: calc(-1 * var(--haven-space-2));
+  padding-right: var(--haven-space-2);
 }
 
 .haven-sidebar__card {
@@ -575,6 +607,28 @@ body {
     border-left: none;
     border-top: 1px solid var(--haven-border);
     overflow: visible;
+  }
+
+  /* The scrollport stops scrolling too, or the phone gets the scroll trap the
+     grid column is reset to avoid two rules up: the document scrolls, then a
+     box inside it scrolls, and a touch drag does whichever the browser
+     guesses. Stacked, the sidebar is as tall as its cards and the document
+     scrolls past all of them, so there is nothing for an inner scrollport to
+     do — and `flex: 1 1 auto` with `min-height: 0` would let it collapse
+     instead. Back to a plain block that grows with its content. */
+  .haven-sidebar__scroll {
+    display: block;
+    overflow-y: visible;
+    min-height: auto;
+    flex: none;
+    margin-right: 0;
+    padding-right: 0;
+  }
+
+  /* The card gap came from the scroll wrapper's flex `gap`, which a block
+     container does not honour — without this the stacked cards would touch. */
+  .haven-sidebar__scroll > .haven-sidebar__card {
+    margin-bottom: var(--haven-space-4);
   }
 
   /* Nothing to pin to when the column is as tall as its contents. */

@@ -27,6 +27,17 @@ import {
   parseDayKey,
 } from './group.js';
 
+/**
+ * The `source` value carried by events Haven stores itself.
+ *
+ * Duplicated from the server's `event-envelope.js` rather than imported: the
+ * web workspace does not depend on the server workspace, and a shared
+ * constant across that boundary would be a build step this front end
+ * deliberately does not have. The string is part of the API contract, so it
+ * is pinned by a test on both sides.
+ */
+export const LOCAL_SOURCE = 'local';
+
 export const CALENDAR_WIDGET_TYPE = 'calendar';
 export const CALENDAR_WIDGET_TAG = 'haven-widget-calendar';
 
@@ -127,6 +138,18 @@ const STYLES = `
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .cal__feed { font-size: 0.7rem; opacity: 0.7; }
+  /*
+   * A Haven-local event, told apart from a read-only feed event by more than
+   * colour alone. Colour already carries the FEED identity, so reusing it for
+   * origin would overload one channel and be invisible to anyone who cannot
+   * distinguish the hues. A dashed left border is a second, orthogonal
+   * channel: dashed = Haven's own and editable, solid = from a read-only
+   * feed.
+   */
+  .cal__event--local { border-left-style: dashed; }
+  .cal__origin {
+    font-size: 0.7rem; opacity: 0.75; font-style: italic;
+  }
   .cal__empty, .cal__setup { opacity: 0.7; padding: 0.5rem 0; }
   .cal__setup code { font-size: 0.85em; }
   /* Mobile / narrow tile: stack the time above the title rather than
@@ -315,6 +338,15 @@ export class CalendarWidget extends ElementBase {
     row.dataset.eventId = event.id;
     row.dataset.allDay = String(Boolean(event.allDay));
     if (event.feedId) row.dataset.feedId = event.feedId;
+    /**
+     * Where the event came from, and therefore whether it can be changed.
+     * `local` events live in Haven's own database and are editable; `feed`
+     * events arrived over a read-only iCal address and are not. Exposed on
+     * the dataset so a future edit affordance can be attached without the
+     * widget having to re-derive it from the id.
+     */
+    if (event.source) row.dataset.source = event.source;
+    if (event.source === LOCAL_SOURCE) row.classList.add('cal__event--local');
 
     // The feed's colour rides on the left border, so several calendars are
     // distinguishable without a legend eating the tile.
@@ -349,6 +381,17 @@ export class CalendarWidget extends ElementBase {
       feed.textContent = event.feedName;
       if (colour) feed.style.color = colour;
       what.appendChild(feed);
+    } else if (event.source === LOCAL_SOURCE) {
+      /**
+       * With only one source on screen there is no feed label, so a local
+       * event would otherwise be distinguished by a dashed border and
+       * nothing else. Name it — this is the tile telling you which entries
+       * Haven itself owns.
+       */
+      const origin = document.createElement('span');
+      origin.className = 'cal__origin';
+      origin.textContent = 'Added in Haven';
+      what.appendChild(origin);
     }
 
     row.appendChild(what);

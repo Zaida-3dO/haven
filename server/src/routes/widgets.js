@@ -73,11 +73,8 @@ export async function registerWidgetRoutes(app, opts = {}) {
   // Calendar likewise: its connector holds ICS feed URLs, which are bearer
   // credentials, so the redaction rules are worth reading in one place.
   // It registers GET /api/widgets/calendar.
-  // `db` is passed so the calendar route can merge Haven's own local events
-  // into the same view as the read-only ICS feeds.
   await registerCalendarRoutes(app, {
     connector: opts.calendarConnector,
-    db: opts.db,
     ...opts.calendarOptions,
   });
 

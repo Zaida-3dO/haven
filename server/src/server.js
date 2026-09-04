@@ -7,7 +7,6 @@ import { seedApps } from './db/apps-store.js';
 import { seedInstances } from './db/instances-store.js';
 import { createContainerVersionsReader } from './container-versions.js';
 import { registerAppRoutes } from './routes/apps.js';
-import { registerCalendarEventRoutes } from './routes/calendar-events.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerInstanceRoutes } from './routes/instances.js';
 import { registerLayoutRoutes } from './routes/layout.js';
@@ -45,7 +44,6 @@ export async function buildServer(opts = {}) {
     containerVersionsPath = config.containerVersionsFile,
     widgets,
     notices,
-    calendarEvents,
     ...fastifyOpts
   } = opts;
 
@@ -87,13 +85,7 @@ export async function buildServer(opts = {}) {
       logger: app.log,
     }),
   });
-  // `db` reaches the calendar route through here so the widget's read merges
-  // local events with the ICS feeds.
-  await registerWidgetRoutes(app, { db, ...widgets });
-  // The local calendar's write half: POST/PATCH/DELETE. Deliberately NOT under
-  // /api/widgets — it is an API for agents and scripts, not a widget feed, and
-  // it is the only route in Haven that accepts a write from an outside caller.
-  await registerCalendarEventRoutes(app, { db, ...calendarEvents });
+  await registerWidgetRoutes(app, widgets);
   await registerNoticeRoutes(app, { db, ...notices });
 
   // Serve the built shell. Registered LAST so it can never shadow an /api

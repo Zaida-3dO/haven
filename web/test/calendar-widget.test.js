@@ -21,6 +21,7 @@ const {
   calendarStubConfig,
   calendarConfigSchema,
   CALENDAR_WIDGET_TYPE,
+  GOOGLE_CALENDAR_URL,
 } = await import('../src/widgets/calendar/calendar-widget.js');
 const { register: registerCalendar, definition: calendarDefinition } =
   await import('../src/widgets/calendar/index.js');
@@ -452,4 +453,74 @@ test('the widget never writes search data to storage', () => {
   for (const api of ['localStorage', 'sessionStorage', 'indexedDB']) {
     assert.ok(!source.includes(api), `event titles must never reach ${api}`);
   }
+});
+
+// ── The way out to a calendar you can change ────────────────────────────
+//
+// The tile is read-only: it is built from ICS feeds, and an iCal address
+// grants read access only. The link is therefore the whole of the affordance
+// for adding or changing an event, so it has to be present and it has to be
+// safe.
+
+test('the tile offers a link out to Google Calendar, opened safely', () => {
+  const { root } = renderWith({
+    configured: true,
+    feeds: [{ id: 'feed-1', name: 'Personal' }],
+    events: [timed(new Date(2026, 5, 10, 10, 0).toISOString(), { title: 'Standup' })],
+    problems: [],
+    stale: false,
+  });
+
+  const link = root.querySelector('.cal__open');
+  assert.ok(link, 'the tile must offer a way to reach an editable calendar');
+  assert.equal(link.href, GOOGLE_CALENDAR_URL);
+  assert.equal(link.target, '_blank');
+
+  // `target="_blank"` without this hands the opened page a `window.opener`
+  // handle back to the dashboard.
+  const rel = link.rel.split(/\s+/);
+  assert.ok(rel.includes('noopener'), 'a _blank link must set noopener');
+  assert.ok(rel.includes('noreferrer'), 'a _blank link must set noreferrer');
+});
+
+test('the link is still there when no feed is configured', () => {
+  // The "no calendar connected" tile is exactly when a user most wants the
+  // real calendar, so the way out must not be hidden behind having a feed.
+  const { root } = renderWith({
+    configured: false,
+    events: [],
+    feeds: [],
+    problems: [],
+    stale: false,
+    hint: 'Set HAVEN_CALENDAR_ICS_URL to a calendar’s secret iCal address.',
+  });
+
+  assert.ok(root.querySelector('.cal__open'), 'the link must survive the unconfigured tile');
+});
+
+test('no feed URL can reach the link, whatever the server sends', () => {
+  /**
+   * An ICS feed URL is a BEARER CREDENTIAL. The server is built never to send
+   * one, but this asserts the widget could not leak it into an href even if
+   * that changed — the link is a fixed constant, not derived from feed data.
+   */
+  const secret = 'https://calendar.google.com/calendar/ical/SECRET-TOKEN/basic.ics';
+
+  const { root } = renderWith({
+    configured: true,
+    feeds: [{ id: 'feed-1', name: 'Personal', url: secret }],
+    events: [timed(new Date(2026, 5, 10, 10, 0).toISOString(), { title: 'Standup', url: secret })],
+    problems: [],
+    stale: false,
+  });
+
+  const link = root.querySelector('.cal__open');
+  assert.equal(link.href, GOOGLE_CALENDAR_URL);
+  assert.ok(!link.href.includes('SECRET-TOKEN'), 'a feed credential must never reach an href');
+
+  // And nowhere else in the rendered tile either.
+  assert.ok(
+    !JSON.stringify(root).includes('SECRET-TOKEN'),
+    'a feed credential must never reach the DOM'
+  );
 });

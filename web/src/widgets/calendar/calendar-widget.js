@@ -28,15 +28,16 @@ import {
 } from './group.js';
 
 /**
- * The `source` value carried by events Haven stores itself.
+ * Where "open my calendar" goes.
  *
- * Duplicated from the server's `event-envelope.js` rather than imported: the
- * web workspace does not depend on the server workspace, and a shared
- * constant across that boundary would be a build step this front end
- * deliberately does not have. The string is part of the API contract, so it
- * is pinned by a test on both sides.
+ * Deliberately the bare Google Calendar address, with no feed identifier in
+ * it. A feed's ICS URL is a BEARER CREDENTIAL — anyone holding one can read
+ * the whole calendar — so no part of a feed may ever reach an href, and this
+ * constant is the reason there is nothing per-feed to build a link from.
+ * Google resolves it to whichever account the browser is signed in as, which
+ * is exactly the behaviour wanted.
  */
-export const LOCAL_SOURCE = 'local';
+export const GOOGLE_CALENDAR_URL = 'https://calendar.google.com/';
 
 export const CALENDAR_WIDGET_TYPE = 'calendar';
 export const CALENDAR_WIDGET_TAG = 'haven-widget-calendar';
@@ -139,17 +140,15 @@ const STYLES = `
   }
   .cal__feed { font-size: 0.7rem; opacity: 0.7; }
   /*
-   * A Haven-local event, told apart from a read-only feed event by more than
-   * colour alone. Colour already carries the FEED identity, so reusing it for
-   * origin would overload one channel and be invisible to anyone who cannot
-   * distinguish the hues. A dashed left border is a second, orthogonal
-   * channel: dashed = Haven's own and editable, solid = from a read-only
-   * feed.
+   * "Open Google Calendar". The tile is read-only, so this is the whole of
+   * the affordance for changing anything — it needs to be findable without
+   * dominating a tile whose job is showing what is coming up.
    */
-  .cal__event--local { border-left-style: dashed; }
-  .cal__origin {
-    font-size: 0.7rem; opacity: 0.75; font-style: italic;
+  .cal__open {
+    font-size: 0.75rem; white-space: nowrap; color: inherit; opacity: 0.75;
+    text-decoration: none; border-bottom: 1px solid currentColor;
   }
+  .cal__open:hover, .cal__open:focus-visible { opacity: 1; }
   .cal__empty, .cal__setup { opacity: 0.7; padding: 0.5rem 0; }
   .cal__setup code { font-size: 0.85em; }
   /* Mobile / narrow tile: stack the time above the title rather than
@@ -270,6 +269,29 @@ export class CalendarWidget extends ElementBase {
       head.appendChild(notice);
     }
 
+    /**
+     * The way out to a calendar you can actually change.
+     *
+     * The tile is read-only by construction: it is built from ICS feeds, and
+     * an iCal address grants read access only. Rather than pretend otherwise
+     * with an edit affordance that could not work, this hands the job to
+     * Google Calendar, where an edit reaches Ope's phone and Tomi.
+     *
+     * A FIXED, feed-independent URL. An ICS feed URL is a bearer credential,
+     * so nothing derived from a feed may appear in an href — see
+     * `GOOGLE_CALENDAR_URL`. `noopener noreferrer` because `target="_blank"`
+     * otherwise hands the opened page a `window.opener` handle back to the
+     * dashboard.
+     */
+    const open = document.createElement('a');
+    open.className = 'cal__open';
+    open.href = GOOGLE_CALENDAR_URL;
+    open.target = '_blank';
+    open.rel = 'noopener noreferrer';
+    open.textContent = 'Open Google Calendar';
+    open.title = 'Open Google Calendar in a new tab to add or change events';
+    head.appendChild(open);
+
     return head;
   }
 
@@ -338,15 +360,10 @@ export class CalendarWidget extends ElementBase {
     row.dataset.eventId = event.id;
     row.dataset.allDay = String(Boolean(event.allDay));
     if (event.feedId) row.dataset.feedId = event.feedId;
-    /**
-     * Where the event came from, and therefore whether it can be changed.
-     * `local` events live in Haven's own database and are editable; `feed`
-     * events arrived over a read-only iCal address and are not. Exposed on
-     * the dataset so a future edit affordance can be attached without the
-     * widget having to re-derive it from the id.
-     */
+    // Where the event came from. Every event is `feed` — an iCal address is
+    // read-only — but it is carried through rather than assumed so the tile
+    // does not have to be changed again if another source is ever added.
     if (event.source) row.dataset.source = event.source;
-    if (event.source === LOCAL_SOURCE) row.classList.add('cal__event--local');
 
     // The feed's colour rides on the left border, so several calendars are
     // distinguishable without a legend eating the tile.
@@ -381,17 +398,6 @@ export class CalendarWidget extends ElementBase {
       feed.textContent = event.feedName;
       if (colour) feed.style.color = colour;
       what.appendChild(feed);
-    } else if (event.source === LOCAL_SOURCE) {
-      /**
-       * With only one source on screen there is no feed label, so a local
-       * event would otherwise be distinguished by a dashed border and
-       * nothing else. Name it — this is the tile telling you which entries
-       * Haven itself owns.
-       */
-      const origin = document.createElement('span');
-      origin.className = 'cal__origin';
-      origin.textContent = 'Added in Haven';
-      what.appendChild(origin);
     }
 
     row.appendChild(what);

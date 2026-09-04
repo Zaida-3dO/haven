@@ -26,13 +26,6 @@
 
 import { calendarConnectorFromConfig } from '../connectors/calendar.js';
 import { sortEvents } from '../connectors/ics-parse.js';
-import { listEvents, MAX_EVENTS } from '../db/calendar-store.js';
-import { LOCAL_SOURCE } from '../calendar/event-envelope.js';
-
-/** How far the merged read reaches when the caller names no window. */
-const DEFAULT_PAST_DAYS = 1;
-const DEFAULT_FUTURE_DAYS = 60;
-const DAY_MS = 86_400_000;
 
 /**
  * Parse a `from`/`to` query parameter.
@@ -70,10 +63,10 @@ export function parseRangeBound(raw, field, { endOfDay = false } = {}) {
 /**
  * Does an ICS-sourced event fall inside `[from, to]`?
  *
- * The store does this in SQL for local events; feed events are already in
- * memory, so the same overlap rule is applied here. OVERLAP, not "starts
- * within" — an event running across the window boundary is happening during
- * it, and dropping it would lose exactly the entries a dashboard most needs.
+ * Feed events are already in memory, so the window is applied here. OVERLAP,
+ * not "starts within" — an event running across the window boundary is
+ * happening during it, and dropping it would lose exactly the entries a
+ * dashboard most needs.
  */
 function overlapsWindow(event, from, to) {
   // An all-day event is a date; widen it to cover its whole last day so a
@@ -88,117 +81,59 @@ function overlapsWindow(event, from, to) {
   return true;
 }
 
-export async function registerCalendarRoutes(app, { connector, db: providedDb, ...options } = {}) {
+export async function registerCalendarRoutes(app, { connector, ...options } = {}) {
   // Injectable so a test can drive the route from a stubbed ICS feed and
   // never touch the network — no test needs a real feed URL.
   const calendar = connector ?? calendarConnectorFromConfig({ logger: app.log, ...options });
 
   /**
-   * The local store is optional at this seam: the widget route predates it,
-   * and a test that only cares about feed behaviour should not have to stand
-   * up a database. Resolved per request rather than captured, because
-   * `app.db` is decorated after this plugin registers in some orderings.
-   */
-  const database = () => providedDb ?? app.db ?? null;
-
-  /**
-   * The merged view — read-only ICS feeds plus Haven's own events.
+   * The read: every configured ICS feed, merged into one sorted list.
    *
-   * One list, one shape, sorted together. `source` is what distinguishes
-   * them: `"local"` for events Haven stores (and can therefore edit),
-   * `"feed"` for everything that arrived over an iCal address and is
-   * consequently read-only. A calling agent needs exactly that to know which
-   * ids it may PATCH, which is why it is on every event rather than implied
-   * by the id prefix alone.
+   * Every event carries `source: 'feed'`. Haven has no calendar of its own —
+   * an iCal address grants read access only, so everything here is read-only
+   * by construction, and the widget links out to Google Calendar for changes.
    */
-  async function mergedEvents({ force, from, to, nowMs }) {
+  async function feedEvents({ force, from, to }) {
     const result = await calendar.getEvents({ force });
 
-    const feedEvents = result.events
+    const events = result.events
       .filter((event) => overlapsWindow(event, from, to))
-      // Feed events are stamped here rather than in the parser so that
-      // `ics-parse.js` stays a pure ICS concern and has no opinion about an
-      // API that did not exist when it was written.
+      // Stamped here rather than in the parser so that `ics-parse.js` stays a
+      // pure ICS concern and has no opinion about an API that did not exist
+      // when it was written.
       .map((event) => ({ ...event, source: 'feed', editable: false }));
 
-    const db = database();
-    const localEvents = db
-      ? listEvents(db, {
-          from: from ?? new Date(nowMs - DEFAULT_PAST_DAYS * DAY_MS).toISOString(),
-          to: to ?? new Date(nowMs + DEFAULT_FUTURE_DAYS * DAY_MS).toISOString(),
-          limit: MAX_EVENTS,
-        }).map((event) => ({ ...event, editable: true }))
-      : [];
-
-    return {
-      ...result,
-      events: sortEvents([...feedEvents, ...localEvents]),
-      // The local store is presented as a feed of its own so the widget's
-      // existing per-feed colouring labels it without a special case.
-      // Exactly `{ id, name }`, like every other feed. The shape is pinned
-      // by a test precisely because a wider one is how a feed URL would
-      // eventually leak into the browser — so the local store gets no extra
-      // key here. The widget tells local events apart by `event.source`,
-      // which it needs anyway to know what it may offer to edit.
-      feeds: [...result.feeds, ...(db ? [{ id: LOCAL_SOURCE, name: 'Haven' }] : [])],
-    };
+    return { ...result, events: sortEvents(events) };
   }
 
   /**
    * GET /api/widgets/calendar — what the widget renders.
    *
-   * Now a MERGED view: read-only ICS feeds plus Haven's own local events.
-   *
-   * "Configured" changed meaning when the local store arrived, and the change
-   * is deliberate. It used to mean "an ICS feed is set", because a feed was
-   * the only possible source of an event. A local calendar is a source too,
-   * so a deployment with no feeds but with events in it is configured — and
-   * showing it the "set HAVEN_CALENDAR_ICS_URL" hint tile instead of the
-   * events it can plainly see created would be simply wrong.
+   * "Configured" means an ICS feed is set, because a feed is the only source
+   * of an event: the calendar is read-only, and changes are made in Google
+   * Calendar via the link the widget offers.
    */
   app.get('/api/widgets/calendar', async (request, reply) => {
     const force = request.query?.force === '1' || request.query?.force === 'true';
     const nowMs = Date.now();
-    const db = database();
 
     if (!calendar.isConfigured()) {
-      // No feeds. There may still be local events, and if there are, this is
-      // a working calendar rather than an unconfigured one.
-      const localEvents = db
-        ? listEvents(db, {
-            from: new Date(nowMs - DEFAULT_PAST_DAYS * DAY_MS).toISOString(),
-            to: new Date(nowMs + DEFAULT_FUTURE_DAYS * DAY_MS).toISOString(),
-          }).map((event) => ({ ...event, editable: true }))
-        : [];
-
+      // 200: an unconfigured connector is a normal state on a fresh install,
+      // and a tile the user can act on beats an error they cannot.
       reply.header('cache-control', 'no-store');
-
-      if (localEvents.length === 0) {
-        // 200: an unconfigured connector is a normal state on a fresh
-        // install, and a tile the user can act on beats an error they cannot.
-        return {
-          configured: false,
-          events: [],
-          feeds: [],
-          problems: [],
-          stale: false,
-          hint: 'Set HAVEN_CALENDAR_ICS_URL to a calendar’s secret iCal address.',
-        };
-      }
-
       return {
-        configured: true,
-        events: sortEvents(localEvents),
-        feeds: [{ id: LOCAL_SOURCE, name: 'Haven' }],
+        configured: false,
+        events: [],
+        feeds: [],
         problems: [],
         stale: false,
-        fetchedAt: new Date(nowMs).toISOString(),
+        hint: 'Set HAVEN_CALENDAR_ICS_URL to a calendar’s secret iCal address.',
       };
     }
 
     let result;
     try {
-      result = await mergedEvents({ force, from: null, to: null, nowMs });
+      result = await feedEvents({ force, from: null, to: null });
     } catch (error) {
       // The connector redacts at its own choke point on every path that can
       // carry a URL, so reaching here is unexpected. Log it, return none of it.
@@ -210,8 +145,8 @@ export async function registerCalendarRoutes(app, { connector, db: providedDb, .
     }
 
     if (result.events.length === 0 && result.problems.length > 0 && !result.stale) {
-      // Every feed is down AND there is nothing local to show. An empty list
-      // here would read as "nothing coming up", which is a lie.
+      // Every feed is down. An empty list here would read as "nothing coming
+      // up", which is a lie.
       reply.header('cache-control', 'no-store');
       return reply.code(502).send({
         error: 'CALENDAR_UNAVAILABLE',
@@ -225,12 +160,8 @@ export async function registerCalendarRoutes(app, { connector, db: providedDb, .
     }
 
     // Calendars change slowly, so let the browser honour a window of its own —
-    // but never cache stale data, so recovery is immediate. A local write must
-    // also show up on the next poll, so anything with local events is
-    // no-store: a 5-minute cached response would make a just-created event
-    // appear to have silently failed.
-    const hasLocal = result.events.some((event) => event.source === LOCAL_SOURCE);
-    reply.header('cache-control', result.stale || hasLocal ? 'no-store' : 'private, max-age=300');
+    // but never cache stale data, so recovery is immediate.
+    reply.header('cache-control', result.stale ? 'no-store' : 'private, max-age=300');
 
     return {
       configured: true,
@@ -243,7 +174,7 @@ export async function registerCalendarRoutes(app, { connector, db: providedDb, .
   });
 
   /**
-   * GET /api/widgets/calendar/events — the merged view, with a date range.
+   * GET /api/widgets/calendar/events — the same view, with a date range.
    *
    * The same data as the route above, but windowed, and shaped for a calling
    * agent rather than for the tile: `?from=2026-06-01&to=2026-06-30`.
@@ -251,10 +182,9 @@ export async function registerCalendarRoutes(app, { connector, db: providedDb, .
    * It is a separate route rather than a query parameter on the widget one
    * because the two have different contracts. The widget route is allowed to
    * degrade — stale data, a hint tile, a soft notice — because a dashboard
-   * that renders something beats one that renders an error. An agent asking
-   * for a date range wants an answer or a failure, and quietly serving it
-   * fifteen-minute-old data as though it were current would be the wrong
-   * trade for something about to write to that same calendar.
+   * that renders something beats one that renders an error. A caller asking
+   * for a date range wants an answer or a failure, and `stale` is reported
+   * rather than smoothed over so it can tell the difference.
    */
   app.get('/api/widgets/calendar/events', async (request, reply) => {
     const from = parseRangeBound(request.query?.from, 'from');
@@ -277,7 +207,7 @@ export async function registerCalendarRoutes(app, { connector, db: providedDb, .
 
     let result;
     try {
-      result = await mergedEvents({ force, from: from.value, to: to.value, nowMs });
+      result = await feedEvents({ force, from: from.value, to: to.value });
     } catch (error) {
       app.log.error({ err: error }, 'Calendar connector failed unexpectedly');
       reply.header('cache-control', 'no-store');
@@ -286,9 +216,8 @@ export async function registerCalendarRoutes(app, { connector, db: providedDb, .
         .send({ error: 'CALENDAR_FAILED', message: 'Could not load the calendar.' });
     }
 
-    // Never cached. A caller that just POSTed an event and immediately reads
-    // the range back must see it — a cached 200 here would look exactly like
-    // a write that silently did nothing.
+    // Never cached: a caller asking for an explicit window wants the current
+    // answer, and `stale` in the body is how it learns otherwise.
     reply.header('cache-control', 'no-store');
 
     return {

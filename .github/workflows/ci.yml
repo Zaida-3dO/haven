@@ -137,6 +137,57 @@ jobs:
         if: needs.changes.outputs.web == 'true' && needs.web.result != 'success'
         run: exit 1
 
+  e2e:
+    name: Browser tests
+    needs: changes
+    # Runs when anything the browser actually exercises changes: the web shell,
+    # the server it talks to, or the harness itself.
+    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install --no-audit --no-fund --prefer-offline
+      # `--with-deps` because a bare runner has none of the shared libraries
+      # Chromium needs. Only chromium is installed: the suite declares one
+      # project, so fetching the other engines would be pure runtime.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      # `test:e2e` builds the web workspace first — the harness serves the Vite
+      # output and refuses to start without it.
+      - run: npm run test:e2e
+        env:
+          CI: 'true'
+      - name: Upload the Playwright report
+        # The report is the only way to see WHY a browser test failed on a
+        # runner nobody can attach to, so it is kept on failure.
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  e2e-gate:
+    name: Browser tests (required)
+    needs: [changes, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pass — nothing the browser tests cover changed
+        if: needs.changes.outputs.web == 'false' && needs.changes.outputs.server == 'false'
+        run: echo "No web or server files changed, skipping"
+      - name: Fail — browser tests failed
+        if: |
+          (needs.changes.outputs.web == 'true' || needs.changes.outputs.server == 'true')
+          && needs.e2e.result != 'success'
+        run: exit 1
+
   actionlint:
     name: Lint workflows
     needs: changes

@@ -64,7 +64,19 @@ export const test = base.extend({
 
 export { expect };
 
-/** The ids in `DEFAULT_INSTANCES` (web/src/shell/boot.js), in roster order. */
+/**
+ * The ids the server seeds, in roster order.
+ *
+ * This mirrors `DEFAULT_INSTANCES` in `server/src/db/instances-store.js` — the
+ * SERVER's list, not the `FALLBACK_INSTANCES` copy in `web/src/shell/boot.js`.
+ * The two differ (the web copy carries an extra `page-library` entry) and only
+ * the server's applies here, because the harness boots a real database that
+ * gets seeded. The web fallback is used only when `GET /api/instances` fails,
+ * which it does not in these tests.
+ *
+ * `render-smoke.spec.js` asserts this list against the live endpoint, so it
+ * cannot silently drift out of step and quietly test fewer widgets.
+ */
 export const WIDGET_IDS = [
   'hero-main',
   'apps-main',
@@ -73,6 +85,20 @@ export const WIDGET_IDS = [
   'calendar',
   'clock-tokyo',
 ];
+
+/**
+ * Widgets mounted into the SIDEBAR rather than onto the grid.
+ *
+ * These are real widget hosts with the same two-shadow-root structure, but no
+ * GridStack node — so anything selecting `.grid-stack-item` will never see
+ * them. They are listed separately for that reason.
+ *
+ * `sidebar-home3d` is deliberately excluded: the iframe widget lazy-loads its
+ * document on visibility, so what it has rendered at boot is a function of
+ * scroll position rather than of correctness, and asserting on it would be
+ * flaky by construction.
+ */
+export const SIDEBAR_WIDGET_IDS = ['sidebar-weather', 'sidebar-calendar', 'sidebar-status'];
 
 /**
  * Waits until the dashboard has booted and every widget tile is on the grid.

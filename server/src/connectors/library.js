@@ -95,7 +95,7 @@ function safeName(value, fallback = 'Unknown') {
  */
 function readSnapshotFile(path, logger) {
   let text;
-  let mtime = null;
+  let mtime;
 
   try {
     text = readFileSync(path, 'utf8');

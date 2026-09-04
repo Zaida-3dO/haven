@@ -117,7 +117,8 @@ export function sizeRows(sizes = []) {
 
 /** The staleness banner, or null when the data is fresh enough to pass without comment. */
 function freshnessNote(data, doc) {
-  const stale = data.stale || (typeof data.ageDays === 'number' && data.ageDays >= STALE_AFTER_DAYS);
+  const stale =
+    data.stale || (typeof data.ageDays === 'number' && data.ageDays >= STALE_AFTER_DAYS);
 
   const when = data.generatedAt
     ? new Date(data.generatedAt).toLocaleDateString('en-GB', {
@@ -157,7 +158,11 @@ function mediaSection(title, summary, doc, { itemNoun, extraStat = null }) {
   if (summary.qualities?.length) {
     children.push(
       el('h3', { class: 'page__subheading', text: 'By quality' }, doc),
-      table(['Quality', itemNoun, 'Size', 'Share'], qualityRows(summary.qualities, summary.bytes), doc)
+      table(
+        ['Quality', itemNoun, 'Size', 'Share'],
+        qualityRows(summary.qualities, summary.bytes),
+        doc
+      )
     );
   }
 

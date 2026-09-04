@@ -142,7 +142,10 @@ describe('library connector — a missing snapshot degrades honestly', () => {
     // The distinction this asserts is the reason `unavailable` exists as a
     // separate status: an empty library and an absent file are different
     // facts, and a page that renders them identically is lying about one.
-    const empty = summariseSnapshot({ generatedAt: '2026-09-01T00:00:00.000Z', movies: [], series: [] }, { now: justAfterSample });
+    const empty = summariseSnapshot(
+      { generatedAt: '2026-09-01T00:00:00.000Z', movies: [], series: [] },
+      { now: justAfterSample }
+    );
 
     assert.equal(empty.status, LIBRARY_STATUS.OK);
     assert.equal(empty.movies.count, 0);
@@ -373,7 +376,10 @@ describe('library connector — aggregation', () => {
   });
 
   test('groups movies by quality with the right counts and bytes', () => {
-    const { qualities } = summariseByQuality(sampleSnapshot().movies, ['Bluray-1080p', 'WEBDL-720p']);
+    const { qualities } = summariseByQuality(sampleSnapshot().movies, [
+      'Bluray-1080p',
+      'WEBDL-720p',
+    ]);
     const bluray = qualities.find((q) => q.quality === 'Bluray-1080p');
 
     assert.equal(bluray.count, 2);
@@ -383,7 +389,10 @@ describe('library connector — aggregation', () => {
   test('orders qualities by the snapshot own ranking, unranked last', () => {
     // `SDTV` is absent from qualityOrder. It must still be shown — dropping an
     // unrecognised quality would silently lose records — but it sorts last.
-    const { qualities } = summariseByQuality(sampleSnapshot().movies, ['Bluray-1080p', 'WEBDL-720p']);
+    const { qualities } = summariseByQuality(sampleSnapshot().movies, [
+      'Bluray-1080p',
+      'WEBDL-720p',
+    ]);
 
     assert.deepEqual(
       qualities.map((q) => q.quality),

@@ -280,9 +280,12 @@ test('a host whose getSearchEntries yields nothing contributes nothing', () => {
  *
  * To see it fail, add a single line to `setEntries` such as
  *   localStorage.setItem('haven-search', JSON.stringify(cleaned));
- * and this test reports the write.
+ * and this test reports the write. Wrapping that same line in
+ * `queueMicrotask` or `setTimeout` is also reported — see the drain at the
+ * end of the lifecycle below, without which a deferred write fired after the
+ * globals were restored and was invisible.
  */
-test('the index never touches any persistent store or the network', () => {
+test('the index never touches any persistent store or the network', async () => {
   const touched = [];
   const original = {};
 
@@ -366,6 +369,16 @@ test('the index never touches any persistent store or the network', () => {
     index.sources();
     index.remove('apps-1');
     index.clear();
+
+    // **Drain before restoring the globals.** The spies used to be torn down
+    // around a purely synchronous body, so a write deferred by even one turn
+    // — `queueMicrotask(() => sendBeacon(...))` — landed after the real
+    // globals were back and the tripwire never saw it: 27 pass, 0 fail for a
+    // leak of the whole index. A cache added "to make load faster" is exactly
+    // the kind of thing that would be written asynchronously, so draining here
+    // is what makes this tripwire mean what it claims.
+    await Promise.resolve(); // microtasks: queueMicrotask, a resolved .then
+    await new Promise((resolve) => setTimeout(resolve, 0)); // macrotasks: setTimeout 0
   } finally {
     for (const [key, descriptor] of Object.entries(original)) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);

@@ -6,17 +6,32 @@ import { MODE, createEditMode } from '../src/shell/edit-mode.js';
 /**
  * A stand-in for the handle `mountGrid` returns.
  *
- * It models the two behaviours edit mode actually depends on: `extract`
- * returns the current geometry for a breakpoint, and `applyLayout` puts a
- * previous geometry back — which is what Discard is.
+ * It models the behaviours edit mode actually depends on: `extract` returns
+ * the current geometry for a breakpoint, `applyLayout` puts a previous
+ * geometry back — which is what Discard is — and `hasLayoutFor` reports
+ * whether a breakpoint has ever been arranged.
+ *
+ * **`extract` deliberately reproduces GridStack's sharp edge.** The real
+ * `grid.save(..., column)` substitutes the *rendered* column's geometry when
+ * it holds no cached layout for the one asked for, rather than returning
+ * nothing. Modelling that is what lets a test distinguish a guarded save from
+ * an unguarded one — a fake that returned the requested breakpoint's nodes
+ * regardless would pass whether or not the guard is wired in, which is exactly
+ * the hole this suite previously had.
+ *
+ * @param {object} [opts]
+ * @param {string[]} [opts.arranged] breakpoints GridStack holds a layout for.
+ *   Defaults to the rendered one, which is always live.
  */
-function fakeGridHandle({ breakpoint = 'desktop', nodes = [] } = {}) {
+function fakeGridHandle({ breakpoint = 'desktop', nodes = [], arranged } = {}) {
   const state = {
     breakpoint,
     nodes: [...nodes],
     editable: null,
     applied: [],
     classes: new Set(),
+    arranged: new Set(arranged ?? [breakpoint]),
+    extracted: [],
   };
 
   return {
@@ -31,7 +46,13 @@ function fakeGridHandle({ breakpoint = 'desktop', nodes = [] } = {}) {
       querySelectorAll: () => [],
     },
     breakpoint: () => state.breakpoint,
-    extract: () => state.nodes.map((n) => ({ ...n })),
+    hasLayoutFor: (bp) => state.arranged.has(bp),
+    // Note the substitution: an unarranged breakpoint yields the RENDERED
+    // column's geometry, just as GridStack does. Saving that is the bug.
+    extract: (bp = state.breakpoint) => {
+      state.extracted.push(bp);
+      return state.nodes.map((n) => ({ ...n }));
+    },
     applyLayout: (layout) => {
       state.applied.push(layout);
       state.nodes = layout.map((n) => ({ ...n }));
@@ -227,6 +248,95 @@ describe('save', () => {
 
     assert.equal(await editMode.save(), null);
     assert.equal(layoutClient.saves.length, 0);
+  });
+
+  // ── the guard against saving a breakpoint that was never arranged ──────
+  //
+  // `hasLayoutFor` (grid.js) wraps `hasCachedLayout` (grid-layout.js). It was
+  // written, exported and unit-tested, but for a while NOTHING CALLED IT — the
+  // save path extracted unconditionally. It was not corrupting layouts only
+  // because save() sends the rendered breakpoint, which always passes the
+  // guard; a "save both breakpoints" path would have landed the corruption
+  // silently with the suite still green.
+  //
+  // These tests exist to fail if the guard call is deleted from save(). They
+  // drive save() at a breakpoint GridStack holds no layout for, which is the
+  // only situation where guarded and unguarded behaviour differ.
+
+  test('refuses to save a breakpoint that has never been arranged', async () => {
+    // Rendered at desktop; mobile has never been visited, so GridStack holds
+    // no layout for its 4-column width. Extracting mobile here would hand back
+    // the 12-column desktop geometry and persist it as the mobile layout.
+    const gridHandle = fakeGridHandle({
+      breakpoint: 'mobile',
+      arranged: ['desktop'],
+      nodes: [{ id: 'a', x: 9, y: 0, w: 3, h: 2 }],
+    });
+    const layoutClient = fakeLayoutClient();
+    const editMode = createEditMode({ gridHandle, layoutClient });
+
+    editMode.enter();
+    await assert.rejects(() => editMode.save(), /never been arranged/);
+
+    // The assertion that actually bites: nothing was written. Without the
+    // guard this array holds one desktop-shaped mobile layout.
+    assert.equal(layoutClient.saves.length, 0, 'an unarranged breakpoint must not be persisted');
+  });
+
+  test('does not even extract an unarranged breakpoint', async () => {
+    // Guard before extract, not after: `extract` is the call that produces the
+    // wrong geometry, so it must not run at all.
+    const gridHandle = fakeGridHandle({ breakpoint: 'mobile', arranged: ['desktop'] });
+    const editMode = createEditMode({ gridHandle, layoutClient: fakeLayoutClient() });
+
+    editMode.enter();
+    gridHandle.state.extracted.length = 0; // enter() snapshots; ignore that call
+    await assert.rejects(() => editMode.save());
+
+    assert.deepEqual(gridHandle.state.extracted, [], 'extract must not be reached');
+  });
+
+  test('a refused save stays in edit mode, so the arrangement is not lost', async () => {
+    // Same reasoning as a failed network save: dropping to view mode would
+    // look like success.
+    const gridHandle = fakeGridHandle({ breakpoint: 'mobile', arranged: ['desktop'] });
+    const editMode = createEditMode({ gridHandle, layoutClient: fakeLayoutClient() });
+
+    editMode.enter();
+    await assert.rejects(() => editMode.save());
+
+    assert.equal(editMode.isEditing, true);
+  });
+
+  test('still saves once that breakpoint has actually been arranged', async () => {
+    // The guard must not block the normal path — mobile arranged, mobile saved.
+    const gridHandle = fakeGridHandle({
+      breakpoint: 'mobile',
+      arranged: ['desktop', 'mobile'],
+      nodes: [{ id: 'a', x: 0, y: 0, w: 4, h: 2 }],
+    });
+    const layoutClient = fakeLayoutClient();
+    const editMode = createEditMode({ gridHandle, layoutClient });
+
+    editMode.enter();
+    await editMode.save();
+
+    assert.deepEqual(Object.keys(layoutClient.saves[0]), ['mobile']);
+    assert.equal(editMode.mode, MODE.VIEW);
+  });
+
+  test('a handle with no hasLayoutFor is treated as arranged', async () => {
+    // Back-compat: the guard is a defence, not a new required method on the
+    // handle contract.
+    const gridHandle = fakeGridHandle({ breakpoint: 'desktop' });
+    delete gridHandle.hasLayoutFor;
+    const layoutClient = fakeLayoutClient();
+    const editMode = createEditMode({ gridHandle, layoutClient });
+
+    editMode.enter();
+    await editMode.save();
+
+    assert.equal(layoutClient.saves.length, 1);
   });
 });
 

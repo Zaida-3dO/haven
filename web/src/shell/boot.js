@@ -217,10 +217,17 @@ export async function bootDashboard(
   grid.load(entries, usable);
 
   // The clock's tick is a host-owned scheduler task — see clock-source.js.
+  // Its teardown is handed to the dashboard rather than discarded: the task is
+  // registered as `clock-tick:<id>`, which `dashboard.remove(id)` cannot cancel
+  // by id, so dropping it leaks a 1 Hz task per clock removed.
+  const startClock = (host) => {
+    dashboard.onRemove(host.id, startClockTicks({ scheduler: dashboard.scheduler, host }));
+  };
+
   for (const entry of entries) {
     if (entry.type !== 'clock') continue;
     const host = dashboard.host(entry.id);
-    if (host) startClockTicks({ scheduler: dashboard.scheduler, host });
+    if (host) startClock(host);
   }
 
   const addPanel = createAddPanel({
@@ -229,9 +236,7 @@ export async function bootDashboard(
     onAdd: (insertion) => {
       const host = grid.insert(insertion);
       if (!host) return;
-      if (insertion.type === 'clock') {
-        startClockTicks({ scheduler: dashboard.scheduler, host });
-      }
+      if (insertion.type === 'clock') startClock(host);
 
       // A widget added and not persisted is one that vanishes on refresh —
       // the exact bug this whole task exists to close. The host's config is

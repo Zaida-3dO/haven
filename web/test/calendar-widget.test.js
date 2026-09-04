@@ -89,6 +89,12 @@ function renderWith(value, { config = {}, makeData = doneData } = {}) {
 const textOf = (node) => (node ? node.textContent : null);
 const findAll = (root, selector) => root.querySelectorAll(selector);
 
+/** Every element in the rendered tree, root first. */
+function* walk(node) {
+  yield node;
+  for (const child of node.children ?? []) yield* walk(child);
+}
+
 // ── The contract ────────────────────────────────────────────────────────
 
 test('the widget declares no timer and fetches nothing itself', () => {
@@ -518,9 +524,30 @@ test('no feed URL can reach the link, whatever the server sends', () => {
   assert.equal(link.href, GOOGLE_CALENDAR_URL);
   assert.ok(!link.href.includes('SECRET-TOKEN'), 'a feed credential must never reach an href');
 
-  // And nowhere else in the rendered tile either.
-  assert.ok(
-    !JSON.stringify(root).includes('SECRET-TOKEN'),
-    'a feed credential must never reach the DOM'
-  );
+  // And nowhere else in the rendered tile either. Walked explicitly rather
+  // than serialised: the tree is circular (`parentNode`), so `JSON.stringify`
+  // throws — and even where it does not, it would skip exactly the places a
+  // credential would actually land (attributes, dataset, inline style).
+  for (const node of walk(root)) {
+    const surfaces = [
+      node.textContent,
+      node.className,
+      // Set as plain properties by the widget, so they never reach
+      // `attributes` (which only `setAttribute` populates) — and an href or a
+      // title is exactly where a credential would land.
+      node.href,
+      node.title,
+      node.src,
+      ...[...node.attributes.values()],
+      ...Object.values(node.dataset),
+      ...Object.values(node.style),
+    ];
+
+    for (const surface of surfaces) {
+      assert.ok(
+        !String(surface ?? '').includes('SECRET-TOKEN'),
+        `a feed credential must never reach the DOM (found on <${node.tagName}>)`
+      );
+    }
+  }
 });

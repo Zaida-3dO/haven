@@ -357,9 +357,10 @@ export async function bootDashboard(
       type: 'calendar',
       config: { title: 'Calendar', maxEvents: 8 },
     },
-    // A relative path, because the 3D home is served from Haven's own origin
-    // and an absolute internal address must never be committed to a public
-    // repo. The sandbox stays as locked down as it was on the grid.
+    // A public HTTPS URL: the 3D home is deployed standalone rather than
+    // served by Haven, so this is a cross-origin embed. A public hostname is
+    // not network topology, so it is fine in a public repo. The sandbox stays
+    // as locked down as it was on the grid — the scene needs no storage.
     {
       card: 'home3d',
       id: 'sidebar-home3d',

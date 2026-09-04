@@ -311,8 +311,10 @@ Provider-agnostic: Google, Outlook, or any ICS.
 > **Open question:** your calendar only, or merged with a second person's?
 
 ### 6.5 Iframe / embed
-Arbitrary embedded pages. First use: the 3D home preview (`home3d.html?preview=true` — a
-mode that already exists and is already used by the HA tablet dashboard).
+Arbitrary embedded pages. First use: the 3D home preview, deployed standalone at
+`https://3dhome.3dojoda.com/` and embedded cross-origin (the same scene the HA tablet
+dashboard uses). It runs under the default `allow-scripts`-only sandbox — the scene is
+self-contained WebGL and needs no storage, so it does not need `allow-same-origin`.
 
 Needs the pointer-events shim (§3) and `resizestop` → `renderer.setSize()`.
 

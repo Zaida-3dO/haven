@@ -49,6 +49,20 @@ COPY server/ ./server/
 COPY --from=web-build /app/web/dist ./web/dist
 COPY package.json ./
 
+# The seeding and migration CLIs, which docs/CONFIGURATION.md tells people to
+# run — `docker exec haven node scripts/haven-seed.mjs …` is the realistic path
+# for a fresh install, and it 404'd on a real deployment because the image did
+# not carry them.
+#
+# The WHOLE directory, not a hand-picked subset: `haven-seed.mjs` imports
+# `lib/seed-apply.mjs`, which in turn imports `../migrate-apps.mjs` for the
+# old-schema mapping. Copying only `haven-seed.mjs` + `lib/` is exactly the
+# partial copy that died with ERR_MODULE_NOT_FOUND when this was worked around
+# by hand. They are a handful of dependency-free .mjs files.
+#
+# `scripts/check-image-contents.sh` asserts this stayed true.
+COPY scripts/ ./scripts/
+
 ARG APP_VERSION=dev
 LABEL org.opencontainers.image.version="${APP_VERSION}"
 LABEL org.opencontainers.image.source="https://github.com/Zaida-3dO/haven"

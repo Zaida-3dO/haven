@@ -177,6 +177,20 @@ function migrateApp(app, index, report) {
     icon: app.icon ?? null,
     urls,
     ...(Object.keys(version).length ? { version } : {}),
+    // Carried through rather than rebuilt, the same way `version` is.
+    //
+    // This return is a WHITELIST: a field absent from it is gone, and
+    // `featured` was. That made it a silent loss rather than a loud one,
+    // because `featured` is in KNOWN_FIELDS, so the unknown-field reporter had
+    // nothing to say about it either. Downstream, `seed-plan.mjs` then compared
+    // null against null and truthfully reported "skip" over data this function
+    // had already destroyed — which is why a seeded hero stayed empty with no
+    // error anywhere.
+    //
+    // It only ever bit OLD-SHAPE entries: `isAlreadyMigrated` returns anything
+    // with a `urls` array untouched, so a modern entry kept its featured block
+    // and the bug looked intermittent.
+    ...(app.featured ? { featured: app.featured } : {}),
   };
 }
 

@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test \"test/**/*.test.js\" && npm run test:tz",
-    "lint": "eslint src test",
+    "lint": "eslint src test e2e",
     "test:tz": "node ../scripts/test-timezones.mjs \"test/calendar-group.test.js\""
   },
   "dependencies": {

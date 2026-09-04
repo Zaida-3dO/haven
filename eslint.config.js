@@ -56,6 +56,21 @@ export default [
   },
 
   {
+    // Browser tests. They sit under `web/`, so the block above has already
+    // given them browser globals — which they do need, because the bodies of
+    // `page.evaluate` callbacks are real browser code. But the files
+    // themselves are Node programs run by Playwright, so they need BOTH: the
+    // harness spawns a server with `process`/`node:fs`, and every spec uses
+    // Node's module system.
+    files: ['web/e2e/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'module',
+      globals: { ...globals.browser, ...globals.node },
+    },
+  },
+
+  {
     // Config files run in Node regardless of which workspace they sit in.
     files: ['**/*.config.js', 'eslint.config.js'],
     languageOptions: {

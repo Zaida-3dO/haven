@@ -103,8 +103,12 @@ const measureWidgets = (ids) =>
 function expectRendered(w, label) {
   expect(w.found, `${label} (${w.id}) should be in the document`).toBe(true);
   expect(w.hasOuterShadow, `${label} (${w.id}) should have the host shadow root`).toBe(true);
-  expect(w.customTag, `${label} (${w.id}) should mount a haven-widget-* element`).toMatch(
-    /^HAVEN-WIDGET-/
+  // `HAVEN-` rather than `HAVEN-WIDGET-`: the clock registers as `haven-clock`
+  // while everything else is `haven-widget-<type>`. Asserting the narrower
+  // prefix would fail on both clocks in the default roster — a false failure
+  // in the test rather than a real one in the app.
+  expect(w.customTag, `${label} (${w.id}) should mount a haven-* custom element`).toMatch(
+    /^HAVEN-/
   );
   expect(w.isPending, `${label} (${w.id}) should not still be the pending placeholder`).toBe(false);
   expect(w.isErrorCard, `${label} (${w.id}) should not have fallen back to an error card`).toBe(
@@ -194,21 +198,23 @@ test.describe('render smoke', () => {
     // A tile with height that renders content taller than itself and hides the
     // overflow looks identical to a working widget in the DOM. This compares
     // the rendered element against the box it sits in.
-    const clipped = await page.evaluate((ids) =>
-      ids
-        .map((id) => {
-          const host = document.getElementById(id);
-          const tile = host?.closest('.grid-stack-item');
-          if (!host || !tile) return null;
-          const tileBox = tile.getBoundingClientRect();
-          return {
-            id,
-            tileHeight: Math.round(tileBox.height),
-            tileWidth: Math.round(tileBox.width),
-          };
-        })
-        .filter(Boolean)
-    , WIDGET_IDS);
+    const clipped = await page.evaluate(
+      (ids) =>
+        ids
+          .map((id) => {
+            const host = document.getElementById(id);
+            const tile = host?.closest('.grid-stack-item');
+            if (!host || !tile) return null;
+            const tileBox = tile.getBoundingClientRect();
+            return {
+              id,
+              tileHeight: Math.round(tileBox.height),
+              tileWidth: Math.round(tileBox.width),
+            };
+          })
+          .filter(Boolean),
+      WIDGET_IDS
+    );
 
     expect(clipped).toHaveLength(WIDGET_IDS.length);
     for (const tile of clipped) {

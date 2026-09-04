@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { SIDEBAR_ICONS, createSidebar } from '../src/shell/sidebar.js';
+import { HOME_3D_URL } from '../src/widgets/iframe/definition.js';
 import { createFakeDocument } from './helpers/fake-dom.js';
 
 /**
@@ -406,9 +407,22 @@ test('the 3D home embed keeps its locked-down sandbox', () => {
   assert.match(entry[0], /allowPopups:\s*'no'/, 'the embed must not get popups');
 });
 
-test('the 3D home URL is relative, never an internal address', () => {
-  // A public repo must not carry network topology. The URL comes from
-  // `HOME_3D_URL`, which is a relative path; a literal host here would be a
-  // secrets-scan failure as well as a bug.
+test('the 3D home URL comes from HOME_3D_URL, never an inline address', () => {
+  // The URL is now an absolute public host (the 3D home is deployed
+  // standalone), which is fine in a public repo — but it must still come from
+  // the single `HOME_3D_URL` constant rather than being pasted in here, so
+  // there is exactly one place to change it and one place to review.
   assert.match(BOOT_CODE, /url:\s*HOME_3D_URL/, 'the embed URL must come from HOME_3D_URL');
+});
+
+test('the 3D home URL is a public https host, never a private address', () => {
+  // The rule a public repo actually has: no network topology. A public
+  // hostname is fine; an RFC 1918 address or a `.local`/bare internal host is
+  // not, and would fail `scripts/check-no-secrets.sh` too.
+  assert.match(HOME_3D_URL, /^https:\/\//, 'the embed must be served over https');
+  assert.doesNotMatch(
+    HOME_3D_URL,
+    /\/\/(?:\d{1,3}\.){3}\d{1,3}|\.local|localhost/,
+    'the embed URL must not be a private or internal address in a public repo'
+  );
 });

@@ -27,14 +27,15 @@ globalThis.HTMLElement = class extends FakeElement {
   }
 };
 /**
- * A relative embed is same-origin, so its messages are addressed to the
- * dashboard's own origin — which means the widget needs a `location` to read.
+ * An embed's messages are addressed to the frame's own origin, resolved
+ * against the page's — which means the widget needs a `location` to read.
  * Node has none, so one is installed here rather than making the code fall
  * back to `'*'`, which is the habit this widget deliberately avoids.
  */
 globalThis.location = { origin: 'https://haven.invalid' };
 
 const { HavenIframe } = await import('../src/widgets/iframe/element.js');
+const { HOME_3D_URL } = await import('../src/widgets/iframe/definition.js');
 const { EmbedUrlError } = await import('../src/widgets/iframe/embed-url.js');
 const { RESIZE_MESSAGE_TYPE } = await import('../src/widgets/iframe/geometry.js');
 
@@ -44,8 +45,10 @@ after(() => {
   globalThis.location = realLocation;
 });
 
+// The real shipped default, imported rather than copied: a test that hardcodes
+// its own URL keeps passing when the widget starts pointing somewhere else.
 const CONFIG = {
-  url: '/home3d.html?preview=true',
+  url: HOME_3D_URL,
   title: '3D home',
   scroll: 'no',
   allowForms: 'no',
@@ -80,7 +83,7 @@ test('renders a frame pointing at the configured URL', () => {
 
   assert.ok(frame, 'expected a frame');
   assert.equal(frame.tagName, 'IFRAME');
-  assert.equal(frame.getAttribute('src'), '/home3d.html?preview=true');
+  assert.equal(frame.getAttribute('src'), HOME_3D_URL);
   assert.equal(frame.getAttribute('sandbox'), 'allow-scripts');
 });
 
@@ -164,8 +167,10 @@ test('onResize forwards geometry into the frame', () => {
   assert.equal(posted[0].message.width, 800);
   assert.equal(posted[0].message.height, 600);
   assert.deepEqual(posted[0].message.cells, { w: 6, h: 4 });
-  // A relative embed is same-origin, so it is addressed to the dashboard.
-  assert.equal(posted[0].targetOrigin, 'https://haven.invalid');
+  // Addressed to the embed's own origin. The default embed is now
+  // cross-origin, so this is the 3D home's host rather than the dashboard's —
+  // and never `'*'`, which is what the next test pins down.
+  assert.equal(posted[0].targetOrigin, new URL(HOME_3D_URL).origin);
 });
 
 test('geometry is addressed to the embed origin, never to *', () => {
@@ -193,7 +198,7 @@ test('becoming visible loads the frame', () => {
   el.show();
 
   assert.equal(el.loaded, true);
-  assert.equal(el.frame.getAttribute('src'), '/home3d.html?preview=true');
+  assert.equal(el.frame.getAttribute('src'), HOME_3D_URL);
   assert.equal(el.frame.hidden, false);
 });
 
@@ -223,7 +228,7 @@ test('an error payload renders the fallback with the config preserved', () => {
   const box = el.shadowRoot.querySelector('.embed__error');
   assert.ok(box, 'expected the fallback tile');
   assert.match(box.textContent, /upstream is down/);
-  assert.match(box.textContent, /home3d/);
+  assert.match(box.textContent, /3dhome\.3dojoda\.com/);
 });
 
 test('the title is contributed to the search index', () => {

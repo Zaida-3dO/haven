@@ -59,6 +59,50 @@ test('registering the same id twice is refused', () => {
   assert.throws(() => pages.register(PAGE), PageError);
 });
 
+test('a declared load() survives registration', () => {
+  // THE regression this pins, and it shipped: `normalisePage` returns an
+  // allowlisted frozen object, and `load` was not on the list. So a page could
+  // declare a loader, register cleanly, and have it silently dropped — the
+  // router only calls it when `typeof page.load === 'function'`, so Library
+  // Analytics rendered "Loading library statistics…" forever while its
+  // connector was answering perfectly.
+  //
+  // Deleting the `...(definition.load ? ...)` spread in `normalisePage` fails
+  // this test and nothing else in the unit suite, which is precisely why the
+  // bug survived: every other test calls `render`/`load` directly instead of
+  // going through the registry.
+  const load = async () => ({ status: 'ok' });
+  const page = normalisePage({ ...PAGE, load });
+
+  assert.equal(typeof page.load, 'function');
+  assert.equal(page.load, load);
+});
+
+test('a page without a load() simply has none', () => {
+  // The optionality is real — a static page declares no loader, and the router
+  // must not try to call one.
+  const page = normalisePage(PAGE);
+  assert.equal(page.load, undefined);
+});
+
+test('a load that is not a function is refused at registration', () => {
+  // Fail at registration rather than at navigation: a truthy non-function
+  // would otherwise be carried through and throw inside the router, far from
+  // the definition that caused it.
+  assert.throws(() => normalisePage({ ...PAGE, load: 'soon' }), PageError);
+  assert.throws(() => normalisePage({ ...PAGE, load: {} }), PageError);
+});
+
+test('the real Library Analytics page reaches the registry with its loader', () => {
+  // The end-to-end version of the above, against the ACTUAL exported
+  // definition rather than a fixture — this is the pairing that was broken in
+  // production, so it is asserted on the real object.
+  const pages = new PageRegistry();
+  pages.register(libraryAnalyticsPage);
+
+  assert.equal(typeof pages.get('library-analytics').load, 'function');
+});
+
 test('a page can be hidden from the nav while still being placeable', () => {
   const pages = new PageRegistry();
   pages.register(PAGE);

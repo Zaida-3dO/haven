@@ -105,9 +105,15 @@ export function calendarStubConfig() {
 const STYLES = `
   :host { display: block; font: inherit; container-type: inline-size; }
   .cal { display: flex; flex-direction: column; gap: 0.5rem; height: 100%; }
+  /*
+   * Wraps because the head has to hold a title, an optional notice AND the
+   * "Open Google Calendar" link, which is deliberately nowrap so its label
+   * stays readable. On a narrow tile those together exceed the width, and
+   * without wrapping the link spills outside the tile rather than shrinking.
+   */
   .cal__head {
     display: flex; align-items: baseline; justify-content: space-between;
-    gap: 0.5rem;
+    gap: 0.5rem; flex-wrap: wrap;
   }
   .cal__title { font-weight: 600; }
   .cal__notice {

@@ -4,18 +4,23 @@
  * origin.
  *
  * ── Why this file exists at all ──────────────────────────────────────────
- * `server/src/index.js` serves `/api/*` and nothing else — it registers no
- * static handler for `web/dist`. In development that is fine, because Vite
- * serves the shell and proxies `/api` to the backend (see `web/vite.config.js`).
- * There is therefore no single command in the repo that serves the whole app
- * on one origin, so the browser tests assemble one here: `buildServer()` for
- * the API, plus `@fastify/static` for the Vite build output.
+ * The browser tests need the API and the built shell on ONE origin. In
+ * development that comes from Vite, which serves the shell and proxies `/api`
+ * to the backend (see `web/vite.config.js`) — but Vite is not what ships, so
+ * the suite boots the real server instead.
  *
- * That is a test harness, not a fix. The same gap appears to affect the
- * production image — the Dockerfile copies `web/dist` in and the runtime never
- * serves it — which is written up in the PR rather than fixed here, because
- * changing what the container serves is a bigger decision than a test file
- * should make on its own.
+ * `buildServer()` now serves the shell itself, given a `webDir`, including the
+ * SPA fallback for deep links. When this harness was first written it did not,
+ * so this file registered `@fastify/static` on top of the built server. That
+ * gap has since been closed on main (the production image had the same bug:
+ * the Dockerfile copied `web/dist` in and nothing served it, so `/` answered
+ * 404 while every /api route worked).
+ *
+ * So the harness now passes `webDir` and registers NOTHING. Doing both is not
+ * merely redundant, it is fatal: `@fastify/static` adds a `sendFile` decorator
+ * and Fastify refuses a duplicate, so the second registration threw
+ * "The decorator 'sendFile' has already been added!" and the whole suite failed
+ * to boot. Serving the shell is the server's job; this file only points at it.
  * ─────────────────────────────────────────────────────────────────────────
  *
  * Everything is set up so a run cannot touch real state:
@@ -84,23 +89,10 @@ for (const key of [
 
 const { buildServer } = await import('../../server/src/server.js');
 
-const app = await buildServer();
-
-// Serve the built shell alongside the API. Registered after the API routes so
-// it can never shadow one, and with an SPA-style fallback so a deep link like
-// `/#widget-id` resolves to `index.html`.
-await app.register(import('@fastify/static'), {
-  root: distDir,
-  prefix: '/',
-  index: ['index.html'],
-});
-
-app.setNotFoundHandler((request, reply) => {
-  if (request.url.startsWith('/api/')) {
-    return reply.code(404).send({ error: 'NOT_FOUND' });
-  }
-  return reply.sendFile('index.html');
-});
+// `webDir` is what makes the server serve the built shell and the SPA fallback.
+// The harness deliberately adds no static handler of its own — see the note at
+// the top of this file for why doing so is fatal rather than redundant.
+const app = await buildServer({ webDir: distDir });
 
 const cleanup = () => {
   try {

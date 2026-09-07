@@ -196,6 +196,88 @@ describe('app registry validation', () => {
     );
   });
 
+  /**
+   * The app registry accepts same-origin references so a card can point at one
+   * of Haven's own subpages (`#/page/library-analytics`) instead of the dead
+   * `https://library-analytics.invalid` placeholder the migration was forced
+   * to invent. Widening a URL validator is the kind of change that quietly
+   * grows an open redirect, so the boundary gets tests on both sides.
+   */
+  describe('same-origin urls', () => {
+    const accepts = async (url, id) => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/apps',
+        payload: exampleApp({ id, urls: [{ title: 'Open', url, primary: true }] }),
+      });
+      assert.equal(res.statusCode, 201, `expected 201 for ${url}: ${res.body}`);
+      assert.equal(res.json().urls[0].url, url);
+    };
+
+    test('accepts a fragment route, so a card can link to a Haven subpage', async () => {
+      // The reason this widening exists at all. Note the leading slash inside
+      // the fragment: `#/page/x` is a route, `#page/x` is a widget deep link.
+      await accepts('#/page/library-analytics', 'frag-route');
+    });
+
+    test('accepts an absolute path on the same origin', async () => {
+      await accepts('/settings', 'abs-path');
+    });
+
+    test('rejects a protocol-relative url', async () => {
+      // THE test for this change. `//evil.com/x` reads like a path and passes a
+      // naive `startsWith('/')`, but a browser resolves it OFF-ORIGIN, and
+      // `new URL('//evil.com', origin)` yields an off-origin URL that looks
+      // perfectly valid. Deleting the `!url.startsWith('//')` clause in
+      // `isSameOriginReference` turns this card into an open redirect and
+      // fails only here.
+      await rejects(
+        exampleApp({
+          id: 'protocol-relative',
+          urls: [{ title: 'Open', url: '//evil.invalid/pwned', primary: true }],
+        }),
+        /must be an absolute http\(s\) URL or a same-origin path/
+      );
+    });
+
+    test('rejects a backslash-prefixed url', async () => {
+      // `\\evil.invalid` is treated as a UNC-ish path by some browsers. It
+      // starts with neither `/` nor `#`, so it must fall through to the
+      // absolute-URL branch and be refused there.
+      await rejects(
+        exampleApp({
+          id: 'backslash',
+          urls: [{ title: 'Open', url: '\\\\evil.invalid/pwned', primary: true }],
+        }),
+        /must be an absolute http\(s\) URL or a same-origin path/
+      );
+    });
+
+    test('still rejects javascript: even though the validator was widened', async () => {
+      // Guards the widening specifically: `javascript:void(0)#/page/x`
+      // CONTAINS a `#` but does not START with one, so the same-origin test
+      // must not match it. An implementation written as `includes('#')` passes
+      // the fragment test above and fails only here.
+      await rejects(
+        exampleApp({
+          id: 'js-fragment',
+          urls: [{ title: 'Open', url: 'javascript:void(0)#/page/x', primary: true }],
+        }),
+        /must be http or https/
+      );
+    });
+
+    test('rejects a data: url', async () => {
+      await rejects(
+        exampleApp({
+          id: 'data-url',
+          urls: [{ title: 'Open', url: 'data:text/html,<script>alert(1)</script>', primary: true }],
+        }),
+        /must be http or https/
+      );
+    });
+  });
+
   test('rejects an unknown category', async () => {
     await rejects(exampleApp({ id: 'bad-cat', category: 'nonsense' }), /category must be one of/);
   });

@@ -121,7 +121,9 @@ export function mountGrid({
   columns = DEFAULT_COLUMNS,
   mobileMaxWidth = DEFAULT_MOBILE_BREAKPOINT,
   cellHeight = 90,
-  margin = 8,
+  // 0, deliberately — the spacing between widgets is padding INSIDE the tile,
+  // not margin around it. See `--haven-widget-inset` in main.css for why.
+  margin = 0,
   matchMedia = globalThis.matchMedia?.bind(globalThis),
   gridstack = GridStack,
 } = {}) {

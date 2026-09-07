@@ -89,6 +89,24 @@
   --haven-space-8: 32px;
   --haven-space-10: 40px;
 
+  /* ── The gap between widgets, expressed as padding INSIDE the cell ──────
+   *
+   * GridStack is mounted with `margin: 0` (see `mountGrid`), so a widget's
+   * tile fills its grid cell exactly and two neighbouring cells touch. That
+   * is the correct edit-mode reading: the dashed outline IS the cell
+   * boundary, so the outlines should meet rather than float apart.
+   *
+   * The breathing room is then this inset, applied inside the tile. Because
+   * both neighbours carry it, the visible gap between two widgets' content
+   * is TWICE this value — 16px, which is exactly the `gap: 1rem` the
+   * dashboard being replaced uses between its app cards.
+   *
+   * Doing it as a grid margin instead would be the obvious-looking mistake:
+   * it insets the bordered tile within the cell, so the dashed outlines stop
+   * touching and the padding lands outside the outline rather than within
+   * it. */
+  --haven-widget-inset: var(--haven-space-2);
+
   --haven-header-height: 70px;
   /* Matches the dashboard being replaced exactly. Below 1024px the sidebar
      stops being a column and stacks under the grid — see `.haven-layout`. */
@@ -687,11 +705,29 @@ body {
  * cards inside it, and a shadow that puts it in front of the page rather than
  * drawn on it. */
 
+/* `box-sizing: border-box` is load-bearing, not tidiness. GridStack absolutely
+ * positions this element with `inset: 0` (margin is 0), and `height: 100%`
+ * then resolves against the cell. Under the document's `content-box` default
+ * the border would be ADDED to that 100%, so the tile renders taller than its
+ * own cell and overhangs the one beneath. That was a real, measurable defect
+ * before this change: every tile sat exactly 10px past its cell's bottom edge
+ * (100% of the cell + 2 × 1px border, pushed down by the old 8px grid
+ * margin). Sizing the border into the 100% is what removes it. */
 .haven-widget-tile {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   height: 100%;
+  /* The gap between widgets, and the whole point of this rule.
+   *
+   * It sits INSIDE the border, so the tile's edge — which in edit mode is the
+   * dashed outline, and which is now flush with the grid cell — stays where
+   * it is, and only the content moves in from it. Both neighbours carry it,
+   * so the visible separation between two widgets' content is 2 × 8px = 16px,
+   * matching the `gap: 1rem` between app cards on the dashboard this
+   * replaces. */
+  padding: var(--haven-widget-inset);
   border: 1px solid var(--haven-border);
   border-radius: var(--haven-radius);
   background: var(--haven-bg-elevated);
@@ -745,10 +781,15 @@ body {
   text-transform: uppercase;
 }
 
+/* The card's inner padding is 16px in total, unchanged by the widget inset:
+ * the tile now contributes 8px of that, so this makes up the remaining 8px
+ * rather than stacking a second 16px on top of it. Written as a subtraction
+ * from the design token so the two stay tied together — change the inset and
+ * a card's inner padding still comes to 16px. */
 .haven-widget__body {
   flex: 1;
   min-height: 0;
-  padding: var(--haven-space-4);
+  padding: calc(var(--haven-space-4) - var(--haven-widget-inset));
   overflow: auto;
   transition: opacity 120ms ease;
 }
@@ -822,8 +863,18 @@ body {
  *
  * `background: none` rather than `transparent`: the tile sets a `background`
  * shorthand, so a longhand `background-color` would leave any future image
- * or gradient behind. The padding goes too — the tile's own padding is card
- * padding, and a full-bleed banner inset by 16px is not full-bleed.
+ * or gradient behind. The BODY's padding goes too — that padding is card
+ * padding, and a full-bleed banner inset by a further 16px is not full-bleed.
+ *
+ * The tile's own 8px `--haven-widget-inset` deliberately STAYS. It is not
+ * card padding, it is the gap between one widget and the next, and a
+ * transparent widget needs that gap as much as a card does — otherwise the
+ * hero and the apps grid are the two tiles on the dashboard whose content
+ * runs right up to its neighbour. It reintroduces no visible box, because
+ * this rule has already removed the border, background and shadow that would
+ * have drawn one. "Full-bleed" here means filling the tile, not bleeding to
+ * the grid cell: the hero clips its own carousel to its own radius (see
+ * `.hero` in the hero element's shadow styles), so it stays a clean banner.
  *
  * NOTE this deliberately does NOT touch `overflow: hidden` on the tile. The
  * hero clips its carousel to the tile's rounded corners, and a transparent
@@ -856,7 +907,7 @@ body {
 }
 
 .haven-grid--edit-mode .haven-widget-tile--transparent .haven-widget__body {
-  padding: var(--haven-space-4);
+  padding: calc(var(--haven-space-4) - var(--haven-widget-inset));
 }
 
 .haven-widget__control {

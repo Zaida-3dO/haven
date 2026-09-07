@@ -105,7 +105,7 @@ test('the tile sizes its border and padding INTO its height', () => {
   assert.match(
     rule,
     /box-sizing\s*:\s*border-box/,
-    'Without `box-sizing: border-box` the tile\'s border and padding are added to ' +
+    "Without `box-sizing: border-box` the tile's border and padding are added to " +
       'its `height: 100%`, so it overflows its own grid cell and overhangs the tile ' +
       `below. Found: ${rule}`
   );
@@ -124,7 +124,7 @@ test('the tile sizes its border and padding INTO its height', () => {
  * 8px of it, so the body supplies the remainder. Written as a subtraction so
  * the two cannot drift apart.
  */
-test('a card\'s inner padding accounts for the tile inset instead of stacking on it', () => {
+test("a card's inner padding accounts for the tile inset instead of stacking on it", () => {
   const rule = ruleFor('.haven-widget__body');
 
   assert.match(
@@ -152,7 +152,7 @@ test('a transparent widget drops its card padding but keeps the inter-widget gap
   assert.doesNotMatch(
     rule,
     /padding\s*:/,
-    'The transparent rule must NOT reset the tile\'s padding. That padding is the ' +
+    "The transparent rule must NOT reset the tile's padding. That padding is the " +
       'gap between one widget and the next, not card chrome — zeroing it leaves the ' +
       'hero and the apps grid running straight into their neighbours, and it ' +
       `reintroduces no visible box because this rule already removed one. Found: ${rule}`

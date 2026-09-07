@@ -15,9 +15,24 @@
 
 import { test, expect, waitForDashboard, geometryOf, tileFor } from './fixtures.js';
 
-/** Enters edit mode, which is what turns the resize grips on. */
+/**
+ * Enters edit mode, which is what turns the resize grips on.
+ *
+ * Through the PROFILE MENU, because that is where "Edit dashboard" now lives.
+ * It used to be a bare button in the top-left and this helper used to click
+ * `.haven-toolbar__toggle` directly — but the toolbar is `hidden` in view
+ * mode (see `shell/profile-menu.js` for why the button moved), so that click
+ * waited 30s on an element that exists, is `display: none`, and never becomes
+ * visible. The toggle is still there and still works; it is simply not the
+ * way in any more.
+ *
+ * Driven the way a user drives it — open the menu, pick the item — rather
+ * than by calling `editMode.enter()` through `page.evaluate`, which would pass
+ * even if the menu were completely unreachable.
+ */
 async function enterEditMode(page) {
-  await page.click('.haven-toolbar__toggle');
+  await page.click('.haven-profile__trigger');
+  await page.click('.haven-profile__item[data-item-id="edit"]');
   await expect(page.locator('.haven-toolbar__toggle')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.grid-stack')).toHaveClass(/haven-grid--editing/);
 }

@@ -150,6 +150,21 @@ export function mountGrid({
 
   const teardownShim = installIframePointerShim(grid, root);
   const resizeListeners = new Set();
+  const layoutChangeListeners = new Set();
+
+  /**
+   * GridStack's `change` fires whenever node geometry actually changes — the
+   * end of a drag, the end of a resize, or a programmatic `update()`. It is
+   * the seam the toolbar needs to re-evaluate whether there is anything to
+   * save; without it, the Save button's state is computed once on entering
+   * edit mode and never again, so it cannot notice the first drag.
+   *
+   * Deliberately NOT `dragstop`/`resizestop`: those fire even when a tile is
+   * dropped exactly where it started, and `change` does not.
+   */
+  grid.on('change', () => {
+    for (const listener of layoutChangeListeners) listener();
+  });
 
   /**
    * Switches the rendered column count to match a breakpoint.
@@ -226,6 +241,16 @@ export function mountGrid({
       return () => resizeListeners.delete(listener);
     },
 
+    /**
+     * Registers a listener for any change to node geometry.
+     *
+     * @returns {() => void} unsubscribe
+     */
+    onLayoutChange(listener) {
+      layoutChangeListeners.add(listener);
+      return () => layoutChangeListeners.delete(listener);
+    },
+
     /** Enables/disables dragging + resizing wholesale — the edit-mode switch. */
     setEditable(editable) {
       grid.enableMove(editable);
@@ -267,6 +292,7 @@ export function mountGrid({
       teardownShim();
       teardownBreakpoint();
       resizeListeners.clear();
+      layoutChangeListeners.clear();
       grid.destroy(false);
     },
   };

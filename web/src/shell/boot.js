@@ -292,6 +292,18 @@ export async function bootDashboard(
   toolbar.discard.addEventListener('click', () => syncProfileLabel());
 
   /**
+   * Re-evaluate the toolbar whenever the layout moves.
+   *
+   * Save is disabled until there is something to save, and "something to
+   * save" is a function of the live grid — so it has to be recomputed when
+   * the grid changes, not only when a button is pressed. Without this the
+   * button's state is decided once on entering edit mode and never updated,
+   * which means it stays greyed out through the first drag: the feature would
+   * be invisible in the browser while every unit test still passed.
+   */
+  const teardownDirtySync = gridHandle.onLayoutChange(() => toolbar.sync());
+
+  /**
    * The header.
    *
    * Built before the toolbar is prepended so it can be prepended AFTER it and
@@ -461,6 +473,7 @@ export async function bootDashboard(
       header.el.remove();
       teardownSearchShortcut();
       teardownDeepLinks();
+      teardownDirtySync();
       router?.destroy();
       dashboard.destroy();
       gridHandle.destroy();

@@ -37,7 +37,7 @@ import { definePageWidget } from '../widgets/page/index.js';
 import { createRouter } from './router.js';
 import { pageRegistry } from '../pages/registry.js';
 import { libraryAnalyticsPage } from '../pages/library-analytics.js';
-import { HOME_3D_URL } from '../widgets/iframe/definition.js';
+import { HOME_3D_PREVIEW_URL } from '../widgets/iframe/definition.js';
 
 /**
  * The fallback roster.
@@ -361,12 +361,18 @@ export async function bootDashboard(
     // served by Haven, so this is a cross-origin embed. A public hostname is
     // not network topology, so it is fine in a public repo. The sandbox stays
     // as locked down as it was on the grid — the scene needs no storage.
+    //
+    // `HOME_3D_PREVIEW_URL`, not `HOME_3D_URL`: this card is an ambient
+    // readout, so it embeds the 3D home's `?preview=true` route — auto-
+    // rotating, non-interactive, and with its own chrome (including the
+    // controls button) hidden. The plain interactive URL stays the default for
+    // a user-added embed widget, where clicking a room is the point.
     {
       card: 'home3d',
       id: 'sidebar-home3d',
       type: 'iframe',
       config: {
-        url: HOME_3D_URL,
+        url: HOME_3D_PREVIEW_URL,
         title: '3D home',
         scroll: 'no',
         allowForms: 'no',

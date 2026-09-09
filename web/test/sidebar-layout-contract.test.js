@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { SIDEBAR_ICONS, createSidebar } from '../src/shell/sidebar.js';
-import { HOME_3D_URL } from '../src/widgets/iframe/definition.js';
+import { HOME_3D_PREVIEW_URL, HOME_3D_URL } from '../src/widgets/iframe/definition.js';
 import { createFakeDocument } from './helpers/fake-dom.js';
 
 /**
@@ -407,12 +407,28 @@ test('the 3D home embed keeps its locked-down sandbox', () => {
   assert.match(entry[0], /allowPopups:\s*'no'/, 'the embed must not get popups');
 });
 
-test('the 3D home URL comes from HOME_3D_URL, never an inline address', () => {
+test('the 3D home URL comes from a constant, never an inline address', () => {
   // The URL is now an absolute public host (the 3D home is deployed
   // standalone), which is fine in a public repo — but it must still come from
-  // the single `HOME_3D_URL` constant rather than being pasted in here, so
-  // there is exactly one place to change it and one place to review.
-  assert.match(BOOT_CODE, /url:\s*HOME_3D_URL/, 'the embed URL must come from HOME_3D_URL');
+  // a single constant rather than being pasted in here, so there is exactly
+  // one place to change it and one place to review.
+  assert.match(
+    BOOT_CODE,
+    /url:\s*HOME_3D_PREVIEW_URL/,
+    'the embed URL must come from HOME_3D_PREVIEW_URL'
+  );
+});
+
+test('the sidebar embeds the non-interactive preview, not the full app', () => {
+  // The sidebar card is an ambient readout. `?preview=true` is what makes the
+  // 3D home auto-rotate and drop its own chrome — including the controls
+  // button, which is the thing that should not be on a glanceable tile.
+  //
+  // Asserted against the constant AND against boot, because either one alone
+  // passes while the tile is still wrong: the constant could carry the flag
+  // and boot could embed the other one.
+  assert.match(HOME_3D_PREVIEW_URL, /[?&]preview=true\b/, 'the preview URL must set preview=true');
+  assert.doesNotMatch(HOME_3D_URL, /[?&]preview=/, 'the interactive URL must not set preview');
 });
 
 test('the 3D home URL is a public https host, never a private address', () => {

@@ -178,6 +178,7 @@ test('the widget scan actually covers every widget directory', () => {
     'iframe',
     'notices',
     'page',
+    'status',
     'torrents',
     'weather',
   ]) {

@@ -79,6 +79,64 @@ test('a malformed entry is skipped without disabling the others', () => {
   assert.equal(feeds[0].url, SECOND_FEED_URL);
 });
 
+test('a newline-separated list is parsed, which is the form that survives a comma', () => {
+  // The reason the newline form exists: `,` is a legal unencoded character in
+  // a URL path or query (RFC 3986 sub-delims), and Google's own address form
+  // contains one for some calendars. A comma-separated list has no escape
+  // hatch for that, so a newline — which cannot appear in a URL at all — is
+  // accepted as a separator and is the documented form for anything
+  // non-trivial.
+  const commaInUrl = 'https://calendar.invalid/ical/a,b/basic.ics';
+  const feeds = parseFeedConfig(`Ope|${commaInUrl}
+Tomi|${SECOND_FEED_URL}`);
+
+  assert.deepEqual(
+    feeds.map((f) => [f.name, f.url]),
+    [
+      ['Ope', commaInUrl],
+      ['Tomi', SECOND_FEED_URL],
+    ]
+  );
+});
+
+test('a URL containing ?, & and = survives intact', () => {
+  // Query strings carry tokens on providers other than Google, so none of
+  // these characters may be treated as a separator.
+  const query = 'https://calendar.invalid/feed.ics?user=someone&token=abc123&fmt=ical';
+  const [feed] = parseFeedConfig(`Work|${query}`);
+  assert.equal(feed.url, query, 'the query string was mangled');
+  assert.equal(feed.name, 'Work');
+});
+
+test('the name/url split takes the FIRST pipe, so a pipe in a URL survives', () => {
+  const [feed] = parseFeedConfig('Name|https://calendar.invalid/a|b.ics');
+  assert.equal(feed.name, 'Name');
+  assert.equal(feed.url, 'https://calendar.invalid/a|b.ics');
+});
+
+test('CRLF line endings separate feeds too', () => {
+  // A value pasted into a Windows .env file, or edited on a Windows host.
+  const feeds = parseFeedConfig(`A|${FAKE_FEED_URL}
+B|${SECOND_FEED_URL}`);
+  assert.equal(feeds.length, 2);
+  assert.equal(feeds[1].url, SECOND_FEED_URL);
+});
+
+test('blank lines in a multi-line list do not create phantom feeds', () => {
+  const feeds = parseFeedConfig(`
+ A|${FAKE_FEED_URL} 
+
+ B|${SECOND_FEED_URL}
+`);
+  assert.deepEqual(
+    feeds.map((f) => [f.id, f.name]),
+    [
+      ['feed-1', 'A'],
+      ['feed-2', 'B'],
+    ]
+  );
+});
+
 test('a non-http scheme is rejected', () => {
   assert.deepEqual(parseFeedConfig('file:///etc/passwd'), []);
   assert.deepEqual(parseFeedConfig('javascript:alert(1)'), []);

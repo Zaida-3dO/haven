@@ -22,7 +22,13 @@ export {
   sandboxTokens,
 } from './embed-url.js';
 export { RESIZE_MESSAGE_TYPE, frameOrigin, postGeometry, resizeMessage } from './geometry.js';
-export { HOME_3D_URL, IFRAME_WIDGET_TAG, IFRAME_WIDGET_TYPE, iframeWidget } from './definition.js';
+export {
+  HOME_3D_PREVIEW_URL,
+  HOME_3D_URL,
+  IFRAME_WIDGET_TAG,
+  IFRAME_WIDGET_TYPE,
+  iframeWidget,
+} from './definition.js';
 
 export function defineIframeWidget({
   registry,

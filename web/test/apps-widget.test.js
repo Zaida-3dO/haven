@@ -10,6 +10,7 @@ import {
   appsWidgetDefinition,
   dataSource,
   readPayload,
+  applyLinkTarget,
 } from '../src/widgets/apps/apps-widget.js';
 
 /**
@@ -208,5 +209,70 @@ describe('readPayload', () => {
   test('reads a real host payload', () => {
     const payload = doneData({ apps: [{ id: 'a' }], versions: {} });
     assert.equal(readPayload(payload.value).apps.length, 1);
+  });
+});
+
+/**
+ * Where a card's link opens.
+ *
+ * This is a security-shaped decision as well as a usability one, so both
+ * halves are pinned: a same-origin route must navigate IN PLACE (a `_blank`
+ * fragment link boots a second copy of the dashboard and looks like a dead
+ * card), and everything else must keep BOTH `_blank` and
+ * `noopener noreferrer` — the rel is what stops the opened page reaching back
+ * through `window.opener`, so losing it silently would be a real regression.
+ */
+describe('where an app link opens', () => {
+  const anchor = () => ({
+    attrs: {},
+    set target(v) {
+      this.attrs.target = v;
+    },
+    get target() {
+      return this.attrs.target;
+    },
+    set rel(v) {
+      this.attrs.rel = v;
+    },
+    get rel() {
+      return this.attrs.rel;
+    },
+    removeAttribute(name) {
+      delete this.attrs[name];
+    },
+  });
+
+  test('an external url opens in a new tab, with the opener severed', () => {
+    const a = applyLinkTarget(anchor(), 'https://example.invalid/app');
+    assert.equal(a.attrs.target, '_blank');
+    // Asserted explicitly rather than assumed: `rel` is the security half.
+    assert.equal(a.attrs.rel, 'noopener noreferrer');
+  });
+
+  test('a same-origin route navigates in place', () => {
+    // THE regression. With `target="_blank"` the card opened a whole second
+    // Haven in a new tab and this one did not move, which read as a dead link.
+    const a = applyLinkTarget(anchor(), '#/page/library-analytics');
+    assert.equal(a.attrs.target, undefined);
+    assert.equal(a.attrs.rel, undefined);
+  });
+
+  test('a same-origin path navigates in place too', () => {
+    const a = applyLinkTarget(anchor(), '/settings');
+    assert.equal(a.attrs.target, undefined);
+  });
+
+  test('a protocol-relative url is NOT treated as same-origin', () => {
+    // `//evil.invalid/x` resolves off-origin despite starting with a slash, so
+    // it must keep both `_blank` and the rel. Changing the guard to a bare
+    // `startsWith('/')` fails exactly this test.
+    const a = applyLinkTarget(anchor(), '//evil.invalid/x');
+    assert.equal(a.attrs.target, '_blank');
+    assert.equal(a.attrs.rel, 'noopener noreferrer');
+  });
+
+  test('a blank or missing url falls back to opening in a new tab', () => {
+    assert.equal(applyLinkTarget(anchor(), undefined).attrs.target, '_blank');
+    assert.equal(applyLinkTarget(anchor(), '   ').attrs.target, '_blank');
   });
 });

@@ -105,7 +105,15 @@ export function createRouter({
   let route = { name: ROUTE.DASHBOARD };
   let rendered = null;
 
+  /**
+   * Bumped on every view change, so an in-flight page load can tell whether
+   * its result is still wanted. See `loadInto`.
+   */
+  let renderToken = 0;
+
   const showDashboard = () => {
+    // Invalidate any pending load before detaching the body it would write to.
+    renderToken += 1;
     pageRoot.hidden = true;
     pageRoot.replaceChildren?.();
     rendered = null;
@@ -129,16 +137,60 @@ export function createRouter({
     const body = documentRef.createElement('div');
     body.className = 'page__body';
 
+    const ctx = { documentRef, route: { name: ROUTE.PAGE, pageId } };
+
     // A page that throws must not blank the shell — the same error-boundary
     // rule `WidgetHost` applies to widgets, applied to pages.
     try {
-      page.render(body, { documentRef, route: { name: ROUTE.PAGE, pageId } });
+      page.render(body, ctx);
     } catch (error) {
       body.replaceChildren?.(errorBox(error, documentRef));
     }
 
     pageRoot.replaceChildren?.(header(page, documentRef), body);
     rendered = page.id;
+
+    // A page that needs data declares a `load()`; the router fetches it and
+    // re-renders. This is the page equivalent of a widget's `dataSource`, and
+    // it lives here for the same reason that lives in the host: the shell
+    // fetches, the view renders. A page calling `fetch` itself would be the
+    // mistake `pages/registry.js` and the widget contract both warn about.
+    //
+    // The first render above already happened, so a page with a `load()`
+    // paints its loading state immediately rather than showing nothing until
+    // the request lands.
+    if (typeof page.load === 'function') loadInto(page, body, ctx);
+  };
+
+  /**
+   * Run a page's loader and re-render with the result.
+   *
+   * The `token` guard is what stops a slow response from painting over a page
+   * the user has since navigated away from: by the time a request resolves the
+   * route may have changed twice, and writing into a detached (or worse, a
+   * reused) body would resurrect a stale view. Every render bumps the token;
+   * a resolution whose token no longer matches is dropped on the floor.
+   */
+  const loadInto = (page, body, ctx) => {
+    const token = (renderToken += 1);
+
+    Promise.resolve()
+      .then(() => page.load(ctx))
+      .then(
+        (data) => ({ data }),
+        // A failed load is the page's problem to render, not an exception to
+        // throw at the console: it gets an `error` in ctx and decides what to
+        // say. This is the notice-vs-error split from docs/WIDGET-CONTRACT.md.
+        (error) => ({ error })
+      )
+      .then((result) => {
+        if (token !== renderToken) return;
+        try {
+          page.render(body, { ...ctx, ...result, loading: false });
+        } catch (error) {
+          body.replaceChildren?.(errorBox(error, documentRef));
+        }
+      });
   };
 
   const header = (page, doc) => {
@@ -167,6 +219,8 @@ export function createRouter({
   };
 
   const renderMissing = (pageId) => {
+    // Same invalidation as the dashboard: whatever was loading is not wanted.
+    renderToken += 1;
     if (gridRoot) gridRoot.hidden = true;
     pageRoot.hidden = false;
 
@@ -206,6 +260,8 @@ export function createRouter({
     },
     refresh: apply,
     destroy() {
+      // Nothing in flight should render into a torn-down router.
+      renderToken += 1;
       target.removeEventListener?.('hashchange', onHashChange);
       pageRoot.replaceChildren?.();
     },

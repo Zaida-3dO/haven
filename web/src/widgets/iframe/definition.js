@@ -14,12 +14,50 @@ export const IFRAME_WIDGET_TAG = 'haven-widget-iframe';
 /**
  * The 3D home preview, the first consumer.
  *
- * A **relative path** on purpose. The 3D home is served from Haven's own
- * origin, so a relative URL is what actually works — and, just as important,
- * an absolute one would be an internal hostname, which must never be committed
- * to a public repo (CLAUDE.md, "no network topology").
+ * An **absolute, public HTTPS URL**, which is a reversal worth explaining
+ * because the previous comment here argued the opposite.
+ *
+ * This used to be the relative path `/home3d.html?preview=true`, on the
+ * reasoning that the 3D home was served from Haven's own origin and that any
+ * absolute form would be an internal hostname — which must never be committed
+ * to a public repo. Both halves of that have stopped being true: Haven does
+ * not serve `home3d.html` at all (the tile rendered an empty frame), and the
+ * 3D home is now deployed standalone at a **public** hostname. A public host
+ * carries no network topology, so committing it is not the thing the rule
+ * forbids.
+ *
+ * The consequence is that this is now a genuine **cross-origin** embed. That
+ * is fine here, and deliberately so: the frame keeps the default
+ * `allow-scripts`-only sandbox, and the 3D scene is self-contained WebGL that
+ * needs no storage, so it works under an opaque origin. See `embed-url.js`.
  */
-export const HOME_3D_URL = '/home3d.html?preview=true';
+export const HOME_3D_URL = 'https://3dhome.3dojoda.com/';
+
+/**
+ * The same 3D home, in its **non-interactive preview mode** — what the sidebar
+ * tile embeds.
+ *
+ * `?preview=true` is a route the 3D home already implements, not something
+ * Haven asks it for by convention. On that flag it builds the scene with
+ * `interactive: false` and `autoRotate: true`, passes no `onRoomClick`, and
+ * hides its own chrome — the back button, the title overlay, the room tooltip,
+ * the panel, and `.top-right-btns`, which is the **controls button**. It also
+ * tunes itself for a tile: 15fps, `pixelRatio` 1, low shadows, no antialiasing.
+ *
+ * **Why this is a separate constant rather than a `?preview=true` on
+ * `HOME_3D_URL`.** `HOME_3D_URL` is also the `default` of the iframe widget's
+ * `url` config field below, i.e. the starting value for a widget a *user* adds
+ * by hand. There, interactivity is the right default — someone who deliberately
+ * embeds the 3D home on the board wants to click a room. Only the sidebar
+ * instance is an ambient readout, so only the sidebar instance is pinned to
+ * preview.
+ *
+ * Historical note: the pre-hosting relative default was
+ * `/home3d.html?preview=true`. The `?preview=true` was dropped when the URL
+ * became absolute, which is why the sidebar tile has been showing the full
+ * interactive app — including the controls button — ever since.
+ */
+export const HOME_3D_PREVIEW_URL = `${HOME_3D_URL}?preview=true`;
 
 export const iframeWidget = {
   type: IFRAME_WIDGET_TYPE,
@@ -44,10 +82,11 @@ export const iframeWidget = {
        * wrong type.
        *
        * The shell's `url` field validates with `new URL(value)` and **no
-       * base**, so it accepts only absolute URLs. A relative path — which is
-       * what the first consumer uses, and the only form an internal address
-       * can take in a public repo — would be rejected as "must be a valid
-       * URL". Declaring `url` here would make the default config invalid.
+       * base**, so it accepts only absolute URLs. The default is now absolute
+       * and would pass that check — but a relative path is still a supported
+       * and documented value for this field (any page Haven serves itself),
+       * and declaring `url` here would reject every one of them as "must be a
+       * valid URL".
        *
        * So the field is `text` and the real validation is `parseEmbedUrl` in
        * `setConfig`, which is *stricter* than the schema's check anyway: it

@@ -106,6 +106,19 @@ export const config = {
    */
   containerVersionsFile:
     process.env.HAVEN_CONTAINER_VERSIONS_FILE ?? './config/container-versions.json',
+
+  /**
+   * The media-library snapshot the Library Analytics page reads.
+   *
+   * Written by a generator that can see the media library (Plex, Radarr,
+   * Sonarr); Haven only reads it, and holds no credentials for any of them.
+   * Same request-time read and same staleness discipline as the versions file
+   * above — see `connectors/library.js`.
+   *
+   * Defaults under `./config` because that mount already exists and is
+   * read-only, so no new volume is needed for the common deployment.
+   */
+  mediaLibraryFile: process.env.HAVEN_MEDIA_LIBRARY_FILE ?? './config/media-library.json',
 };
 
 /**

@@ -33,6 +33,32 @@ export const IFRAME_WIDGET_TAG = 'haven-widget-iframe';
  */
 export const HOME_3D_URL = 'https://3dhome.3dojoda.com/';
 
+/**
+ * The same 3D home, in its **non-interactive preview mode** — what the sidebar
+ * tile embeds.
+ *
+ * `?preview=true` is a route the 3D home already implements, not something
+ * Haven asks it for by convention. On that flag it builds the scene with
+ * `interactive: false` and `autoRotate: true`, passes no `onRoomClick`, and
+ * hides its own chrome — the back button, the title overlay, the room tooltip,
+ * the panel, and `.top-right-btns`, which is the **controls button**. It also
+ * tunes itself for a tile: 15fps, `pixelRatio` 1, low shadows, no antialiasing.
+ *
+ * **Why this is a separate constant rather than a `?preview=true` on
+ * `HOME_3D_URL`.** `HOME_3D_URL` is also the `default` of the iframe widget's
+ * `url` config field below, i.e. the starting value for a widget a *user* adds
+ * by hand. There, interactivity is the right default — someone who deliberately
+ * embeds the 3D home on the board wants to click a room. Only the sidebar
+ * instance is an ambient readout, so only the sidebar instance is pinned to
+ * preview.
+ *
+ * Historical note: the pre-hosting relative default was
+ * `/home3d.html?preview=true`. The `?preview=true` was dropped when the URL
+ * became absolute, which is why the sidebar tile has been showing the full
+ * interactive app — including the controls button — ever since.
+ */
+export const HOME_3D_PREVIEW_URL = `${HOME_3D_URL}?preview=true`;
+
 export const iframeWidget = {
   type: IFRAME_WIDGET_TYPE,
   name: 'Embed',

@@ -26,6 +26,10 @@ export class Dashboard {
   #data = new Map();
   #container;
   #searchIndex;
+  // Teardowns for host-owned side tasks (the clock tick), keyed by widget id.
+  // These register under their OWN scheduler ids, so `remove(id)` cannot reach
+  // them by id alone — see `onRemove`.
+  #teardowns = new Map();
 
   constructor({
     registry = defaultRegistry,
@@ -97,8 +101,40 @@ export class Dashboard {
     return host;
   }
 
+  /**
+   * Registers a teardown to run when `id` is removed.
+   *
+   * **Why this exists.** `startClockTicks` registers its scheduler task as
+   * `clock-tick:${host.id}` — deliberately namespaced, because the dashboard
+   * already registers a task under the bare `host.id` for every widget and
+   * `Scheduler.add` is a `Map.set`, so reusing the id would silently overwrite
+   * it. The consequence is that `remove(id)` cannot cancel the tick by id: it
+   * calls `scheduler.remove(id)` with the bare id and the two never match, so
+   * every clock add/remove used to leave a permanent 1 Hz task pushing into a
+   * destroyed host. The teardown `startClockTicks` returns was discarded at
+   * both call sites; keeping it here is what closes that.
+   *
+   * @param {string} id widget instance id
+   * @param {() => void} teardown
+   */
+  onRemove(id, teardown) {
+    if (typeof teardown !== 'function') return;
+    const existing = this.#teardowns.get(id);
+    // A widget re-registering must not orphan its previous teardown.
+    this.#teardowns.set(id, existing ? () => (existing(), teardown()) : teardown);
+  }
+
   remove(id) {
     this.#scheduler.remove(id);
+    // Before destroying the host: a side task that fires in between would push
+    // into a host that is already gone.
+    const teardown = this.#teardowns.get(id);
+    this.#teardowns.delete(id);
+    try {
+      teardown?.();
+    } catch (error) {
+      console.warn('Haven: a widget teardown failed.', error);
+    }
     this.#hosts.get(id)?.destroy();
     this.#hosts.delete(id);
     this.#data.delete(id);
@@ -180,6 +216,16 @@ export class Dashboard {
 
   destroy() {
     this.#scheduler.stop();
+    // `stop()` already halts every task, so these are belt-and-braces — but a
+    // teardown may release something other than a scheduler task.
+    for (const teardown of this.#teardowns.values()) {
+      try {
+        teardown();
+      } catch (error) {
+        console.warn('Haven: a widget teardown failed.', error);
+      }
+    }
+    this.#teardowns.clear();
     for (const host of this.#hosts.values()) host.destroy();
     this.#hosts.clear();
     this.#data.clear();

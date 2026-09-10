@@ -17,6 +17,7 @@
 
 import { nodeFromWidgetMeta } from './grid-layout.js';
 import { createWidgetControls } from './edit-mode.js';
+import { applyTransparent } from './transparent.js';
 
 /** Builds the tile wrapper: a drag handle, the widget body, and edit controls. */
 function createTile({ doc, widgetId, title, onSettings, onRemove }) {
@@ -56,7 +57,10 @@ function createTile({ doc, widgetId, title, onSettings, onRemove }) {
   content.appendChild(body);
   item.appendChild(content);
 
-  return { item, body, controls };
+  // `content` is returned as well as `item`: it is the element that carries
+  // the tile's visual chrome (border, background, shadow), so it is what the
+  // transparent option toggles a class on. `item` is the GridStack node.
+  return { item, content, body, controls };
 }
 
 /**
@@ -100,7 +104,7 @@ export function connectGrid({
     // has. Skipping it must not stop the rest of the dashboard loading.
     if (!definition) return null;
 
-    const { item, body, controls } = createTile({
+    const { item, content, body, controls } = createTile({
       doc,
       widgetId: entry.id,
       title: definition.name,
@@ -108,7 +112,18 @@ export function connectGrid({
       onRemove: (id) => remove(id),
     });
 
-    const node = nodeFromWidgetMeta(definition, gridHandle.breakpoint(), geometry);
+    // `id` has to be in the options object, not only the `gs-id` attribute.
+    // GridStack reads `gs-id` off the element ONLY when `makeWidget` is called
+    // without options; given an explicit node it takes that node as the whole
+    // truth and the attribute is never consulted. Omitting it left every node
+    // with `id: undefined`, which `extractLayout` stringified to "undefined" —
+    // so Save PUT six identically-named nodes and the server rejected the lot
+    // with "Duplicate node id", and Discard looked up `#undefined`, found
+    // nothing and silently restored nothing.
+    const node = {
+      id: entry.id,
+      ...nodeFromWidgetMeta(definition, gridHandle.breakpoint(), geometry),
+    };
 
     // `makeWidget`, not `addWidget`: in GridStack v13 `addWidget` takes a
     // widget *definition* and builds the element itself, which would discard
@@ -121,8 +136,28 @@ export function connectGrid({
     const host = dashboard.add(entry, body);
     if (!host) return null;
 
-    tiles.set(entry.id, { item, controls });
+    // Read the option off the HOST's config, not `entry.config`. The host is
+    // what ran `migrateConfig` then `parseConfig`, so its config has schema
+    // defaults applied — which is the only reason a hero saved before this
+    // option existed comes out transparent instead of undefined.
+    applyTransparent(content, host.config);
+
+    tiles.set(entry.id, { item, content, controls });
     return host;
+  }
+
+  /**
+   * Re-reads the transparent option for one widget.
+   *
+   * Called after a settings save. Without it the option would only take
+   * effect on the next full load: `host.setConfig` updates the widget in
+   * place and never touches the tile around it, so a user who switched the
+   * background off would watch the form close and nothing happen.
+   */
+  function refreshChrome(widgetId) {
+    const tile = tiles.get(widgetId);
+    if (!tile) return false;
+    return applyTransparent(tile.content, dashboard.host(widgetId)?.config);
   }
 
   /**
@@ -147,6 +182,7 @@ export function connectGrid({
   return {
     place,
     remove,
+    refreshChrome,
 
     /** Loads a saved layout: geometry from the grid, config from the entry. */
     load(entries = [], layoutNodes = []) {

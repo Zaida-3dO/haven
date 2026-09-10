@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { describe } from 'node:test';
 
-import { MODE, createEditMode } from '../src/shell/edit-mode.js';
+import { MODE, createEditMode, layoutDiffers } from '../src/shell/edit-mode.js';
 
 /**
  * A stand-in for the handle `mountGrid` returns.
@@ -372,5 +372,151 @@ describe('construction', () => {
   test('refuses to build without the pieces it drives', () => {
     assert.throws(() => createEditMode({ layoutClient: fakeLayoutClient() }), /gridHandle/);
     assert.throws(() => createEditMode({ gridHandle: fakeGridHandle() }), /layoutClient/);
+  });
+});
+
+describe('layoutDiffers', () => {
+  const at = (id, x, y) => ({ id, x, y, w: 2, h: 2 });
+
+  test('a layout is not different from itself', () => {
+    const nodes = [at('a', 0, 0), at('b', 2, 0)];
+    assert.equal(
+      layoutDiffers(
+        nodes,
+        nodes.map((n) => ({ ...n }))
+      ),
+      false
+    );
+  });
+
+  test('a moved tile is a difference', () => {
+    assert.equal(layoutDiffers([at('a', 0, 0)], [at('a', 3, 0)]), true);
+  });
+
+  test('a resized tile is a difference', () => {
+    assert.equal(
+      layoutDiffers([{ id: 'a', x: 0, y: 0, w: 2, h: 2 }], [{ id: 'a', x: 0, y: 0, w: 4, h: 2 }]),
+      true
+    );
+  });
+
+  test('reordering the array is NOT a difference', () => {
+    // The trap this whole function exists for. `extract()` comes from
+    // GridStack's `save()`, which returns nodes in engine order, and the
+    // engine reorders as tiles move. Comparing by position — a
+    // `JSON.stringify` of the two arrays, say — reports a change here, and
+    // Save would light up on a layout nobody touched.
+    const before = [at('a', 0, 0), at('b', 2, 0)];
+    const after = [at('b', 2, 0), at('a', 0, 0)];
+
+    assert.equal(layoutDiffers(before, after), false);
+  });
+
+  test('a tile moved and moved back is NOT a difference', () => {
+    // The case a naive implementation fails: it is the *layout* that is
+    // compared, not the history of how it got there. Dragging a widget across
+    // the board and putting it back leaves nothing to save.
+    const before = [at('a', 0, 0), at('b', 2, 0)];
+    const moved = [at('a', 6, 4), at('b', 2, 0)];
+    const back = [at('a', 0, 0), at('b', 2, 0)];
+
+    assert.equal(layoutDiffers(before, moved), true);
+    assert.equal(layoutDiffers(before, back), false);
+  });
+
+  test('a removed tile is a difference even though nothing moved', () => {
+    const before = [at('a', 0, 0), at('b', 2, 0)];
+    const after = [at('a', 0, 0)];
+
+    assert.equal(layoutDiffers(before, after), true);
+  });
+
+  test('an added tile is a difference even though nothing moved', () => {
+    const before = [at('a', 0, 0)];
+    const after = [at('a', 0, 0), at('b', 2, 0)];
+
+    assert.equal(layoutDiffers(before, after), true);
+  });
+
+  test('swapping one widget for another is a difference at the same geometry', () => {
+    // Same length, same positions, different ids — caught only because the
+    // lookup is by id. A length-and-geometry comparison would call this clean.
+    assert.equal(layoutDiffers([at('a', 0, 0)], [at('c', 0, 0)]), true);
+  });
+});
+
+describe('isDirty', () => {
+  test('is false in view mode, where there is nothing to save', () => {
+    const editMode = createEditMode({
+      gridHandle: fakeGridHandle({ nodes: [{ id: 'a', x: 0, y: 0, w: 2, h: 2 }] }),
+      layoutClient: fakeLayoutClient(),
+    });
+
+    assert.equal(editMode.isDirty, false);
+  });
+
+  test('is false on entering edit mode, before anything is touched', () => {
+    const editMode = createEditMode({
+      gridHandle: fakeGridHandle({ nodes: [{ id: 'a', x: 0, y: 0, w: 2, h: 2 }] }),
+      layoutClient: fakeLayoutClient(),
+    });
+
+    editMode.enter();
+
+    assert.equal(editMode.isDirty, false);
+  });
+
+  test('is true after a tile moves, and false again once it moves back', () => {
+    const gridHandle = fakeGridHandle({ nodes: [{ id: 'a', x: 0, y: 0, w: 2, h: 2 }] });
+    const editMode = createEditMode({ gridHandle, layoutClient: fakeLayoutClient() });
+
+    editMode.enter();
+    gridHandle.state.nodes = [{ id: 'a', x: 6, y: 4, w: 2, h: 2 }];
+    assert.equal(editMode.isDirty, true);
+
+    gridHandle.state.nodes = [{ id: 'a', x: 0, y: 0, w: 2, h: 2 }];
+    assert.equal(editMode.isDirty, false);
+  });
+
+  test('is true after a removal even when no tile moved', () => {
+    // `removed` is tracked separately from the grid's nodes, so a session
+    // whose only act was a removal has identical geometry. Reporting that
+    // clean is worse than an always-enabled Save: it tells the user their
+    // change is already saved.
+    const gridHandle = fakeGridHandle({ nodes: [{ id: 'a', x: 0, y: 0, w: 2, h: 2 }] });
+    const editMode = createEditMode({ gridHandle, layoutClient: fakeLayoutClient() });
+
+    editMode.enter();
+    editMode.noteRemoval('a');
+
+    assert.equal(editMode.isDirty, true);
+  });
+
+  test('is false again after a save clears the session', async () => {
+    const gridHandle = fakeGridHandle({ nodes: [{ id: 'a', x: 0, y: 0, w: 2, h: 2 }] });
+    const editMode = createEditMode({ gridHandle, layoutClient: fakeLayoutClient() });
+
+    editMode.enter();
+    gridHandle.state.nodes = [{ id: 'a', x: 6, y: 4, w: 2, h: 2 }];
+    await editMode.save();
+
+    assert.equal(editMode.isDirty, false);
+  });
+
+  test('stays dirty when a save fails, because the changes are still unsaved', async () => {
+    // Save leaves the session in edit mode on failure precisely so the
+    // arrangement is not lost. A Save button that disabled itself on the way
+    // out would strip the user of the retry.
+    const gridHandle = fakeGridHandle({ nodes: [{ id: 'a', x: 0, y: 0, w: 2, h: 2 }] });
+    const editMode = createEditMode({
+      gridHandle,
+      layoutClient: fakeLayoutClient({ fail: true }),
+    });
+
+    editMode.enter();
+    gridHandle.state.nodes = [{ id: 'a', x: 6, y: 4, w: 2, h: 2 }];
+    await assert.rejects(() => editMode.save(), /network down/);
+
+    assert.equal(editMode.isDirty, true);
   });
 });

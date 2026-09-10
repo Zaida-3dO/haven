@@ -309,9 +309,16 @@ export async function registerAppRoutes(app, { db, iconDir = config.iconDir } = 
       //
       // The allow-list is still the boundary; this is what holds if it is ever
       // widened again by someone who has not read why SVG is absent from it.
+      //
+      // NOTE the method: @fastify/static calls this with a FASTIFY REPLY
+      // (index.js `setHeaders?.(reply, path, stat)`), so the setter is
+      // `.header()`, not Node's `.setHeader()`. Calling the Node method here
+      // throws inside the send pump and takes the whole process down — every
+      // icon request crashed the server, and no test noticed because nothing
+      // ever fetched an icon back. `icon-serving.test.js` now does.
       setHeaders(reply) {
-        reply.setHeader('x-content-type-options', 'nosniff');
-        reply.setHeader('content-security-policy', "default-src 'none'; sandbox");
+        reply.header('x-content-type-options', 'nosniff');
+        reply.header('content-security-policy', "default-src 'none'; sandbox");
       },
     });
   });

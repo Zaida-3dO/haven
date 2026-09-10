@@ -21,6 +21,37 @@ function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Whether a URL is a same-origin reference to somewhere on Haven itself.
+ *
+ * This exists so an app card can point at one of Haven's own pages — the
+ * Library Analytics subpage lives at `#/page/library-analytics`, and before
+ * this the registry could only hold absolute `http(s)` URLs, so seeding that
+ * card required a `https://library-analytics.invalid` placeholder that was
+ * simply a dead link. A launcher that cannot link to the thing it is launching
+ * is the defect; this is the fix.
+ *
+ * The check is deliberately a STRING test done before `new URL()`, not after,
+ * because the dangerous inputs here are precisely the ones `new URL()` makes
+ * look harmless:
+ *
+ *  - `//evil.com/x` is protocol-relative. It reads as a path and resolves
+ *    OFF-ORIGIN in a browser, so it must be rejected — hence the explicit
+ *    second-character check rather than a bare `startsWith('/')`.
+ *  - `javascript:...` and `data:...` never match, because neither starts with
+ *    `/` or `#`.
+ *  - `\\evil.com` is treated as a backslash path by some browsers; it does not
+ *    start with `/` or `#` either, so it is rejected too.
+ *
+ * Everything accepted here is inert as an `href`: a path or a fragment on the
+ * dashboard's own origin.
+ */
+function isSameOriginReference(url) {
+  if (url.startsWith('#')) return true;
+  // A single leading slash only — `//host` is protocol-relative, not a path.
+  return url.startsWith('/') && !url.startsWith('//');
+}
+
 function validateUrlEntry(entry, index, errors) {
   if (!isPlainObject(entry)) {
     errors.push(`urls[${index}] must be an object`);
@@ -35,12 +66,15 @@ function validateUrlEntry(entry, index, errors) {
 
   if (typeof entry.url !== 'string' || !entry.url.trim()) {
     errors.push(`urls[${index}].url is required`);
-  } else {
+  } else if (!isSameOriginReference(entry.url.trim())) {
+    // Not a same-origin path or fragment, so it must be a full http(s) URL.
     let parsed;
     try {
       parsed = new URL(entry.url);
     } catch {
-      errors.push(`urls[${index}].url is not a valid absolute URL`);
+      errors.push(
+        `urls[${index}].url must be an absolute http(s) URL or a same-origin path starting with / or #`
+      );
       return;
     }
     if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) {

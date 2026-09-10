@@ -26,6 +26,14 @@ export const config = {
   iconDir: process.env.HAVEN_ICON_DIR ?? './data/icons',
 
   /**
+   * The built web shell. The Dockerfile copies `web/dist` to `/app/web/dist`
+   * and the server runs with `/app` as its working directory, so the default
+   * resolves correctly both in the image and from a source checkout after
+   * `npm run build`.
+   */
+  webDir: process.env.HAVEN_WEB_DIR ?? './web/dist',
+
+  /**
    * Seed for the app registry. Read once, on first boot, when the table is
    * empty; the database is the source of truth afterwards.
    */
@@ -98,6 +106,19 @@ export const config = {
    */
   containerVersionsFile:
     process.env.HAVEN_CONTAINER_VERSIONS_FILE ?? './config/container-versions.json',
+
+  /**
+   * The media-library snapshot the Library Analytics page reads.
+   *
+   * Written by a generator that can see the media library (Plex, Radarr,
+   * Sonarr); Haven only reads it, and holds no credentials for any of them.
+   * Same request-time read and same staleness discipline as the versions file
+   * above — see `connectors/library.js`.
+   *
+   * Defaults under `./config` because that mount already exists and is
+   * read-only, so no new volume is needed for the common deployment.
+   */
+  mediaLibraryFile: process.env.HAVEN_MEDIA_LIBRARY_FILE ?? './config/media-library.json',
 };
 
 /**

@@ -2,33 +2,657 @@
    Imported here rather than in JS so the shell keeps a single stylesheet. */
 @import 'gridstack/dist/gridstack.css';
 
+/* The theme, as tokens.
+ *
+ * Haven is a DARK product. The dashboard it replaces is deep navy with an
+ * amber accent, it is looked at in a hallway at night as often as at a desk,
+ * and it was previously defined light-first with a `prefers-color-scheme:
+ * dark` override bolted on. That was backwards: the default branch of the
+ * stylesheet was the theme nobody uses, so the theme everybody uses was the
+ * one no rule was written against. Dark is now the base, and light is the
+ * opt-in variant.
+ *
+ * Palette is taken from the dashboard being replaced so the two read as the
+ * same product. The names are Haven's `--haven-*` convention rather than the
+ * original's, because these are consumed by widgets that already use that
+ * prefix.
+ *
+ * ## Why every token is stated, not derived
+ *
+ * The previous version derived `--haven-surface` and `--haven-border` from
+ * `--haven-fg` with `color-mix`. That is elegant and it is wrong for this
+ * palette: the real one is not a single hue at varying alpha, it is four
+ * hand-picked navies (`bg`, `bg-elevated`, `surface`, `surface-hover`) whose
+ * relationship is not a formula. Deriving them produced grey, which is most
+ * of why the build read as a wireframe.
+ *
+ * ## The rule that fallbacks broke once already
+ *
+ * A widget writing `var(--haven-surface, #202124)` against an UNDEFINED token
+ * silently got the fallback — a dark surface — while its text followed the
+ * real light theme, rendering the apps widget's sort control near-black on
+ * near-black. Define a token before a widget reaches for it. A fallback that
+ * only applies when the design is broken is not a safety net, it is a
+ * disguise. Every token a widget uses is defined here, in both themes. */
 :root {
-  color-scheme: light dark;
-  --haven-bg: #f7f7f8;
-  --haven-fg: #16161a;
+  color-scheme: dark;
+
+  /* ── Surfaces, darkest to lightest ──────────────────────────────────── */
+  --haven-bg: #0f1419;
+  --haven-bg-elevated: #1a1f26;
+  --haven-surface: #242b33;
+  --haven-surface-hover: #2d353f;
+
+  /* ── Text ───────────────────────────────────────────────────────────── */
+  --haven-fg: #ffffff;
+  --haven-fg-secondary: #9ca3af;
+  /* Lighter than the palette this was taken from, deliberately. The original
+     dashboard's #6b7280 is 2.96:1 against a card in dark mode — below the AA
+     4.5 bar — and it IS used for real text (help lines, version tags, the
+     search hint), not just hairlines. #9099a6 is 4.97:1 on a card and still
+     reads as the quietest thing on screen. */
+  --haven-muted: #9099a6;
+
+  /* ── Lines and accent ───────────────────────────────────────────────── */
+  --haven-border: #374151;
+  --haven-accent: #f59e0b;
+  --haven-accent-hover: #d97706;
+  /* Text placed ON the accent. Amber is a light colour, so this is dark in
+     both themes — it does NOT flip with the rest of the palette. */
+  --haven-accent-fg: #1a1f26;
+
+  /* ── Status ─────────────────────────────────────────────────────────── */
+  --haven-ok: #10b981;
+  --haven-bad: #ef4444;
+  --haven-warn: #f59e0b;
+  --haven-unknown: #6b7280;
+
+  /* ── Radius ─────────────────────────────────────────────────────────── */
+  --haven-radius: 12px;
+  --haven-radius-sm: 8px;
+  --haven-radius-pill: 999px;
+
+  /* ── Elevation. One direction: down and away from the viewer. ───────── */
+  --haven-shadow: 0 4px 6px -1px rgb(0 0 0 / 30%);
+  --haven-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 40%);
+
+  /* ── Spacing: a strict 4px scale. ────────────────────────────────────
+     An audit found only half the spacing values in the build were divisible
+     by 4, which is what makes a layout look hand-nudged rather than designed.
+     Every padding, gap and margin below comes from this scale. */
+  --haven-space-1: 4px;
+  --haven-space-2: 8px;
+  --haven-space-3: 12px;
+  --haven-space-4: 16px;
+  --haven-space-5: 20px;
+  --haven-space-6: 24px;
+  --haven-space-8: 32px;
+  --haven-space-10: 40px;
+
+  /* ── The gap between widgets, expressed as padding INSIDE the cell ──────
+   *
+   * GridStack is mounted with `margin: 0` (see `mountGrid`), so a widget's
+   * tile fills its grid cell exactly and two neighbouring cells touch. That
+   * is the correct edit-mode reading: the dashed outline IS the cell
+   * boundary, so the outlines should meet rather than float apart.
+   *
+   * The breathing room is then this inset, applied inside the tile. Because
+   * both neighbours carry it, the visible gap between two widgets' content
+   * is TWICE this value — 16px, which is exactly the `gap: 1rem` the
+   * dashboard being replaced uses between its app cards.
+   *
+   * Doing it as a grid margin instead would be the obvious-looking mistake:
+   * it insets the bordered tile within the cell, so the dashed outlines stop
+   * touching and the padding lands outside the outline rather than within
+   * it. */
+  --haven-widget-inset: var(--haven-space-2);
+
+  --haven-header-height: 70px;
+  /* Matches the dashboard being replaced exactly. Below 1024px the sidebar
+     stops being a column and stacks under the grid — see `.haven-layout`. */
+  --haven-sidebar-width: 320px;
+
+  /* Focus. One ring, used everywhere, and it is the accent so it reads as
+     part of the design rather than the browser's default blue. */
+  --haven-focus: var(--haven-accent);
+
+  --haven-font: system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --haven-bg: #101014;
-    --haven-fg: #e8e8ea;
+/* The light variant.
+ *
+ * Opt-in two ways: the OS preference, and an explicit `data-theme` on the root
+ * for a future in-app toggle. Both set the same tokens, so there is one light
+ * palette rather than two that drift.
+ *
+ * Note `--haven-accent-fg` is NOT redefined: text on amber stays dark in both
+ * themes, because the accent itself does not change. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+    --haven-bg: #f4f5f7;
+    --haven-bg-elevated: #ffffff;
+    --haven-surface: #ffffff;
+    --haven-surface-hover: #eef0f3;
+    --haven-fg: #16161a;
+    --haven-fg-secondary: #4b5563;
+    --haven-muted: #6b7280;
+    --haven-border: #d3d7de;
+    --haven-shadow: 0 4px 6px -1px rgb(15 20 25 / 10%);
+    --haven-shadow-lg: 0 10px 15px -3px rgb(15 20 25 / 15%);
   }
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --haven-bg: #f4f5f7;
+  --haven-bg-elevated: #ffffff;
+  --haven-surface: #ffffff;
+  --haven-surface-hover: #eef0f3;
+  --haven-fg: #16161a;
+  --haven-fg-secondary: #4b5563;
+  --haven-muted: #6b7280;
+  --haven-border: #d3d7de;
+  --haven-shadow: 0 4px 6px -1px rgb(15 20 25 / 10%);
+  --haven-shadow-lg: 0 10px 15px -3px rgb(15 20 25 / 15%);
 }
 
 body {
   margin: 0;
   background: var(--haven-bg);
   color: var(--haven-fg);
-  font:
-    14px/1.5 system-ui,
-    -apple-system,
-    'Segoe UI',
-    sans-serif;
+  font: 14px/1.5 var(--haven-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+.haven-boot {
+  padding: var(--haven-space-8);
+  color: var(--haven-fg-secondary);
+}
+
+/* ── The app header (DESIGN: the fixed 70px bar) ──────────────────────────
+ *
+ * The single biggest visual difference between Haven and the dashboard it
+ * replaces was that Haven had no header at all — just a bare "Edit dashboard"
+ * button floating on the page. The bar carries three things, left to right:
+ * the wordmark, a search field, and a status cluster.
+ *
+ * The search field here is a BUTTON that opens the existing command palette,
+ * not a second input. There is already a working search (Ctrl/Cmd-K, with its
+ * own index and ARIA wiring); adding a real input in the header would mean two
+ * search UIs with two behaviours. This looks like the original's field and
+ * defers to the palette that already exists — so the affordance is discoverable
+ * for people who will never guess a keyboard shortcut, which is the actual
+ * problem with a shortcut-only search.
+ *
+ * It is `position: sticky` rather than `fixed` so it participates in layout and
+ * nothing needs a magic top-padding to avoid being hidden under it. */
+
+.haven-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: var(--haven-space-6);
+  height: var(--haven-header-height);
+  /* The border must be INSIDE the declared height.
+   *
+   * There is no global `border-box` reset in this stylesheet, so the header's
+   * default `content-box` sizing made it 70px tall PLUS a 1px bottom border —
+   * 71px on screen. The layout below it is sized `calc(100vh - 70px)`, so the
+   * two together came to 101vh and the page scrolled by exactly one pixel:
+   * enough to produce a scrollbar and to nudge the bottom-pinned Server Status
+   * card one pixel below the fold, which is the one thing this layout exists
+   * to prevent. Scoped to the header rather than fixed with a global reset,
+   * because a global `box-sizing` change would silently resize every padded
+   * element on the page. */
+  box-sizing: border-box;
+  padding: 0 var(--haven-space-8);
+  border-bottom: 1px solid var(--haven-border);
+  background: var(--haven-bg-elevated);
+}
+
+.haven-header__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--haven-space-3);
+  flex: 0 0 auto;
+}
+
+/* The mark. A rounded amber tile with the initial — enough to read as a logo
+   without shipping an image the repo would then have to license. */
+.haven-header__mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--haven-radius-sm);
+  background: var(--haven-accent);
+  color: var(--haven-accent-fg);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* The page's one `<h1>`. There was no h1 anywhere before this, which left the
+   document with no top-level heading for a screen reader to land on. */
+.haven-header__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.haven-header__search {
+  display: flex;
+  align-items: center;
+  gap: var(--haven-space-2);
+  width: min(100%, 420px);
+  min-height: 40px;
+  margin: 0 auto;
+  padding: var(--haven-space-2) var(--haven-space-4);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-pill);
+  background: var(--haven-bg);
+  color: var(--haven-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.haven-header__search:hover {
+  border-color: var(--haven-accent);
+  background: var(--haven-surface);
+}
+
+.haven-header__search-hint {
+  margin-left: auto;
+  padding: 2px var(--haven-space-2);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-sm);
+  color: var(--haven-fg-secondary);
+  font-size: 11px;
+}
+
+/* The right-hand cluster: clock over date, mirroring the original's
+   weather/clock block. Time is the one thing on a wall dashboard that is read
+   from across the room, so it is the largest text in the header. */
+.haven-header__status {
+  display: flex;
+  align-items: center;
+  gap: var(--haven-space-4);
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.haven-header__clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
+}
+
+.haven-header__time {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.haven-header__date {
+  color: var(--haven-fg-secondary);
+  font-size: 12px;
+}
+
+/* Below the mobile breakpoint the search label collapses to its icon and the
+   date drops — 70px of header cannot hold three full clusters on a phone. */
+@media (max-width: 640px) {
+  .haven-header {
+    gap: var(--haven-space-3);
+    padding: 0 var(--haven-space-4);
+  }
+
+  .haven-header__title,
+  .haven-header__search-text,
+  .haven-header__search-hint,
+  .haven-header__date {
+    display: none;
+  }
+
+  .haven-header__search {
+    width: auto;
+    margin: 0 0 0 auto;
+  }
 }
 
 .haven-boot {
   padding: 2rem;
   opacity: 0.7;
+}
+
+/* ── The profile control ─────────────────────────────────────────────────
+ *
+ * "Edit dashboard" used to be a bare button in the top-left — the first thing
+ * on the page, and the most prominent position on screen given to the rarest
+ * action on a dashboard. It now lives in a dropdown behind this circular
+ * control at the right end of the header, which is the conventional home for
+ * "things about this session" and leaves room for the settings that follow it.
+ *
+ * See `web/src/shell/profile-menu.js` for the keyboard contract, which is the
+ * part of this that is easy to get wrong. */
+
+.haven-profile {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.haven-profile__trigger {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--haven-border);
+  /* A circle, which is what makes it read as a profile control rather than
+     as one more toolbar button. */
+  border-radius: 50%;
+  background: var(--haven-surface);
+  color: var(--haven-fg);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.haven-profile__trigger:hover,
+.haven-profile--open .haven-profile__trigger {
+  border-color: var(--haven-accent);
+  background: var(--haven-surface-hover);
+}
+
+.haven-profile__trigger:focus-visible {
+  outline: 2px solid var(--haven-focus);
+  outline-offset: 2px;
+}
+
+.haven-profile__avatar {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* The dropdown, anchored under the trigger's right edge. `z-index` above the
+   header's own 50 so it is not clipped by the bar it hangs from. */
+.haven-profile__menu {
+  position: absolute;
+  top: calc(100% + var(--haven-space-2));
+  right: 0;
+  z-index: 60;
+  min-width: 12rem;
+  padding: var(--haven-space-1);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-sm);
+  background: var(--haven-bg-elevated);
+  box-shadow: var(--haven-shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* A closed menu is closed.
+ *
+ * The same trap the apps widget's menu list hit: `hidden` is a UA-stylesheet
+ * `display: none`, and the author `display: flex` above beats it on
+ * specificity. Without this rule the dropdown renders permanently open under
+ * the header. It is asserted by a stylesheet contract test for that reason. */
+.haven-profile__menu[hidden] {
+  display: none;
+}
+
+.haven-profile__item {
+  padding: var(--haven-space-2) var(--haven-space-3);
+  border: none;
+  border-radius: var(--haven-radius-sm);
+  background: transparent;
+  color: var(--haven-fg);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.haven-profile__item:hover {
+  background: var(--haven-surface-hover);
+  color: var(--haven-accent);
+}
+
+.haven-profile__item:focus-visible {
+  outline: 2px solid var(--haven-focus);
+  outline-offset: -2px;
+}
+
+/* ── The two-column layout ───────────────────────────────────────────────
+ *
+ * An editable grid on the left, a fixed 320px column of ambient readouts on
+ * the right. `1fr var(--haven-sidebar-width)` — the sidebar is a fixed track
+ * and the grid takes whatever is left, which is what stops the sidebar
+ * shrinking as the app grid gets denser.
+ *
+ * ── Why the layout owns the scroll, and the PAGE does not ────────────────
+ * The sidebar must be full height and must not scroll: Server Status is
+ * pinned to its bottom and is meant to be glanceable at all times, and when
+ * the whole page scrolled it was the first thing to leave the screen.
+ *
+ * The fix is to move the scrollport off the document and onto the grid
+ * column. `height` (not `min-height`) pins the layout to exactly the space
+ * under the header, `overflow: hidden` stops a tall grid from stretching it,
+ * and `#haven-chrome` below takes `overflow-y: auto` — so a long app grid
+ * scrolls inside its own column while the sidebar beside it does not move.
+ * The sidebar then fills the row by default (`align-items: stretch`) and its
+ * `margin-top: auto` pin lands on the real viewport bottom.
+ *
+ * A consequence worth naming: `.haven-header` is `position: sticky`, which
+ * needs a scrolling ancestor to do anything. There no longer is one, so the
+ * sticky is inert — and the header stays put anyway, because the body no
+ * longer scrolls at all. It is left as-is rather than removed so the mobile
+ * branch below, where the page DOES scroll again, keeps working. */
+
+.haven-layout {
+  display: grid;
+  grid-template-columns: 1fr var(--haven-sidebar-width);
+  height: calc(100vh - var(--haven-header-height));
+  overflow: hidden;
+}
+
+/* The grid column must be allowed to be narrower than its content.
+ *
+ * A grid item's default `min-width` is `auto`, which is "as wide as my
+ * contents demand" — so a wide app grid or a hero image would push the whole
+ * layout wider than the viewport and shove the sidebar off the right edge
+ * instead of being scrolled or reflowed itself. `min-width: 0` is what makes
+ * the `1fr` track actually mean "the space that is left". */
+.haven-layout > #haven-chrome {
+  min-width: 0;
+  /* The scrollport. This column is the ONLY thing on the page that scrolls
+     above 1024px, which is what keeps the sidebar fixed beside it. */
+  overflow-y: auto;
+  /* A grid item's default `min-height` is `auto` too, so without this the
+     column grows to its content's height and overflows the fixed-height
+     layout instead of scrolling inside it — the scrollbar would simply never
+     appear. Same trap as `min-width` above, on the other axis. */
+  min-height: 0;
+}
+
+/* ── The sidebar ─────────────────────────────────────────────────────────
+ *
+ * Deliberately NOT part of the grid and deliberately not editable — see the
+ * long note in `web/src/shell/sidebar.js`. */
+
+.haven-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--haven-space-4);
+  padding: var(--haven-space-6);
+  border-left: 1px solid var(--haven-border);
+  background: var(--haven-bg-elevated);
+  /* Full height, and never ITSELF a scrollport. The pinned Server Status card
+     is a direct child of this box, so anything that scrolled here would carry
+     the pin with it and hide the one card the column exists to show. The
+     scrolling happens one level in, in `.haven-sidebar__scroll` below. */
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── The scrollport for the unpinned cards ───────────────────────────────
+ *
+ * The pin alone only works while the cards above it fit, and they stopped
+ * fitting. Measured on the deployment at 1440x900: weather 282px (a real
+ * 4-day forecast — it was a 92px "not configured" stub when the pin was
+ * built and measured) + calendar 221 + 3D home 271 + status 92, plus 48px of
+ * gaps and 48px of padding, is 960px of content in an 830px column. With the
+ * sidebar `overflow: hidden` that surplus was CLIPPED, not scrolled: Server
+ * Status painted at y=915 in a 900px viewport and could not be reached by
+ * scrolling, dragging or keyboard. Strictly worse than the scrolling page the
+ * pin replaced.
+ *
+ * So the unpinned cards scroll here and the pinned card stays outside as a
+ * sibling. `flex: 1 1 auto` lets this box absorb the free space and, more
+ * importantly, SHRINK below its content; `min-height: 0` is what actually
+ * permits that shrink, because a flex item's default `min-height: auto` means
+ * "never smaller than my content" and would push the pin off the bottom again
+ * with the scrollbar never appearing — the same trap as the grid column above.
+ *
+ * The negative margin + matching padding keep the scrollbar off the card
+ * edges: without them the cards would sit flush against the scrollbar gutter
+ * and lose their alignment with the pinned card below. */
+.haven-sidebar__scroll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--haven-space-4);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* Room for the scrollbar without the cards shifting when it appears. */
+  margin-right: calc(-1 * var(--haven-space-2));
+  padding-right: var(--haven-space-2);
+}
+
+.haven-sidebar__card {
+  padding: var(--haven-space-4);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius);
+  background: var(--haven-surface);
+}
+
+/* Pinned to the bottom, matching the live dashboard's status card. `auto`
+   margin in a flex column consumes all the free space above it — which is
+   what puts it against the bottom edge without a fixed position. */
+.haven-sidebar__card--pinned {
+  margin-top: auto;
+}
+
+/* Sidebar cards KEEP their titles while grid tiles lost theirs, and that is
+   not a contradiction: these are content headings naming what the card shows,
+   not chrome naming a widget type. See `sidebar.js`. */
+.haven-sidebar__title {
+  display: flex;
+  align-items: center;
+  gap: var(--haven-space-2);
+  margin: 0 0 var(--haven-space-4);
+  color: var(--haven-fg-secondary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* 18px, matching the live dashboard's `.sidebar-title svg`. */
+.haven-sidebar__title svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.haven-sidebar__body {
+  min-width: 0;
+}
+
+/* ── The 3D home card needs an explicit height ───────────────────────────
+ *
+ * This is the SAME trap `percentage-height-contract.test.js` was written for,
+ * arriving in a new place. The iframe widget sets `:host { height: 100% }`,
+ * and a percentage height resolves against the parent's height. A sidebar
+ * card body is `height: auto` — its height comes from its children — so the
+ * percentage has nothing to resolve against and computes to zero. The 3D
+ * home would load, render its scene correctly, and paint into a 0px box.
+ *
+ * Every other sidebar widget is intrinsically tall (a forecast, an event
+ * list, a server list) and grows the body on its own, which is why no card
+ * has needed this until now. The 3D home is the first sidebar widget that
+ * sizes itself to its container, so it is the first that needs the container
+ * to have a size.
+ *
+ * 200px is chosen to match the live dashboard's own 3D home card and to fit
+ * alongside weather, calendar and a bottom-pinned status card in a 900px
+ * viewport without pushing the pin off screen. */
+.haven-sidebar__card--home3d .haven-sidebar__body {
+  height: 200px;
+}
+
+/* Below 1024px the sidebar stops being a column and stacks under the grid,
+   losing its left border — matching the live dashboard's own breakpoint. A
+   320px fixed track on a tablet leaves the app grid too narrow to be useful. */
+@media (max-width: 1024px) {
+  .haven-layout {
+    grid-template-columns: 1fr;
+    /* Back to a normal document flow: stacked, the two columns together are
+       taller than the viewport by definition, so the PAGE scrolls again and
+       the layout must be free to grow. A pinned full-height sidebar on a
+       phone would be a fixed panel you could never scroll past. */
+    height: auto;
+    min-height: calc(100vh - var(--haven-header-height));
+    overflow: visible;
+  }
+
+  /* The column stops being a scrollport; the document is the scrollport. */
+  .haven-layout > #haven-chrome {
+    overflow-y: visible;
+  }
+
+  .haven-sidebar {
+    border-left: none;
+    border-top: 1px solid var(--haven-border);
+    overflow: visible;
+  }
+
+  /* The scrollport stops scrolling too, or the phone gets the scroll trap the
+     grid column is reset to avoid two rules up: the document scrolls, then a
+     box inside it scrolls, and a touch drag does whichever the browser
+     guesses. Stacked, the sidebar is as tall as its cards and the document
+     scrolls past all of them, so there is nothing for an inner scrollport to
+     do — and `flex: 1 1 auto` with `min-height: 0` would let it collapse
+     instead. Back to a plain block that grows with its content. */
+  .haven-sidebar__scroll {
+    display: block;
+    overflow-y: visible;
+    min-height: auto;
+    flex: none;
+    margin-right: 0;
+    padding-right: 0;
+  }
+
+  /* The card gap came from the scroll wrapper's flex `gap`, which a block
+     container does not honour — without this the stacked cards would touch. */
+  .haven-sidebar__scroll > .haven-sidebar__card {
+    margin-bottom: var(--haven-space-4);
+  }
+
+  /* Nothing to pin to when the column is as tall as its contents. */
+  .haven-sidebar__card--pinned {
+    margin-top: 0;
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -47,69 +671,211 @@ body {
 --------------------------------------------------------------------------- */
 
 #haven-chrome {
-  padding: 1rem;
+  padding: var(--haven-space-6) var(--haven-space-8) var(--haven-space-10);
+}
+
+@media (max-width: 640px) {
+  #haven-chrome {
+    padding: var(--haven-space-4) var(--haven-space-4) var(--haven-space-8);
+  }
 }
 
 .haven-toolbar {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--haven-space-2);
   align-items: center;
-  margin-bottom: 1rem;
+  margin-bottom: var(--haven-space-6);
 }
 
+/* A hidden toolbar is hidden.
+ *
+ * The THIRD time this trap has been hit in this codebase, so it is worth
+ * stating plainly: `hidden` is implemented by the UA stylesheet as
+ * `display: none`, at UA specificity, which ANY author `display` declaration
+ * beats. The rule above is such a declaration. So `bar.hidden = true` set the
+ * attribute, the accessibility tree correctly treated the toolbar as hidden,
+ * every unit test asserting `toolbar.el.hidden === true` passed — and the
+ * "Edit dashboard" button went on rendering at the top-left of the page,
+ * which is the single thing this change set out to remove.
+ *
+ * A browser caught it in one screenshot. The tests could not, because they
+ * assert the property and the property was right the whole time. This is
+ * covered by a stylesheet contract test for exactly that reason. */
+.haven-toolbar[hidden] {
+  display: none;
+}
+
+/* Buttons.
+ *
+ * `min-height: 40px` on every control, and 44px on the primary toolbar
+ * buttons: a 28px-tall button is a miss on a touchscreen, and this dashboard
+ * is used on a tablet on a wall. */
 .haven-toolbar button {
-  padding: 0.4rem 0.9rem;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 20%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--haven-fg) 4%, transparent);
-  color: inherit;
+  min-height: 40px;
+  padding: var(--haven-space-2) var(--haven-space-4);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-sm);
+  background: var(--haven-surface);
+  color: var(--haven-fg);
   font: inherit;
+  font-weight: 500;
   cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
 }
 
-/* A visible focus ring is what makes the toolbar usable without a mouse. */
+.haven-toolbar button:hover {
+  border-color: var(--haven-accent);
+  background: var(--haven-surface-hover);
+}
+
+/* Save is the affirmative action in edit mode, so it is the only filled
+   button in the chrome. */
+.haven-toolbar__save {
+  border-color: var(--haven-accent) !important;
+  background: var(--haven-accent) !important;
+  color: var(--haven-accent-fg) !important;
+}
+
+.haven-toolbar__save:hover {
+  background: var(--haven-accent-hover) !important;
+}
+
+/* A visible focus ring is what makes the chrome usable without a mouse. One
+   ring, one colour, everywhere. */
 .haven-toolbar button:focus-visible,
 .haven-widget__control:focus-visible,
-.haven-add-panel__add:focus-visible {
-  outline: 2px solid #4c8dff;
+.haven-add-panel__add:focus-visible,
+.haven-header__search:focus-visible {
+  outline: 2px solid var(--haven-focus);
   outline-offset: 2px;
 }
 
+/* ── Widget tiles ────────────────────────────────────────────────────────
+ *
+ * A tile should read as a designed card, not a `1px solid` box: a real
+ * surface a step above the page background, a 12px radius matching the app
+ * cards inside it, and a shadow that puts it in front of the page rather than
+ * drawn on it. */
+
+/* `box-sizing: border-box` is load-bearing, not tidiness. GridStack absolutely
+ * positions this element with `inset: 0` (margin is 0), and `height: 100%`
+ * then resolves against the cell. Under the document's `content-box` default
+ * the border would be ADDED to that 100%, so the tile renders taller than its
+ * own cell and overhangs the one beneath. That was a real, measurable defect
+ * before this change: every tile sat exactly 10px past its cell's bottom edge
+ * (100% of the cell + 2 × 1px border, pushed down by the old 8px grid
+ * margin). Sizing the border into the 100% is what removes it. */
 .haven-widget-tile {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   height: 100%;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 12%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--haven-fg) 3%, transparent);
+  /* The gap between widgets, and the whole point of this rule.
+   *
+   * It sits INSIDE the border, so the tile's edge — which in edit mode is the
+   * dashed outline, and which is now flush with the grid cell — stays where
+   * it is, and only the content moves in from it. Both neighbours carry it,
+   * so the visible separation between two widgets' content is 2 × 8px = 16px,
+   * matching the `gap: 1rem` between app cards on the dashboard this
+   * replaces. */
+  padding: var(--haven-widget-inset);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius);
+  background: var(--haven-bg-elevated);
+  box-shadow: var(--haven-shadow);
 }
 
+/* ── The widget handle is EDIT-MODE CHROME, not a content heading ────────
+ *
+ * It used to render in both modes, so every tile on the dashboard wore a
+ * "HERO" / "APPS" / "CLOCK" band across its top. The dashboard Haven replaces
+ * has none of these on its main grid, and it is right not to: a tile showing a
+ * clock does not need to be labelled "Clock". The band was widget chrome
+ * wearing the costume of a content heading.
+ *
+ * In EDIT mode it is exactly the right thing, and it stays: it is the drag
+ * handle (`handle` in the GridStack options), it names which widget you are
+ * about to move, and it carries the settings and remove controls. That is its
+ * real job, and it is only a job while you are editing.
+ *
+ * `display: none` rather than `visibility: hidden` — the band must take no
+ * vertical space in view mode, or every tile keeps a 45px empty strip and the
+ * change is cosmetic only. It is also what keeps the title out of the
+ * accessibility tree, so heading navigation is not littered with widget names.
+ *
+ * NOTE the asymmetry with the SIDEBAR, which is deliberate and not a
+ * contradiction: sidebar cards ("Weather", "Calendar", "Server Status") DO
+ * keep their titles, because those are content headings that name what the
+ * card is showing rather than chrome naming the widget type. */
 .haven-widget__handle {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.35rem 0.6rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--haven-fg) 10%, transparent);
+  gap: var(--haven-space-2);
+  padding: var(--haven-space-3) var(--haven-space-4);
+  border-bottom: 1px solid var(--haven-border);
+  /* A hair lighter than the tile body, which is what separates the header
+     band from the content without a second border. */
+  background: var(--haven-surface);
+}
+
+/* Edit mode is the only mode that shows it. */
+.haven-grid--edit-mode .haven-widget__handle {
+  display: flex;
 }
 
 .haven-widget__title {
-  font-size: 0.75rem;
+  color: var(--haven-fg-secondary);
+  font-size: 11px;
   font-weight: 600;
-  opacity: 0.75;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
+/* The card's inner padding is 16px in total, unchanged by the widget inset:
+ * the tile now contributes 8px of that, so this makes up the remaining 8px
+ * rather than stacking a second 16px on top of it. Written as a subtraction
+ * from the design token so the two stay tied together — change the inset and
+ * a card's inner padding still comes to 16px. */
 .haven-widget__body {
   flex: 1;
   min-height: 0;
+  padding: calc(var(--haven-space-4) - var(--haven-widget-inset));
+  overflow: auto;
   transition: opacity 120ms ease;
+}
+
+/* The host's own tile element, mounted inside the body by `WidgetHost.mount`.
+ *
+ * ── Why this rule has to exist ───────────────────────────────────────────
+ * It is `display: block` with `height: auto` by default, so its height comes
+ * from its children. That is fine for a widget whose content is intrinsically
+ * tall — the apps grid sizes itself and the div grows to fit.
+ *
+ * It is fatal for a widget that sizes itself to its container. The hero sets
+ * `:host { height: 100% }`, and a percentage height resolves against the
+ * parent's height — which is `auto` here, so the percentage has nothing to
+ * resolve against and computes to zero. Parent waits on child, child waits on
+ * parent, and the hero rendered a complete, correct carousel into a box 0px
+ * tall. Nothing threw and nothing was missing from the DOM; it simply had no
+ * height to paint into, which is why the tile looked empty.
+ *
+ * Giving the tile the body's full height breaks the cycle: `height: 100%`
+ * against a `.haven-widget__body` that is already sized by `flex: 1`. A widget
+ * that sizes to its container now has a container to size to, and one that
+ * sizes to its content is unaffected — `overflow: auto` on the body still
+ * scrolls anything taller. */
+.haven-widget {
+  height: 100%;
 }
 
 /* View mode: nothing moves, and none of the editing affordances are shown. */
 .haven-widget__controls {
   display: none;
-  gap: 0.25rem;
+  gap: var(--haven-space-1);
 }
 
 .haven-widget__handle {
@@ -131,22 +897,98 @@ body {
   pointer-events: none;
 }
 
+/* Edit mode gets a dashed accent outline on every tile, so it is obvious at a
+   glance which mode the dashboard is in without reading the toolbar. */
+.haven-grid--edit-mode .haven-widget-tile {
+  border-style: dashed;
+  border-color: var(--haven-accent);
+}
+
+/* ── The transparent background option ───────────────────────────────────
+ *
+ * A per-widget config field, defaulting ON for the hero and the apps grid.
+ * See `web/src/shell/transparent.js` for why it is an option rather than two
+ * hardcoded exceptions.
+ *
+ * The dashboard Haven replaces draws its hero and its app grid straight onto
+ * the page: no border, no panel, no shadow. Ours wrapped both in a card, and
+ * the apps grid in particular ended up a bordered box full of bordered
+ * cards. This strips the tile back to a bare container.
+ *
+ * `background: none` rather than `transparent`: the tile sets a `background`
+ * shorthand, so a longhand `background-color` would leave any future image
+ * or gradient behind. The BODY's padding goes too — that padding is card
+ * padding, and a full-bleed banner inset by a further 16px is not full-bleed.
+ *
+ * The tile's own 8px `--haven-widget-inset` deliberately STAYS. It is not
+ * card padding, it is the gap between one widget and the next, and a
+ * transparent widget needs that gap as much as a card does — otherwise the
+ * hero and the apps grid are the two tiles on the dashboard whose content
+ * runs right up to its neighbour. It reintroduces no visible box, because
+ * this rule has already removed the border, background and shadow that would
+ * have drawn one. "Full-bleed" here means filling the tile, not bleeding to
+ * the grid cell: the hero clips its own carousel to its own radius (see
+ * `.hero` in the hero element's shadow styles), so it stays a clean banner.
+ *
+ * NOTE this deliberately does NOT touch `overflow: hidden` on the tile. The
+ * hero clips its carousel to the tile's rounded corners, and a transparent
+ * tile still needs to clip. */
+.haven-widget-tile--transparent {
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+.haven-widget-tile--transparent .haven-widget__body {
+  padding: 0;
+}
+
+/* ── ...but ONLY in view mode ────────────────────────────────────────────
+ *
+ * Edit mode puts the chrome back, and that is the whole reason this is safe.
+ * A tile you cannot see is a tile you cannot drag, resize or aim a drop at —
+ * and with the option defaulting on for BOTH the hero and the apps grid, the
+ * two largest tiles on the dashboard would be invisible drop targets at
+ * once. The dashed accent border above is what you grab.
+ *
+ * The specificity works out because `.haven-grid--edit-mode .haven-widget-tile`
+ * is two classes against the single class above; the padding rule needs the
+ * same treatment or the body stays flush while the border returns. */
+.haven-grid--edit-mode .haven-widget-tile--transparent {
+  border-color: var(--haven-accent);
+  background: var(--haven-bg-elevated);
+  box-shadow: var(--haven-shadow);
+}
+
+.haven-grid--edit-mode .haven-widget-tile--transparent .haven-widget__body {
+  padding: calc(var(--haven-space-4) - var(--haven-widget-inset));
+}
+
 .haven-widget__control {
-  padding: 0.15rem 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 20%, transparent);
-  border-radius: 5px;
-  background: transparent;
-  color: inherit;
-  font-size: 0.7rem;
+  min-width: 28px;
+  min-height: 28px;
+  padding: var(--haven-space-1) var(--haven-space-2);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-sm);
+  background: var(--haven-bg);
+  color: var(--haven-fg);
+  font-size: 12px;
   cursor: pointer;
+}
+
+.haven-widget__control:hover {
+  border-color: var(--haven-accent);
+  background: var(--haven-surface-hover);
 }
 
 /* The add-widget panel. */
 .haven-add-panel {
-  margin-top: 1rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 15%, transparent);
-  border-radius: 10px;
+  margin-top: var(--haven-space-4);
+  padding: var(--haven-space-4) var(--haven-space-5);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius);
+  background: var(--haven-bg-elevated);
+  box-shadow: var(--haven-shadow);
 }
 
 .haven-add-panel[hidden] {
@@ -154,31 +996,44 @@ body {
 }
 
 .haven-add-panel__heading {
-  margin: 0 0 0.5rem;
-  font-size: 0.85rem;
+  margin: 0 0 var(--haven-space-3);
+  color: var(--haven-fg-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .haven-add-panel__list {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--haven-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .haven-add-panel__add {
-  padding: 0.35rem 0.8rem;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 20%, transparent);
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
+  min-height: 40px;
+  padding: var(--haven-space-2) var(--haven-space-4);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-sm);
+  background: var(--haven-surface);
+  color: var(--haven-fg);
   font: inherit;
   cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.haven-add-panel__add:hover {
+  border-color: var(--haven-accent);
+  background: var(--haven-surface-hover);
 }
 
 .haven-add-panel__empty {
-  opacity: 0.6;
+  color: var(--haven-muted);
 }
 
 /* `#widget-id` deep links: scroll, then say which one you landed on. */
@@ -189,7 +1044,7 @@ body {
 @keyframes haven-deep-link {
   0%,
   60% {
-    box-shadow: 0 0 0 3px #4c8dff;
+    box-shadow: 0 0 0 3px var(--haven-accent);
   }
   100% {
     box-shadow: 0 0 0 0 transparent;
@@ -199,14 +1054,15 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .haven-widget--deep-linked .haven-widget-tile {
     animation: none;
-    box-shadow: 0 0 0 3px #4c8dff;
+    box-shadow: 0 0 0 3px var(--haven-accent);
   }
 }
 
 /* The error tile a failed widget renders. It never blanks the dashboard. */
 .haven-widget__error {
-  padding: 0.6rem;
-  font-size: 0.8rem;
+  padding: var(--haven-space-4);
+  color: var(--haven-bad);
+  font-size: 13px;
 }
 
 /* ── Subpages (DESIGN §6.9) ─────────────────────────────────────────────
@@ -217,7 +1073,7 @@ body {
 .haven-page {
   max-width: 72rem;
   margin: 0 auto;
-  padding: 1rem;
+  padding: var(--haven-space-6) var(--haven-space-8);
 }
 
 .haven-page[hidden] {
@@ -225,55 +1081,66 @@ body {
 }
 
 .page__header {
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--haven-space-6);
 }
 
 .page__back {
-  font-size: 0.8rem;
-  opacity: 0.8;
+  color: var(--haven-fg-secondary);
+  font-size: 13px;
+}
+
+.page__back:hover {
+  color: var(--haven-accent);
 }
 
 .page__title {
-  margin: 0.25rem 0 0;
-  font-size: 1.75rem;
+  margin: var(--haven-space-1) 0 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .page__summary {
-  margin: 0.25rem 0 0;
-  opacity: 0.75;
+  margin: var(--haven-space-1) 0 0;
+  color: var(--haven-fg-secondary);
 }
 
 .page__section {
-  margin-bottom: 2rem;
+  margin-bottom: var(--haven-space-8);
 }
 
 .page__section-title {
-  font-size: 1rem;
+  color: var(--haven-fg-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  opacity: 0.7;
 }
 
 .page__stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: 1rem;
+  gap: var(--haven-space-4);
 }
 
 .page__stat {
   display: flex;
   flex-direction: column;
+  padding: var(--haven-space-4);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius);
+  background: var(--haven-bg-elevated);
 }
 
 .page__stat-value {
-  font-size: 1.75rem;
+  font-size: 28px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
 .page__stat-label {
-  font-size: 0.75rem;
-  opacity: 0.7;
+  color: var(--haven-fg-secondary);
+  font-size: 12px;
 }
 
 .page__table {
@@ -284,21 +1151,26 @@ body {
 .page__th,
 .page__td {
   text-align: left;
-  padding: 0.4rem 0.5rem;
-  border-bottom: 1px solid rgb(255 255 255 / 12%);
+  padding: var(--haven-space-3);
+  /* Was a hardcoded white alpha — invisible on a light background. */
+  border-bottom: 1px solid var(--haven-border);
 }
 
 .page__th {
-  font-size: 0.75rem;
-  text-transform: uppercase;
+  color: var(--haven-fg-secondary);
+  font-size: 12px;
+  font-weight: 600;
   letter-spacing: 0.04em;
-  opacity: 0.7;
+  text-transform: uppercase;
 }
 
 .page__empty,
-.page__missing,
+.page__missing {
+  color: var(--haven-fg-secondary);
+}
+
 .page__error {
-  opacity: 0.8;
+  color: var(--haven-bad);
 }
 
 /*
@@ -307,10 +1179,12 @@ body {
  * form styling in the whole shell.
  */
 .haven-settings {
-  margin-top: 1rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 15%, transparent);
-  border-radius: 10px;
+  margin-top: var(--haven-space-4);
+  padding: var(--haven-space-4) var(--haven-space-5);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius);
+  background: var(--haven-bg-elevated);
+  box-shadow: var(--haven-shadow);
 }
 
 .haven-settings[hidden] {
@@ -318,56 +1192,65 @@ body {
 }
 
 .haven-settings__heading {
-  margin: 0 0 0.75rem;
-  font-size: 0.85rem;
+  margin: 0 0 var(--haven-space-4);
+  color: var(--haven-fg-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .haven-settings__fields {
   display: grid;
-  gap: 0.75rem;
+  gap: var(--haven-space-4);
 }
 
 .haven-settings__field {
   display: grid;
-  gap: 0.2rem;
+  gap: var(--haven-space-1);
 }
 
 .haven-settings__label {
-  font-size: 0.75rem;
-  opacity: 0.85;
+  color: var(--haven-fg-secondary);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .haven-settings__input {
-  padding: 0.35rem 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 20%, transparent);
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
+  min-height: 40px;
+  padding: var(--haven-space-2) var(--haven-space-3);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-sm);
+  /* Both halves from the same theme, deliberately — an input taking its
+     background from a fallback while its text follows the real theme is the
+     near-black-on-near-black bug this stylesheet already shipped once. */
+  background: var(--haven-bg);
+  color: var(--haven-fg);
   font: inherit;
 }
 
 .haven-settings__input:focus-visible,
 .haven-settings__save:focus-visible,
 .haven-settings__cancel:focus-visible {
-  outline: 2px solid #4c8dff;
+  outline: 2px solid var(--haven-focus);
   outline-offset: 2px;
 }
 
 .haven-settings__input[aria-invalid='true'] {
-  border-color: #e2544a;
+  border-color: var(--haven-bad);
 }
 
 .haven-settings__help {
   margin: 0;
-  font-size: 0.7rem;
-  opacity: 0.6;
+  color: var(--haven-muted);
+  font-size: 12px;
 }
 
 /* Errors sit under the field that caused them, not in a list at the bottom. */
 .haven-settings__error {
   margin: 0;
-  font-size: 0.7rem;
-  color: #e2544a;
+  color: var(--haven-bad);
+  font-size: 12px;
 }
 
 .haven-settings__error[hidden],
@@ -376,24 +1259,171 @@ body {
 }
 
 .haven-settings__summary {
-  margin: 0.75rem 0 0;
-  font-size: 0.75rem;
-  color: #e2544a;
+  margin: var(--haven-space-4) 0 0;
+  color: var(--haven-bad);
+  font-size: 12px;
 }
 
 .haven-settings__actions {
   display: flex;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
+  gap: var(--haven-space-2);
+  margin-top: var(--haven-space-4);
 }
 
 .haven-settings__save,
 .haven-settings__cancel {
-  padding: 0.35rem 0.8rem;
-  border: 1px solid color-mix(in srgb, var(--haven-fg) 20%, transparent);
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
+  min-height: 40px;
+  padding: var(--haven-space-2) var(--haven-space-4);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-sm);
+  background: var(--haven-surface);
+  color: var(--haven-fg);
   font: inherit;
   cursor: pointer;
+}
+
+/* Save is the affirmative action, so it is filled. */
+.haven-settings__save {
+  border-color: var(--haven-accent);
+  background: var(--haven-accent);
+  color: var(--haven-accent-fg);
+  font-weight: 500;
+}
+
+.haven-settings__save:hover {
+  background: var(--haven-accent-hover);
+}
+
+.haven-settings__cancel:hover {
+  border-color: var(--haven-accent);
+  background: var(--haven-surface-hover);
+}
+
+/* ── Global search palette ────────────────────────────────────────────────
+ *
+ * `SearchUI` renders into the light DOM and carries no styles of its own, so
+ * without these it draws as a bare input in the page flow — which is exactly
+ * how it shipped: functional, focusable, returning correct grouped results,
+ * and visually indistinguishable from a stray form field at the bottom of the
+ * page. Behaviour was tested; appearance had never been looked at.
+ */
+
+.haven-search {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  /* Just above centre — a centred overlay sits low once results push it down. */
+  align-content: start;
+  justify-items: center;
+  padding-top: 12vh;
+  background: rgb(15 20 25 / 72%);
+  backdrop-filter: blur(2px);
+}
+
+/* Closed is the default: the element stays mounted so the shortcut and its
+   ARIA wiring survive, and only visibility changes. */
+.haven-search[hidden],
+.haven-search[data-state='closed'] {
+  display: none;
+}
+
+.haven-search__input {
+  width: min(90vw, 34rem);
+  min-height: 48px;
+  padding: var(--haven-space-3) var(--haven-space-4);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius);
+  background: var(--haven-bg-elevated);
+  color: var(--haven-fg);
+  font: inherit;
+  font-size: 16px;
+  box-shadow: var(--haven-shadow-lg);
+}
+
+.haven-search__input:focus-visible {
+  border-color: var(--haven-accent);
+  outline: 2px solid var(--haven-focus);
+  outline-offset: 2px;
+}
+
+.haven-search__results {
+  width: min(90vw, 34rem);
+  max-height: 55vh;
+  margin-top: var(--haven-space-2);
+  overflow-y: auto;
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius);
+  background: var(--haven-bg-elevated);
+  box-shadow: var(--haven-shadow-lg);
+}
+
+.haven-search__results:empty {
+  display: none;
+}
+
+.haven-search__group-label {
+  margin: 0;
+  padding: var(--haven-space-3) var(--haven-space-4) var(--haven-space-1);
+  color: var(--haven-fg-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.haven-search__option {
+  padding: var(--haven-space-3) var(--haven-space-4);
+  /* 44px minimum touch target — these are tapped on a tablet. */
+  min-height: 44px;
+  cursor: pointer;
+}
+
+/* Keyboard and pointer highlight the same way, so arrowing through the list
+   and hovering it never disagree about which row is selected. */
+.haven-search__option--active,
+.haven-search__option:hover {
+  background: var(--haven-surface-hover);
+}
+
+/* Each part on its own line. They are spans, so without this the title,
+   subtitle and URL run together as one unreadable string —
+   "JellyfinMedia serverhttps://…". */
+.haven-search__option-title,
+.haven-search__option-subtitle,
+.haven-search__option-hint {
+  display: block;
+}
+
+.haven-search__option-title {
+  font-weight: 500;
+}
+
+.haven-search__option-subtitle,
+.haven-search__option-hint {
+  color: var(--haven-fg-secondary);
+  font-size: 13px;
+}
+
+/* The URL is the least important line and the most likely to be long. */
+.haven-search__option-hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.haven-search__message {
+  padding: var(--haven-space-4);
+  color: var(--haven-fg-secondary);
+}
+
+/* Announced to screen readers, never shown — the visible list already says
+   what it says. */
+.haven-search__status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

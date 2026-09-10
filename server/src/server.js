@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import Fastify from 'fastify';
 import { config } from './config.js';
 import { openDatabase } from './db/index.js';
@@ -37,6 +39,7 @@ export async function buildServer(opts = {}) {
     seedPath = config.appsConfigPath,
     instancesSeedPath = config.instancesConfigPath,
     iconDir = config.iconDir,
+    webDir = config.webDir,
     credentials,
     containerVersionsPath = config.containerVersionsFile,
     widgets,
@@ -84,6 +87,45 @@ export async function buildServer(opts = {}) {
   });
   await registerWidgetRoutes(app, widgets);
   await registerNoticeRoutes(app, { db, ...notices });
+
+  // Serve the built shell. Registered LAST so it can never shadow an /api
+  // route, and in its own scope so the static root does not leak.
+  //
+  // Without this the container has no UI at all: the Dockerfile copies
+  // `web/dist` into the image, but nothing ever served it, so `/` answered
+  // 404 while every /api route worked. That is invisible to a test suite
+  // driving `app.inject()` against the API, and invisible to a health check
+  // that only asks for /api/health — it shows up the moment a browser opens
+  // the page, which is exactly what found it.
+  //
+  // A missing directory is a warning, not a crash: running the API without
+  // having built the shell is a legitimate dev state, and `serve-web.test.js`
+  // pins that it stays one.
+  if (existsSync(resolve(webDir))) {
+    await app.register(import('@fastify/static'), {
+      root: resolve(webDir),
+      prefix: '/',
+    });
+
+    // The shell owns its own routes, so anything that is not a file and not
+    // an API call resolves to the shell rather than 404ing.
+    //
+    // Registered on the ROOT instance, not inside a plugin scope: a
+    // not-found handler set in a scope only covers that scope, so a scoped
+    // one never saw `/some/deep/link` at all. The test for this failed in
+    // exactly that way before the handler moved out here.
+    app.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith('/api/')) {
+        return reply.code(404).send({ error: 'NOT_FOUND', message: 'No such endpoint.' });
+      }
+      return reply.sendFile('index.html', resolve(webDir));
+    });
+  } else {
+    app.log.warn(
+      `Web shell not found at "${resolve(webDir)}" — serving the API only. ` +
+        'Run `npm run build` to build it.'
+    );
+  }
 
   return app;
 }

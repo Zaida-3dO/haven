@@ -35,9 +35,49 @@ import { registry } from '../../shell/registry.js';
 import { STATUS, StatusTracker } from '../../lib/status.js';
 import { ALL_CATEGORY, CATEGORIES, SORT, SORT_OPTIONS, buildView } from './model.js';
 import { STYLES } from './styles.js';
+import { transparentField, TRANSPARENT_KEY } from '../../shell/transparent.js';
 
 export const WIDGET_TYPE = 'apps';
 export const WIDGET_TAG = 'haven-widget-apps';
+
+/**
+ * Point an anchor at an app URL, opening it in the right place.
+ *
+ * An app card usually links to a service on another origin, and that should
+ * open in a new tab — the dashboard is a launcher, not something you navigate
+ * away from. But a card may now hold a SAME-ORIGIN reference (`#/page/…` or
+ * `/…`), because the registry accepts one so a card can point at one of
+ * Haven's own pages rather than the `https://library-analytics.invalid`
+ * placeholder it used to need.
+ *
+ * `target="_blank"` on such a link is wrong in a way that looks like nothing
+ * happening: a fragment route opened in a new tab boots a SECOND copy of the
+ * whole dashboard rather than moving this one to the page. That is exactly
+ * what it did — the href was correct, the anchor was in the DOM, every test
+ * was green, and clicking the card did nothing visible.
+ *
+ * So same-origin references navigate in place. Everything else keeps
+ * `_blank` AND `rel="noopener noreferrer"`; the rel is not decoration on a
+ * `_blank` link, it is what stops the opened page reaching back through
+ * `window.opener`, so the two are set together or not at all.
+ */
+export function applyLinkTarget(anchor, url) {
+  const value = typeof url === 'string' ? url.trim() : '';
+  // Mirrors `isSameOriginReference` on the server: a single leading slash or a
+  // fragment. `//host` is protocol-relative and resolves off-origin, so it is
+  // NOT same-origin and must keep opening in a new tab.
+  const sameOrigin = value.startsWith('#') || (value.startsWith('/') && !value.startsWith('//'));
+
+  if (sameOrigin) {
+    anchor.removeAttribute('target');
+    anchor.removeAttribute('rel');
+    return anchor;
+  }
+
+  anchor.target = '_blank';
+  anchor.rel = 'noopener noreferrer';
+  return anchor;
+}
 
 /**
  * The one declaration that generates both the settings form and the validator.
@@ -88,6 +128,9 @@ export const APPS_CONFIG_SCHEMA = Object.freeze([
     max: 3_600_000,
     help: 'How long a reachability result is trusted before the next refresh re-probes.',
   },
+  // Default ON: the apps grid IS the front page. Its cards carry their own
+  // borders, so a second border around the whole grid is a box inside a box.
+  transparentField(true),
 ]);
 
 /**
@@ -354,8 +397,7 @@ export class AppsWidget extends ElementBase {
     const link = document.createElement('a');
     link.className = 'card__name';
     link.href = card.href ?? '#';
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
+    applyLinkTarget(link, card.href);
     link.textContent = card.name;
     // The hover hint: where a click will ACTUALLY land, which is often not the
     // primary URL because the chain may have fallen through to another alias.
@@ -374,7 +416,10 @@ export class AppsWidget extends ElementBase {
     head.appendChild(this.#renderDot(card));
     el.appendChild(head);
 
-    if (card.version.known) el.appendChild(this.#renderVersions(card));
+    // The version pair and the secondary URLs BOTH live in the kebab menu now
+    // — see `#renderMenu`. The card face is status dot, icon, name,
+    // description, menu button, and nothing else.
+    //
     // The menu container is always present, even when empty. A probe resolving
     // to a different variant changes which URLs are secondary, so a card that
     // has no menu now may need one a moment later — and `#patchCard` can only
@@ -465,8 +510,30 @@ export class AppsWidget extends ElementBase {
   }
 
   /**
-   * The secondary-URL menu — the headline feature, so it is one click from the
-   * card rather than buried behind a settings panel.
+   * The kebab menu — every secondary way in, plus the version pair.
+   *
+   * ## Why these moved off the card face
+   *
+   * They used to be inline chips: a "2 more ways in" pill and a row of version
+   * badges, sitting under the description on every card. On a grid of
+   * twenty-three apps that is forty-odd chips of secondary detail competing
+   * with the twenty-three things you actually came to click. The dashboard
+   * Haven replaces puts all of it behind a `⋮` at the bottom-right of the
+   * card, and it is right to: the card face answers "which app is this and is
+   * it up", and the menu answers everything else.
+   *
+   * The multi-URL feature is not being demoted — it is still one click from
+   * the card, and it is now one click from EVERY card rather than only the
+   * ones that happened to have a second URL. Versions join it because they are
+   * the same kind of information: true, useful, and not what you are looking
+   * at the grid for.
+   *
+   * ## Why the button renders even with nothing to show
+   *
+   * It does not. A card with no secondaries and no known version gets an empty
+   * container and no button, so the grid does not sprout twenty-three `⋮`
+   * affordances that open nothing. The container still exists for `#patchCard`
+   * to refill — see `#fillMenu`.
    */
   #renderMenu(card) {
     const wrap = document.createElement('div');
@@ -487,40 +554,71 @@ export class AppsWidget extends ElementBase {
    * resolution logic was built for.
    */
   #fillMenu(wrap, card) {
-    // Nothing to offer: leave the container empty so it takes no space. It
-    // still exists in the DOM so a later patch can fill it.
-    if (!card.secondaries.length) {
+    const showVersion = card.version.known;
+    // Nothing to offer at all: leave the container empty so it takes no space
+    // and no button appears. It still exists in the DOM so a later patch can
+    // fill it — a probe can turn a card with no secondaries into one with two.
+    if (!card.secondaries.length && !showVersion) {
       wrap.replaceChildren();
       return wrap;
     }
 
+    const open = this.#openMenuId === card.id;
+
     const toggle = document.createElement('button');
     toggle.type = 'button';
     toggle.className = 'menu__toggle';
-    toggle.textContent = `${card.secondaries.length} more ${card.secondaries.length === 1 ? 'way' : 'ways'} in`;
-    const open = this.#openMenuId === card.id;
+    // A real label, because the button's own text is three dots. Without this
+    // a screen reader announces "button" twenty-three times over.
+    toggle.setAttribute('aria-label', `More options for ${card.name}`);
+    toggle.title = 'More options';
+    toggle.setAttribute('aria-haspopup', 'menu');
     toggle.setAttribute('aria-expanded', String(open));
-    toggle.addEventListener('click', () => {
+    // The glyph is decorative — `aria-label` above carries the meaning.
+    const glyph = document.createElement('span');
+    glyph.setAttribute('aria-hidden', 'true');
+    glyph.textContent = '⋮';
+    toggle.appendChild(glyph);
+    toggle.addEventListener('click', (event) => {
+      // The whole card is a stretched link (`.card__name::after`), so a click
+      // that reaches it would navigate. The menu button sits above that
+      // overlay and must stop the click getting there.
+      event.preventDefault?.();
+      event.stopPropagation?.();
       this.#openMenuId = this.#openMenuId === card.id ? null : card.id;
       this.render();
     });
 
     const list = document.createElement('ul');
     list.className = `menu__list${open ? ' menu__list--open' : ''}`;
+    list.setAttribute('role', 'menu');
     if (!open) list.hidden = true;
 
     for (const entry of card.secondaries) {
       const li = document.createElement('li');
       const a = document.createElement('a');
+      a.className = 'menu__item';
       a.href = entry.url;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
+      applyLinkTarget(a, entry.url);
+      a.setAttribute('role', 'menuitem');
       // Each secondary under its OWN title — that is what makes the menu
       // navigable rather than a list of indistinguishable URLs.
       a.textContent = entry.title;
       a.title = entry.url;
-      a.addEventListener('click', () => this.#recordVisit(card.id));
+      a.addEventListener('click', (event) => {
+        event.stopPropagation?.();
+        this.#recordVisit(card.id);
+      });
       li.appendChild(a);
+      list.appendChild(li);
+    }
+
+    // The version pair, last: it is information rather than an action, so it
+    // sits below the things you can click.
+    if (showVersion) {
+      const li = document.createElement('li');
+      li.className = 'menu__versions-row';
+      li.appendChild(this.#renderVersions(card));
       list.appendChild(li);
     }
 
@@ -644,6 +742,7 @@ export const appsWidgetDefinition = {
     sort: SORT.VISITS,
     showVersions: 'on',
     statusTtlMs: 60_000,
+    [TRANSPARENT_KEY]: true,
   }),
 };
 

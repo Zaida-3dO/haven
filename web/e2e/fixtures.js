@@ -18,32 +18,47 @@ import { test as base, expect } from '@playwright/test';
  * that needs it, named and justified there, rather than as a blanket filter
  * here that would quietly swallow a real regression in every other test.
  *
- * The one entry is a SANDBOXED IFRAME shouting from a null origin, and it is
- * worth explaining because it looks alarming and is not this suite's bug.
+ * ### What used to be here, and why it is gone
  *
- * The sidebar seeds a `home3d` iframe widget pointing at `HOME_3D_URL`
- * (`/home3d.html`). That file is not in the build on main. The SPA fallback
- * therefore answers the iframe with `index.html` — so a SECOND copy of the
- * whole dashboard boots INSIDE the iframe. That iframe is deliberately
- * sandboxed without `allow-same-origin` (see `widgets/iframe/element.js`),
- * which gives the framed document an opaque origin, so every `/api/*` call
- * the nested dashboard makes is a cross-origin request from `origin: null`
- * and the browser blocks it. Hence a burst of
- * "from origin 'null' has been blocked by CORS policy" on almost every test.
+ * This list previously allowed a burst of
+ * "from origin 'null' has been blocked by CORS policy". That was a real bug
+ * being pinned rather than fixed: `HOME_3D_URL` was the relative path
+ * `/home3d.html`, Haven never served that file, and the SPA fallback answered
+ * the sidebar's iframe with `index.html` — so a SECOND copy of the whole
+ * dashboard booted inside the sandboxed frame, at an opaque origin, and every
+ * `/api/*` call it made was blocked.
  *
- * The outer page is unaffected: its own origin is correct and its own fetches
- * succeed. Only the accidental nested copy fails.
+ * `HOME_3D_URL` is now an absolute URL to the standalone deployment, so no
+ * nested Haven boots and that burst no longer happens. The allowance is
+ * deliberately NOT kept "just in case": leaving it would let the nested-boot
+ * bug silently return, which is the exact regression this suite exists to
+ * catch.
  *
- * This is pinned NARROWLY — the pattern requires the null origin AND the CORS
- * wording — so it cannot hide a genuine same-origin failure. Fixing it
- * properly means either shipping `home3d.html` or not seeding a widget that
- * points at a missing file, both of which belong to the 3D-home work in
- * flight elsewhere, not to the browser harness.
+ * ### What replaces it, and why this one is not a bug
+ *
+ * The 3D home is a third-party origin that sets its own
+ * `Content-Security-Policy: frame-ancestors`, naming the production dashboard
+ * (`https://haven.3dojoda.com`) and a short list of other trusted embedders.
+ * That list cannot include this suite, which serves from an ephemeral
+ * `http://127.0.0.1:<port>`. So when the sidebar's iframe becomes visible
+ * here, the browser refuses to frame it and logs a `frame-ancestors`
+ * violation.
+ *
+ * That refusal is the remote host's access-control policy working correctly,
+ * not a defect in Haven, and it is unfixable from this repo — nothing we can
+ * change makes localhost an allowed ancestor. In production the origin IS on
+ * the list and the frame loads, so this message is an artefact of where the
+ * tests run rather than of what the code does.
+ *
+ * Pinned NARROWLY, and the narrowness is load-bearing: the pattern requires
+ * the literal `frame-ancestors` directive name AND the 3D home's exact
+ * origin. A CSP violation for any other URL, or any other kind of framing
+ * failure, still fails the suite.
  */
 const ALWAYS_ALLOWED = [
-  /from origin 'null' has been blocked by CORS policy/,
+  /Framing 'https:\/\/3dhome\.3dojoda\.com\/?' violates the following Content Security Policy directive: "frame-ancestors/,
   // The paired failure the block above produces. Bare `net::ERR_FAILED` with
-  // no origin of its own, emitted immediately after each blocked request.
+  // no origin of its own, emitted immediately after the refused navigation.
   /^Failed to load resource: net::ERR_FAILED$/,
 ];
 

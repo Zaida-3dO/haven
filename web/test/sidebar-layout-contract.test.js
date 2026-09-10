@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { SIDEBAR_ICONS, createSidebar } from '../src/shell/sidebar.js';
+import { HOME_3D_PREVIEW_URL, HOME_3D_URL } from '../src/widgets/iframe/definition.js';
 import { createFakeDocument } from './helpers/fake-dom.js';
 
 /**
@@ -208,6 +209,121 @@ test('the sidebar is still a flex column with the status card pinned', () => {
   );
 });
 
+/* ── 2b. The unpinned cards scroll, the pinned one does not ────────────── */
+
+test('the unpinned cards get their own scrollport', () => {
+  // The pin above only works while the cards above it FIT, and they stopped
+  // fitting: weather grew from a 92px "not configured" stub to a real 282px
+  // four-day forecast and the 3D home card moved into the column. With the
+  // sidebar `overflow: hidden` that surplus was CLIPPED rather than scrolled —
+  // Server Status painted below the viewport and could not be reached by
+  // scrolling, dragging or keyboard, which is strictly worse than the
+  // scrolling page the pin replaced. Measured at 1440x900: 960px of content
+  // in an 830px column.
+  const rule = ruleFor('.haven-sidebar__scroll');
+
+  assert.ok(
+    rule,
+    'main.css has no `.haven-sidebar__scroll` rule. Without it the unpinned ' +
+      'cards have nowhere to scroll and overflow is clipped by the sidebar.'
+  );
+  assert.match(
+    rule,
+    /overflow-y\s*:\s*auto/,
+    `the unpinned cards must scroll rather than being clipped. Found: ${rule}`
+  );
+});
+
+test('the scrollport may be SHORTER than its content, or it never scrolls', () => {
+  // The same trap as the grid column, one level in, and the reason this fix is
+  // two declarations rather than one. A flex item defaults to
+  // `min-height: auto` — "never smaller than my content" — so the box grows to
+  // fit the cards, `overflow-y: auto` never has anything to scroll, and the
+  // cards push the pinned card off the bottom again with no scrollbar ever
+  // appearing. `flex: 1 1 auto` is what lets it take the free space;
+  // `min-height: 0` is what lets it give space back.
+  const rule = ruleFor('.haven-sidebar__scroll');
+
+  assert.match(
+    rule,
+    /min-height\s*:\s*0/,
+    'the scrollport needs `min-height: 0`. A flex item defaults to ' +
+      '`min-height: auto`, so it stretches to its content, the scrollbar never ' +
+      `appears, and the pinned card is pushed off the bottom. Found: ${rule}`
+  );
+  assert.match(
+    rule,
+    /flex\s*:\s*1\s+1\s+auto/,
+    `the scrollport must absorb the free space above the pin. Found: ${rule}`
+  );
+});
+
+test('the pinned card is OUTSIDE the scrollport, or it scrolls away with the rest', () => {
+  // Anti-vacuity for both tests above, and the point of the whole structure.
+  // If the pinned card were appended inside `.haven-sidebar__scroll` along
+  // with the others, every stylesheet assertion here would still pass and the
+  // bug would be back: the pin would scroll with the content it is supposed to
+  // stay below. The tree is the claim, so assert on the tree.
+  const doc = createFakeDocument();
+  const sidebar = createSidebar({
+    cards: [
+      { id: 'weather', title: 'Weather', icon: 'weather' },
+      { id: 'status', title: 'Server Status', icon: 'status', pinned: true },
+    ],
+    document: doc,
+  });
+
+  const pinned = sidebar.cards.get('status');
+  const unpinned = sidebar.cards.get('weather');
+  assert.ok(pinned && unpinned, 'the sidebar did not build both cards');
+
+  assert.notEqual(
+    pinned.el.parentNode,
+    sidebar.scroll,
+    'the pinned status card was appended INSIDE `.haven-sidebar__scroll`. It ' +
+      'must be a sibling of the scrollport, or it scrolls away with the cards ' +
+      'it is meant to stay below.'
+  );
+  assert.equal(
+    pinned.el.parentNode,
+    sidebar.el,
+    'the pinned status card must be a direct child of the sidebar itself'
+  );
+  assert.equal(
+    unpinned.el.parentNode,
+    sidebar.scroll,
+    'unpinned cards must go INSIDE the scrollport, or nothing scrolls and the ' +
+      'overflow is clipped by the sidebar again.'
+  );
+});
+
+test('below 1024px the scrollport stops being a scrollport', () => {
+  // Stacked, the sidebar is as tall as its cards and the document scrolls past
+  // all of them, so an inner scrollport has nothing to do — and worse, it
+  // would be the second of two nested scrollports on a touch device. Left as
+  // `flex: 1 1 auto` with `min-height: 0` in a block container it could also
+  // collapse instead of growing.
+  const mobile = mobileBlock();
+  const scoped = /\.haven-sidebar__scroll\s*\{([^}]*)\}/.exec(mobile);
+
+  assert.ok(scoped, 'the 1024px block does not reset `.haven-sidebar__scroll`');
+  assert.match(
+    scoped[1],
+    /display\s*:\s*block/,
+    `stacked, the scrollport must go back to a plain block. Found: ${scoped[1]}`
+  );
+  assert.match(
+    scoped[1],
+    /overflow-y\s*:\s*visible/,
+    `the inner scrollport must stop scrolling on a phone. Found: ${scoped[1]}`
+  );
+  assert.match(
+    scoped[1],
+    /flex\s*:\s*none/,
+    `\`flex: 1 1 auto\` in a block container can collapse. Found: ${scoped[1]}`
+  );
+});
+
 /* ── 3. Mobile goes back to a normal document flow ─────────────────────── */
 
 test('below 1024px the layout is free to grow again', () => {
@@ -406,9 +522,38 @@ test('the 3D home embed keeps its locked-down sandbox', () => {
   assert.match(entry[0], /allowPopups:\s*'no'/, 'the embed must not get popups');
 });
 
-test('the 3D home URL is relative, never an internal address', () => {
-  // A public repo must not carry network topology. The URL comes from
-  // `HOME_3D_URL`, which is a relative path; a literal host here would be a
-  // secrets-scan failure as well as a bug.
-  assert.match(BOOT_CODE, /url:\s*HOME_3D_URL/, 'the embed URL must come from HOME_3D_URL');
+test('the 3D home URL comes from a constant, never an inline address', () => {
+  // The URL is now an absolute public host (the 3D home is deployed
+  // standalone), which is fine in a public repo — but it must still come from
+  // a single constant rather than being pasted in here, so there is exactly
+  // one place to change it and one place to review.
+  assert.match(
+    BOOT_CODE,
+    /url:\s*HOME_3D_PREVIEW_URL/,
+    'the embed URL must come from HOME_3D_PREVIEW_URL'
+  );
+});
+
+test('the sidebar embeds the non-interactive preview, not the full app', () => {
+  // The sidebar card is an ambient readout. `?preview=true` is what makes the
+  // 3D home auto-rotate and drop its own chrome — including the controls
+  // button, which is the thing that should not be on a glanceable tile.
+  //
+  // Asserted against the constant AND against boot, because either one alone
+  // passes while the tile is still wrong: the constant could carry the flag
+  // and boot could embed the other one.
+  assert.match(HOME_3D_PREVIEW_URL, /[?&]preview=true\b/, 'the preview URL must set preview=true');
+  assert.doesNotMatch(HOME_3D_URL, /[?&]preview=/, 'the interactive URL must not set preview');
+});
+
+test('the 3D home URL is a public https host, never a private address', () => {
+  // The rule a public repo actually has: no network topology. A public
+  // hostname is fine; an RFC 1918 address or a `.local`/bare internal host is
+  // not, and would fail `scripts/check-no-secrets.sh` too.
+  assert.match(HOME_3D_URL, /^https:\/\//, 'the embed must be served over https');
+  assert.doesNotMatch(
+    HOME_3D_URL,
+    /\/\/(?:\d{1,3}\.){3}\d{1,3}|\.local|localhost/,
+    'the embed URL must not be a private or internal address in a public repo'
+  );
 });

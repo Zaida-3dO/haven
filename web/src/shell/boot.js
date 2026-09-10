@@ -37,7 +37,7 @@ import { definePageWidget } from '../widgets/page/index.js';
 import { createRouter } from './router.js';
 import { pageRegistry } from '../pages/registry.js';
 import { libraryAnalyticsPage } from '../pages/library-analytics.js';
-import { HOME_3D_URL } from '../widgets/iframe/definition.js';
+import { HOME_3D_PREVIEW_URL } from '../widgets/iframe/definition.js';
 
 /**
  * The fallback roster.
@@ -292,6 +292,18 @@ export async function bootDashboard(
   toolbar.discard.addEventListener('click', () => syncProfileLabel());
 
   /**
+   * Re-evaluate the toolbar whenever the layout moves.
+   *
+   * Save is disabled until there is something to save, and "something to
+   * save" is a function of the live grid — so it has to be recomputed when
+   * the grid changes, not only when a button is pressed. Without this the
+   * button's state is decided once on entering edit mode and never updated,
+   * which means it stays greyed out through the first drag: the feature would
+   * be invisible in the browser while every unit test still passed.
+   */
+  const teardownDirtySync = gridHandle.onLayoutChange(() => toolbar.sync());
+
+  /**
    * The header.
    *
    * Built before the toolbar is prepended so it can be prepended AFTER it and
@@ -357,15 +369,22 @@ export async function bootDashboard(
       type: 'calendar',
       config: { title: 'Calendar', maxEvents: 8 },
     },
-    // A relative path, because the 3D home is served from Haven's own origin
-    // and an absolute internal address must never be committed to a public
-    // repo. The sandbox stays as locked down as it was on the grid.
+    // A public HTTPS URL: the 3D home is deployed standalone rather than
+    // served by Haven, so this is a cross-origin embed. A public hostname is
+    // not network topology, so it is fine in a public repo. The sandbox stays
+    // as locked down as it was on the grid — the scene needs no storage.
+    //
+    // `HOME_3D_PREVIEW_URL`, not `HOME_3D_URL`: this card is an ambient
+    // readout, so it embeds the 3D home's `?preview=true` route — auto-
+    // rotating, non-interactive, and with its own chrome (including the
+    // controls button) hidden. The plain interactive URL stays the default for
+    // a user-added embed widget, where clicking a room is the point.
     {
       card: 'home3d',
       id: 'sidebar-home3d',
       type: 'iframe',
       config: {
-        url: HOME_3D_URL,
+        url: HOME_3D_PREVIEW_URL,
         title: '3D home',
         scroll: 'no',
         allowForms: 'no',
@@ -454,6 +473,7 @@ export async function bootDashboard(
       header.el.remove();
       teardownSearchShortcut();
       teardownDeepLinks();
+      teardownDirtySync();
       router?.destroy();
       dashboard.destroy();
       gridHandle.destroy();

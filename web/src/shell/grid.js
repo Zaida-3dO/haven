@@ -150,6 +150,74 @@ export function mountGrid({
 
   const teardownShim = installIframePointerShim(grid, root);
   const resizeListeners = new Set();
+  const layoutChangeListeners = new Set();
+
+  /**
+   * GridStack's `change` fires whenever node geometry actually changes — the
+   * end of a drag, the end of a resize, or a programmatic `update()`. It is
+   * the seam the toolbar needs to re-evaluate whether there is anything to
+   * save; without it, the Save button's state is computed once on entering
+   * edit mode and never again, so it cannot notice the first drag.
+   *
+   * Deliberately NOT `dragstop`/`resizestop`: those fire even when a tile is
+   * dropped exactly where it started, and `change` does not.
+   */
+  grid.on('change', () => {
+    for (const listener of layoutChangeListeners) listener();
+  });
+
+  /**
+   * Switches the rendered column count to match a breakpoint.
+   *
+   * Defined before the handle so the media-query subscription below can share
+   * it with the exported `setBreakpoint` — one implementation, so a viewport
+   * change and a programmatic call cannot drift apart.
+   */
+  const applyBreakpoint = (breakpoint) => {
+    const column = columns[breakpoint];
+    if (column && grid.getColumn() !== column) grid.column(column);
+  };
+
+  /**
+   * Re-column the grid when the viewport crosses the breakpoint.
+   *
+   * **Why this listener is the whole fix.** `column` is read once, above, when
+   * GridStack is initialised. `currentBreakpoint()` is a live closure over the
+   * media query, so it starts reporting `mobile` the instant the window
+   * narrows — but nothing consumed that, so the grid stayed at whatever column
+   * count it was built with. A dashboard loaded wide and then narrowed (a
+   * desktop window being resized, or a phone rotating from landscape to
+   * portrait) kept its 12 columns at 390px, which renders a 2-column tile
+   * about 37px wide: too narrow to show anything.
+   *
+   * Loading directly at 390px always worked, because init read the query at
+   * the moment it already matched. That asymmetry is exactly why the browser
+   * suite missed this — Playwright applies its viewport before `goto`, so the
+   * fresh-load path was the only one it could reach.
+   *
+   * `change` on the MediaQueryList rather than `resize` on the window: it
+   * fires only when the boundary is actually crossed, instead of on every
+   * pixel of a drag, so there is no need to debounce a `grid.column()` call
+   * that relays out every tile.
+   */
+  const onBreakpointChange = () => applyBreakpoint(currentBreakpoint());
+
+  // `addEventListener` is the modern API; `addListener` is the deprecated one
+  // kept for older Safari. Feature-detected rather than assumed, because the
+  // injected fake in the unit suite implements neither and must not throw.
+  if (typeof mobileQuery?.addEventListener === 'function') {
+    mobileQuery.addEventListener('change', onBreakpointChange);
+  } else if (typeof mobileQuery?.addListener === 'function') {
+    mobileQuery.addListener(onBreakpointChange);
+  }
+
+  const teardownBreakpoint = () => {
+    if (typeof mobileQuery?.removeEventListener === 'function') {
+      mobileQuery.removeEventListener('change', onBreakpointChange);
+    } else if (typeof mobileQuery?.removeListener === 'function') {
+      mobileQuery.removeListener(onBreakpointChange);
+    }
+  };
 
   // `resizestop` carries the final geometry — this is what a WebGL widget
   // hooks to call renderer.setSize(). Firing on every `resize` tick instead
@@ -171,6 +239,16 @@ export function mountGrid({
     onWidgetResize(listener) {
       resizeListeners.add(listener);
       return () => resizeListeners.delete(listener);
+    },
+
+    /**
+     * Registers a listener for any change to node geometry.
+     *
+     * @returns {() => void} unsubscribe
+     */
+    onLayoutChange(listener) {
+      layoutChangeListeners.add(listener);
+      return () => layoutChangeListeners.delete(listener);
     },
 
     /** Enables/disables dragging + resizing wholesale — the edit-mode switch. */
@@ -196,10 +274,14 @@ export function mountGrid({
       }
     },
 
-    /** Switches rendered column count. GridStack caches the layout it leaves. */
+    /**
+     * Switches rendered column count. GridStack caches the layout it leaves.
+     *
+     * Shares `applyBreakpoint` with the media-query subscription above, so
+     * driving the grid by hand and the viewport driving it cannot diverge.
+     */
     setBreakpoint(breakpoint) {
-      const column = columns[breakpoint];
-      if (column && grid.getColumn() !== column) grid.column(column);
+      applyBreakpoint(breakpoint);
     },
 
     extract: (breakpoint) => extractLayout(grid, breakpoint, columns),
@@ -208,7 +290,9 @@ export function mountGrid({
 
     destroy() {
       teardownShim();
+      teardownBreakpoint();
       resizeListeners.clear();
+      layoutChangeListeners.clear();
       grid.destroy(false);
     },
   };

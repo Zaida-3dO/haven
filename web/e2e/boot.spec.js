@@ -147,4 +147,58 @@ test.describe('boot', () => {
     });
     expect(locked).toEqual({ move: true, resize: true });
   });
+
+  /**
+   * The 3D home embed must be CROSS-ORIGIN, and this is a regression pin.
+   *
+   * `HOME_3D_URL` was once the relative path `/home3d.html`. Haven never
+   * served that file, so the SPA fallback answered the iframe with
+   * `index.html` and a second copy of the entire dashboard booted inside the
+   * sandboxed frame — at an opaque origin, with every one of its `/api/*`
+   * calls blocked. It presented as a wall of CORS errors that looked like a
+   * server fault and was neither.
+   *
+   * The failure mode is subtle enough to come back unnoticed by anyone
+   * editing the widget's default, so it is asserted directly rather than left
+   * to the console guard. Any same-origin `src` reintroduces it, because
+   * anything Haven does not serve falls through to `index.html`.
+   *
+   * Asserted on the ATTRIBUTE, not on the frame's content: the remote host's
+   * `frame-ancestors` policy legitimately refuses to be framed from a test
+   * origin (see `fixtures.js`), so the document does not load here and there
+   * is nothing inside it to inspect. What the widget ASKS for is the thing
+   * this bug was about, and it is fully observable.
+   */
+  test('the 3D home embeds a cross-origin URL, not Haven serving itself', async ({ page }) => {
+    const host = page.locator('#sidebar-home3d');
+    await expect(host, 'the 3D home widget should be mounted in the sidebar').toHaveCount(1);
+
+    // The widget lazy-loads on visibility, so scroll it into view and wait for
+    // the src to be written rather than sampling whatever is there at boot.
+    await host.scrollIntoViewIfNeeded();
+    const src = await page
+      .waitForFunction(
+        () => {
+          const el = document.querySelector('#sidebar-home3d');
+          const frame =
+            el?.shadowRoot?.querySelector('iframe') ??
+            el?.querySelector('iframe') ??
+            el?.shadowRoot?.querySelector('*')?.shadowRoot?.querySelector('iframe');
+          const value = frame?.getAttribute('src');
+          return value ? value : null;
+        },
+        null,
+        { timeout: 10_000 }
+      )
+      .then((handle) => handle.jsonValue());
+
+    expect(src, 'the embed should be an absolute https URL').toMatch(/^https:\/\//);
+
+    // The load-bearing assertion: a different origin from the dashboard's own.
+    const pageOrigin = new URL(page.url()).origin;
+    expect(
+      new URL(src).origin,
+      'a same-origin embed falls through the SPA fallback and boots a second dashboard'
+    ).not.toBe(pageOrigin);
+  });
 });

@@ -37,6 +37,62 @@ export function snapshotLayout(gridHandle, breakpoint) {
 }
 
 /**
+ * Whether a layout differs from the one snapshotted on entry.
+ *
+ * Pure, and exported, so the rule can be tested without a grid or a DOM.
+ *
+ * ## The three things this has to get right
+ *
+ * **Compare by id, not by array position.** `extract()` ultimately comes from
+ * GridStack's `save()`, which returns nodes in engine order — and the engine
+ * reorders as tiles move. A `JSON.stringify` comparison of the two arrays
+ * therefore reports a difference when two tiles merely swapped places in the
+ * list without either one moving on screen, which would light up Save on a
+ * layout nobody touched.
+ *
+ * **Only geometry counts.** `x`, `y`, `w`, `h` are what a layout save
+ * persists, so they are the whole of what "changed" can mean here. Anything
+ * else `extract()` carries along (`widgetId`) is identity, not position.
+ *
+ * **A removal is a change even when nothing moved**, which is why the count is
+ * compared and ids are checked in both directions rather than just iterating
+ * the current nodes. Removing a tile from the bottom-right corner may leave
+ * every other tile exactly where it was.
+ *
+ * @param {Array<object>} snapshotNodes  geometry as it was on entry
+ * @param {Array<object>} currentNodes   geometry now
+ * @returns {boolean}
+ */
+export function layoutDiffers(snapshotNodes, currentNodes) {
+  const before = Array.isArray(snapshotNodes) ? snapshotNodes : [];
+  const after = Array.isArray(currentNodes) ? currentNodes : [];
+
+  // A widget added or removed is a change regardless of geometry.
+  if (before.length !== after.length) return true;
+
+  const byId = new Map(before.map((n) => [String(n.id), n]));
+
+  for (const node of after) {
+    const previous = byId.get(String(node.id));
+    // An id present now but not on entry — an add, or a swap for a different
+    // widget. Either way the layout is not the one that was snapshotted.
+    if (!previous) return true;
+    if (
+      (previous.x ?? 0) !== (node.x ?? 0) ||
+      (previous.y ?? 0) !== (node.y ?? 0) ||
+      (previous.w ?? 1) !== (node.w ?? 1) ||
+      (previous.h ?? 1) !== (node.h ?? 1)
+    ) {
+      return true;
+    }
+  }
+
+  // Lengths match and every current id was found in the snapshot, so the two
+  // id sets are equal and nothing needs checking in the other direction.
+  return false;
+}
+
+/**
  * Creates the edit-mode controller.
  *
  * @param {object} deps
@@ -98,6 +154,36 @@ export function createEditMode({
     /** Widgets removed this session, pending Save. Empty outside edit mode. */
     get pendingRemovals() {
       return [...removed];
+    },
+
+    /**
+     * Whether this session has anything to save.
+     *
+     * Drives the Save button's `disabled` state — a Save that is inert when
+     * there is nothing to save says "you have no unsaved work" without the
+     * user having to press it and find out.
+     *
+     * **False outside edit mode**, where there is no snapshot to compare
+     * against and Save is not reachable anyway.
+     *
+     * **A pending removal counts even with no geometry change.** `removed` is
+     * tracked separately from the grid's own nodes, so a session whose only
+     * act was removing a widget must still be dirty — reporting it clean is
+     * strictly worse than the old always-enabled button, because it actively
+     * tells the user their change is already saved.
+     *
+     * **An addition counts too**, and that one is a judgement call worth
+     * stating. A widget added during the session is persisted eagerly over the
+     * instances API (`boot.js`), so its *existence* survives a refresh without
+     * a layout save — but its *position* does not. Leaving Save disabled after
+     * an add would strand the new tile's geometry, and the user would have no
+     * way to tell that half of what they just did was unsaved. `layoutDiffers`
+     * sees the new id and reports dirty, which is the behaviour we want.
+     */
+    get isDirty() {
+      if (mode !== MODE.EDIT || !snapshot) return false;
+      if (removed.length > 0) return true;
+      return layoutDiffers(snapshot.nodes, gridHandle.extract(gridHandle.breakpoint()));
     },
 
     /**
@@ -235,6 +321,25 @@ export function createEditToolbar({ editMode, document: doc = globalThis.documen
     toggle.textContent = editing ? 'Done editing' : 'Edit dashboard';
     save.hidden = !editing;
     discard.hidden = !editing;
+
+    /**
+     * Save is inert until there is something to save.
+     *
+     * **`disabled`, not `hidden`.** The button keeps its place in the toolbar
+     * and greys out. A Save that disappears and reappears as you drag tiles
+     * around is a moving target, and its absence reads as "this dashboard
+     * cannot be saved" rather than "there is nothing to save yet".
+     *
+     * The `title` is the only thing that explains *why* it is inert — a
+     * disabled button is otherwise silent about it. It is cleared rather than
+     * left stale when the layout is dirty, so a hover never claims there is
+     * nothing to save while Save is live.
+     */
+    const dirty = editMode.isDirty;
+    save.disabled = !dirty;
+    if (dirty) save.removeAttribute('title');
+    else save.setAttribute('title', 'No changes to save');
+
     // The bar itself only exists while editing — see the note above.
     bar.hidden = !editing;
   }

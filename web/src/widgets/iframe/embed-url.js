@@ -48,6 +48,13 @@ export const ALLOWED_PROTOCOLS = Object.freeze(['http:', 'https:']);
  * home preview — the first consumer — needs `allow-scripts` for WebGL and does
  * not need same-origin, so the default is exactly right for it.
  *
+ * That consumer is now loaded **cross-origin** from a public host, which makes
+ * the default more important rather than less. Cross-origin plus
+ * `allow-same-origin` does not hand the frame the dashboard's origin, so it is
+ * not the "no sandbox at all" case described above — but it would restore the
+ * third-party page's own storage and credentialled fetches, and there is no
+ * reason to grant a page that to embed a self-contained WebGL scene.
+ *
  * `allow-scripts` IS on by default: an embed of a static document with no
  * scripts is not a use case anyone has, and a frame that renders blank by
  * default would just be reported as broken.
@@ -78,9 +85,10 @@ export class EmbedUrlError extends Error {
 /**
  * Validate an embed URL and return the string to put in `src`.
  *
- * Relative paths are allowed and returned unchanged — the first consumer is
- * `home3d.html?preview=true`, served from Haven's own origin, and forcing it
- * to be absolute would mean baking a hostname into a public repo.
+ * Relative paths are allowed and returned unchanged, so any page Haven serves
+ * itself can be embedded by path. (The first consumer, the 3D home, used to be
+ * one of these; it is now an absolute public URL, but both forms are supported
+ * and both are returned exactly as configured.)
  *
  * `base` exists so this is testable without a `window.location`; it is only
  * used to *resolve* a relative path for checking, never to rewrite the result.

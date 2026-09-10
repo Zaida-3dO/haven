@@ -255,7 +255,22 @@ test('EDIT mode restores the body padding as well as the border', () => {
   const rule = ruleFor(`.haven-grid--edit-mode .${TRANSPARENT_CLASS} .haven-widget__body`);
 
   assert.ok(rule, 'edit mode restores the tile border but not its body padding');
-  assert.match(rule, /padding\s*:\s*var\(/, `expected the padding back, found: ${rule}`);
+
+  // Either a bare token or a calc() over tokens. The body's padding is now
+  // `calc(--haven-space-4 - --haven-widget-inset)`, because the tile itself
+  // carries part of the card's inner padding as the inter-widget gap — see
+  // `widget-inset-contract`. What matters here is unchanged: the padding
+  // comes back, and it comes from the spacing scale rather than a literal.
+  assert.match(
+    rule,
+    /padding\s*:\s*(var\(|calc\([^;]*var\()/,
+    `expected the padding back, found: ${rule}`
+  );
+  assert.doesNotMatch(
+    rule,
+    /padding\s*:\s*0\s*;/,
+    `edit mode must not leave the body flush against the dashed outline: ${rule}`
+  );
 });
 
 test('the edit-mode override can actually win the cascade', () => {

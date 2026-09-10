@@ -25,9 +25,10 @@ test('accepts http and https embeds', () => {
 });
 
 test('accepts a relative path and returns it unchanged', () => {
-  // The first consumer is a relative path, and it must not be rewritten to an
-  // absolute one — the stored config and the live src would then disagree the
-  // moment the dashboard changed host.
+  // A relative path must not be rewritten to an absolute one — the stored
+  // config and the live src would then disagree the moment the dashboard
+  // changed host. (The 3D home has moved to an absolute public URL, but any
+  // page Haven serves itself is still embeddable by path.)
   assert.equal(parseEmbedUrl('/home3d.html?preview=true'), '/home3d.html?preview=true');
 });
 

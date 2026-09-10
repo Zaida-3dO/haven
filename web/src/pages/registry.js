@@ -68,6 +68,13 @@ export function normalisePage(definition) {
     throw new PageError(`Page "${id}" needs a \`render(target, ctx)\` function.`);
   }
 
+  // A loader is optional — a static page has none — but if one is declared it
+  // must be callable, because the router tests `typeof page.load === 'function'`
+  // and would otherwise silently skip a page that meant to fetch.
+  if (definition.load !== undefined && typeof definition.load !== 'function') {
+    throw new PageError(`Page "${id}" has a \`load\` that is not a function.`);
+  }
+
   return Object.freeze({
     id,
     title,
@@ -78,6 +85,15 @@ export function normalisePage(definition) {
         : []
     ),
     render: definition.render,
+    // Carried through deliberately. This object is an ALLOWLIST — anything not
+    // named here is dropped — so omitting `load` did not merely lose a field,
+    // it silently disabled fetching for every page that declared one: the
+    // router only calls `loadInto` when `typeof page.load === 'function'`, so
+    // Library Analytics sat on "Loading library statistics…" forever while its
+    // connector answered correctly. The unit tests could not see it because
+    // they call `render` and `load` directly and never go through the
+    // registry; only the browser suite, which boots the real shell, does.
+    ...(definition.load ? { load: definition.load } : {}),
     // A page can exist as a widget target without cluttering the nav.
     nav: definition.nav !== false,
   });

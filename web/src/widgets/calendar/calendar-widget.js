@@ -27,6 +27,18 @@ import {
   parseDayKey,
 } from './group.js';
 
+/**
+ * Where "open my calendar" goes.
+ *
+ * Deliberately the bare Google Calendar address, with no feed identifier in
+ * it. A feed's ICS URL is a BEARER CREDENTIAL — anyone holding one can read
+ * the whole calendar — so no part of a feed may ever reach an href, and this
+ * constant is the reason there is nothing per-feed to build a link from.
+ * Google resolves it to whichever account the browser is signed in as, which
+ * is exactly the behaviour wanted.
+ */
+export const GOOGLE_CALENDAR_URL = 'https://calendar.google.com/';
+
 export const CALENDAR_WIDGET_TYPE = 'calendar';
 export const CALENDAR_WIDGET_TAG = 'haven-widget-calendar';
 
@@ -93,9 +105,15 @@ export function calendarStubConfig() {
 const STYLES = `
   :host { display: block; font: inherit; container-type: inline-size; }
   .cal { display: flex; flex-direction: column; gap: 0.5rem; height: 100%; }
+  /*
+   * Wraps because the head has to hold a title, an optional notice AND the
+   * "Open Google Calendar" link, which is deliberately nowrap so its label
+   * stays readable. On a narrow tile those together exceed the width, and
+   * without wrapping the link spills outside the tile rather than shrinking.
+   */
   .cal__head {
     display: flex; align-items: baseline; justify-content: space-between;
-    gap: 0.5rem;
+    gap: 0.5rem; flex-wrap: wrap;
   }
   .cal__title { font-weight: 600; }
   .cal__notice {
@@ -127,6 +145,16 @@ const STYLES = `
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .cal__feed { font-size: 0.7rem; opacity: 0.7; }
+  /*
+   * "Open Google Calendar". The tile is read-only, so this is the whole of
+   * the affordance for changing anything — it needs to be findable without
+   * dominating a tile whose job is showing what is coming up.
+   */
+  .cal__open {
+    font-size: 0.75rem; white-space: nowrap; color: inherit; opacity: 0.75;
+    text-decoration: none; border-bottom: 1px solid currentColor;
+  }
+  .cal__open:hover, .cal__open:focus-visible { opacity: 1; }
   .cal__empty, .cal__setup { opacity: 0.7; padding: 0.5rem 0; }
   .cal__setup code { font-size: 0.85em; }
   /* Mobile / narrow tile: stack the time above the title rather than
@@ -247,6 +275,29 @@ export class CalendarWidget extends ElementBase {
       head.appendChild(notice);
     }
 
+    /**
+     * The way out to a calendar you can actually change.
+     *
+     * The tile is read-only by construction: it is built from ICS feeds, and
+     * an iCal address grants read access only. Rather than pretend otherwise
+     * with an edit affordance that could not work, this hands the job to
+     * Google Calendar, where an edit reaches Ope's phone and Tomi.
+     *
+     * A FIXED, feed-independent URL. An ICS feed URL is a bearer credential,
+     * so nothing derived from a feed may appear in an href — see
+     * `GOOGLE_CALENDAR_URL`. `noopener noreferrer` because `target="_blank"`
+     * otherwise hands the opened page a `window.opener` handle back to the
+     * dashboard.
+     */
+    const open = document.createElement('a');
+    open.className = 'cal__open';
+    open.href = GOOGLE_CALENDAR_URL;
+    open.target = '_blank';
+    open.rel = 'noopener noreferrer';
+    open.textContent = 'Open Google Calendar';
+    open.title = 'Open Google Calendar in a new tab to add or change events';
+    head.appendChild(open);
+
     return head;
   }
 
@@ -315,6 +366,10 @@ export class CalendarWidget extends ElementBase {
     row.dataset.eventId = event.id;
     row.dataset.allDay = String(Boolean(event.allDay));
     if (event.feedId) row.dataset.feedId = event.feedId;
+    // Where the event came from. Every event is `feed` — an iCal address is
+    // read-only — but it is carried through rather than assumed so the tile
+    // does not have to be changed again if another source is ever added.
+    if (event.source) row.dataset.source = event.source;
 
     // The feed's colour rides on the left border, so several calendars are
     // distinguishable without a legend eating the tile.

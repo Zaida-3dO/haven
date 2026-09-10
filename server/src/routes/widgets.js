@@ -8,9 +8,11 @@
  */
 
 import { createWeatherConnector, STATUS } from '../connectors/weather.js';
+import { createLibraryConnector, LIBRARY_FILE_TTL_MS } from '../connectors/library.js';
 import { registerTorrentRoutes } from './torrents.js';
 import { registerCalendarRoutes } from './calendar.js';
 import { loadSettings } from '../settings.js';
+import { config } from '../config.js';
 
 export async function registerWidgetRoutes(app, opts = {}) {
   // Settings are read once at boot and reread only on demand: the file is
@@ -56,6 +58,40 @@ export async function registerWidgetRoutes(app, opts = {}) {
       reply.header('cache-control', `private, max-age=${Math.floor(result.expiresIn / 1000)}`);
     } else {
       // Stale or unconfigured: never cache, so recovery is immediate.
+      reply.header('cache-control', 'no-store');
+    }
+
+    return result;
+  });
+
+  const library =
+    opts.libraryConnector ??
+    createLibraryConnector({
+      path: opts.mediaLibraryPath ?? config.mediaLibraryFile,
+      logger: app.log,
+      ...opts.libraryOptions,
+    });
+
+  /**
+   * GET /api/widgets/library — quality and size breakdowns for the library.
+   *
+   * Always a 200, including when the snapshot is missing. "There is no
+   * snapshot" is a thing the page renders a message about, not a request that
+   * failed — the same notice/error distinction weather draws above, and the
+   * reason a dead generator shows up as a legible page rather than a red box.
+   *
+   * The read is synchronous and file-local (no upstream, no timeout), so there
+   * is no error branch here for an unreachable service: `read()` cannot throw.
+   */
+  app.get('/api/widgets/library', async (request, reply) => {
+    const result = library.read();
+
+    // Match the server's own TTL so a reload inside the window is free, but
+    // never cache an unavailable answer — recovery should be immediate once
+    // the file appears.
+    if (result.status === 'ok') {
+      reply.header('cache-control', `private, max-age=${Math.floor(LIBRARY_FILE_TTL_MS / 1000)}`);
+    } else {
       reply.header('cache-control', 'no-store');
     }
 

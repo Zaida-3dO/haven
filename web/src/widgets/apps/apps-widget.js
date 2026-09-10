@@ -41,6 +41,45 @@ export const WIDGET_TYPE = 'apps';
 export const WIDGET_TAG = 'haven-widget-apps';
 
 /**
+ * Point an anchor at an app URL, opening it in the right place.
+ *
+ * An app card usually links to a service on another origin, and that should
+ * open in a new tab — the dashboard is a launcher, not something you navigate
+ * away from. But a card may now hold a SAME-ORIGIN reference (`#/page/…` or
+ * `/…`), because the registry accepts one so a card can point at one of
+ * Haven's own pages rather than the `https://library-analytics.invalid`
+ * placeholder it used to need.
+ *
+ * `target="_blank"` on such a link is wrong in a way that looks like nothing
+ * happening: a fragment route opened in a new tab boots a SECOND copy of the
+ * whole dashboard rather than moving this one to the page. That is exactly
+ * what it did — the href was correct, the anchor was in the DOM, every test
+ * was green, and clicking the card did nothing visible.
+ *
+ * So same-origin references navigate in place. Everything else keeps
+ * `_blank` AND `rel="noopener noreferrer"`; the rel is not decoration on a
+ * `_blank` link, it is what stops the opened page reaching back through
+ * `window.opener`, so the two are set together or not at all.
+ */
+export function applyLinkTarget(anchor, url) {
+  const value = typeof url === 'string' ? url.trim() : '';
+  // Mirrors `isSameOriginReference` on the server: a single leading slash or a
+  // fragment. `//host` is protocol-relative and resolves off-origin, so it is
+  // NOT same-origin and must keep opening in a new tab.
+  const sameOrigin = value.startsWith('#') || (value.startsWith('/') && !value.startsWith('//'));
+
+  if (sameOrigin) {
+    anchor.removeAttribute('target');
+    anchor.removeAttribute('rel');
+    return anchor;
+  }
+
+  anchor.target = '_blank';
+  anchor.rel = 'noopener noreferrer';
+  return anchor;
+}
+
+/**
  * The one declaration that generates both the settings form and the validator.
  *
  * A flat array of typed descriptors, not JSON Schema — see
@@ -358,8 +397,7 @@ export class AppsWidget extends ElementBase {
     const link = document.createElement('a');
     link.className = 'card__name';
     link.href = card.href ?? '#';
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
+    applyLinkTarget(link, card.href);
     link.textContent = card.name;
     // The hover hint: where a click will ACTUALLY land, which is often not the
     // primary URL because the chain may have fallen through to another alias.
@@ -561,8 +599,7 @@ export class AppsWidget extends ElementBase {
       const a = document.createElement('a');
       a.className = 'menu__item';
       a.href = entry.url;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
+      applyLinkTarget(a, entry.url);
       a.setAttribute('role', 'menuitem');
       // Each secondary under its OWN title — that is what makes the menu
       // navigable rather than a list of indistinguishable URLs.

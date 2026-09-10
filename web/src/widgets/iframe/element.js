@@ -1,8 +1,8 @@
 /**
  * The iframe / embed widget.
  *
- * First use: the 3D home preview (`home3d.html?preview=true`), a mode that
- * already exists and is already driven by a tablet dashboard.
+ * First use: the 3D home preview, deployed standalone and embedded
+ * cross-origin, a scene that is already driven by a tablet dashboard too.
  *
  * ─────────────────────────────────────────────────────────────────────────
  * THIS WIDGET IS THE REASON THE DIFF-AND-PATCH RULE EXISTS

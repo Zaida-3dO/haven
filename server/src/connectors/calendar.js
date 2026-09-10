@@ -93,23 +93,64 @@ export function redactError(error, feedId = null) {
  * Parse the configured feed list.
  *
  * A LIST, not a single URL, from the start. Whether this ends up merging one
- * calendar or several is still open (DESIGN §6.4), and supporting a list now
- * costs nothing while making the answer a config change instead of a rewrite.
+ * calendar or several was open when this was written (DESIGN §6.4); it is
+ * settled now — several — and supporting a list from the beginning made the
+ * answer a config change rather than a rewrite.
  *
- * Two accepted forms, so the common case stays trivial:
+ * Three accepted forms, so the common case stays trivial:
  *
  *   HAVEN_CALENDAR_ICS_URL=https://host.invalid/one.ics
  *   HAVEN_CALENDAR_ICS_URL=Personal|https://a.invalid/a.ics,Work|https://b.invalid/b.ics
+ *   HAVEN_CALENDAR_ICS_URL="Personal|https://a.invalid/a.ics
+ *   Work|https://b.invalid/b.ics"
  *
  * The `Name|url` form is what makes several feeds distinguishable in the tile
  * without the browser ever seeing a URL to derive a label from.
+ *
+ * ── Why the separators are what they are ─────────────────────────────────
+ * A Google secret iCal address is a URL, and a URL routinely contains `?`,
+ * `&` and `=` — so none of those can be the separator. It may ALSO contain a
+ * comma: `,` is a sub-delims character (RFC 3986 §2.2) that is legal
+ * unencoded in a path or query, and Google's own address form contains one
+ * for some group/holiday calendars. There is no escape hatch for a comma in
+ * a comma-separated list, so a newline is accepted as a separator too and is
+ * the form documented for anything non-trivial: a newline cannot appear in a
+ * URL at all (RFC 3986 excludes control characters), which makes it the only
+ * separator that is safe by construction rather than by luck.
+ *
+ * The two forms are EITHER/OR, not both: a value containing a newline is
+ * split on newlines only, and its commas are left alone. Splitting on both
+ * would make the newline form no safer than the comma one, which would leave
+ * a URL containing a comma with no working encoding at all.
+ *
+ * `|` is safe as the name/url separator for the same reason: it is not in
+ * the RFC 3986 grammar, so a conforming URL cannot contain one, and the split
+ * takes the FIRST `|` so a name may not contain one either — the URL half is
+ * whatever follows, `|` and all, if a non-conforming feed ever produced one.
+ * ─────────────────────────────────────────────────────────────────────────
  */
 export function parseFeedConfig(raw) {
   if (typeof raw !== 'string' || raw.trim() === '') return [];
 
   const feeds = [];
+
+  /**
+   * A newline anywhere in the value makes newline the ONLY separator.
+   *
+   * This either/or is the whole point, and a split on both would defeat it:
+   * if commas still split a multi-line value, then a URL containing a comma
+   * is broken in the newline form too, and the newline form exists precisely
+   * to be the escape hatch for that case. So the presence of a newline is
+   * read as the operator having chosen the unambiguous encoding, and commas
+   * are then just characters.
+   *
+   * A single-line value keeps splitting on commas, which is what every
+   * existing deployment is written as.
+   */
+  const separator = /[\r\n]/.test(raw) ? /[\r\n]+/ : ',';
+
   const entries = raw
-    .split(',')
+    .split(separator)
     .map((s) => s.trim())
     .filter(Boolean);
 

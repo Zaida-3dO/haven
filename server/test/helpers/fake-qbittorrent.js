@@ -13,6 +13,8 @@
  *      credentials — a success status that means failure.
  *   2. A valid login returns an `SID` cookie in `set-cookie`.
  *   3. A data call with a missing or stale SID answers **403**, not 401.
+ *   4. An `Authorization: Bearer qbt_...` key authenticates a data call on
+ *      its own, with no login and no cookie.
  *
  * Hostnames are `.invalid` throughout; nothing here points at a real address.
  */
@@ -22,6 +24,7 @@ export const FAKE_URL = 'http://qbittorrent.invalid:8080';
 export function createFakeQbittorrent({
   username = 'haven',
   password = 'correct-horse',
+  apiKey = 'qbt_test_key',
   torrents = [],
 } = {}) {
   const state = {
@@ -73,6 +76,15 @@ export function createFakeQbittorrent({
 
     if (path === '/api/v2/torrents/info') {
       state.calls.info += 1;
+
+      // A Bearer key short-circuits the session check entirely — that is the
+      // whole point of it.
+      const bearer = /^Bearer (.+)$/.exec(options.headers?.Authorization ?? '')?.[1];
+      if (bearer !== undefined) {
+        if (bearer !== apiKey) return response(403, 'Forbidden');
+        return response(200, state.torrents);
+      }
+
       const sid = /SID=([^;]+)/.exec(options.headers?.Cookie ?? '')?.[1];
 
       if (state.expireNextInfoCall) {
@@ -109,11 +121,20 @@ export function createFakeQbittorrent({
     setTorrents(next) {
       state.torrents = next;
     },
+    /** Username/password by default — the API key is opt-in per test. */
     env(overrides = {}) {
       return {
         HAVEN_QBITTORRENT_URL: FAKE_URL,
         HAVEN_QBITTORRENT_USER: username,
         HAVEN_QBITTORRENT_PASS: password,
+        ...overrides,
+      };
+    },
+    /** The same, authenticating by API key and with no credentials at all. */
+    envWithApiKey(overrides = {}) {
+      return {
+        HAVEN_QBITTORRENT_URL: FAKE_URL,
+        HAVEN_QBITTORRENT_API_KEY: apiKey,
         ...overrides,
       };
     },

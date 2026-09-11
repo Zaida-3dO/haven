@@ -111,6 +111,55 @@ test('gives up after one re-authentication rather than looping', async () => {
   assert.equal(infoCalls, 2, 'exactly one retry — the original call plus one after re-login');
 });
 
+test('an API key authenticates without ever logging in', async () => {
+  const fake = createFakeQbittorrent({ torrents: [rawTorrent()] });
+  const qbt = createQbittorrentConnector({
+    env: fake.envWithApiKey(),
+    fetchImpl: fake.fetchImpl,
+  });
+
+  const first = await qbt.getTorrents();
+  const second = await qbt.getTorrents();
+
+  assert.equal(first.status, RESULT.OK);
+  assert.equal(second.status, RESULT.OK);
+  // The whole value of the key: no `/auth/login` at all, and so no session
+  // that can expire underneath a long-lived dashboard.
+  assert.equal(fake.state.calls.login, 0);
+  assert.equal(fake.state.calls.info, 2);
+  assert.equal(qbt.hasSession, false);
+});
+
+test('a rejected API key fails without retrying', async () => {
+  const fake = createFakeQbittorrent({ torrents: [rawTorrent()] });
+  const qbt = createQbittorrentConnector({
+    env: fake.envWithApiKey({ HAVEN_QBITTORRENT_API_KEY: 'qbt_wrong' }),
+    fetchImpl: fake.fetchImpl,
+  });
+
+  const result = await qbt.getTorrents();
+
+  assert.equal(result.status, RESULT.AUTH_FAILED);
+  assert.match(result.message, /API key/i);
+  // A bad key is permanent. Re-requesting it is not a recovery path, so the
+  // 403 must not be mistaken for an expired session and retried.
+  assert.equal(fake.state.calls.info, 1);
+  assert.equal(fake.state.calls.login, 0);
+});
+
+test('the API key takes precedence over a username and password', async () => {
+  const fake = createFakeQbittorrent({ torrents: [rawTorrent()] });
+  const qbt = createQbittorrentConnector({
+    env: fake.env({ HAVEN_QBITTORRENT_API_KEY: 'qbt_test_key' }),
+    fetchImpl: fake.fetchImpl,
+  });
+
+  const result = await qbt.getTorrents();
+
+  assert.equal(result.status, RESULT.OK);
+  assert.equal(fake.state.calls.login, 0, 'credentials must not trigger a login when a key is set');
+});
+
 test('a wrong password is an auth failure, not an unreachable service', async () => {
   const fake = createFakeQbittorrent();
   const qbt = createQbittorrentConnector({
@@ -245,6 +294,17 @@ test('readQbittorrentConfig trims a trailing slash and reports configuredness', 
 
   assert.equal(readQbittorrentConfig({}).configured, false);
   assert.equal(readQbittorrentConfig({ HAVEN_QBITTORRENT_URL: '   ' }).configured, false);
+
+  // An API key is read and trimmed, and absent means empty rather than
+  // undefined — the connector branches on truthiness.
+  assert.equal(
+    readQbittorrentConfig({
+      HAVEN_QBITTORRENT_URL: 'http://qbittorrent.invalid:8080',
+      HAVEN_QBITTORRENT_API_KEY: '  qbt_abc  ',
+    }).apiKey,
+    'qbt_abc',
+  );
+  assert.equal(readQbittorrentConfig({}).apiKey, '');
 });
 
 test('normaliseState collapses qBittorrent states to a small vocabulary', () => {

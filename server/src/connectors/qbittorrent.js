@@ -85,14 +85,16 @@ export function readQbittorrentConfig(env = process.env) {
   const url = (env.HAVEN_QBITTORRENT_URL ?? '').trim();
   const username = (env.HAVEN_QBITTORRENT_USER ?? '').trim();
   const password = env.HAVEN_QBITTORRENT_PASS ?? '';
+  const apiKey = (env.HAVEN_QBITTORRENT_API_KEY ?? '').trim();
 
   return {
     url: url.replace(/\/+$/, ''),
     username,
     password,
-    // A URL alone is enough: qBittorrent can be configured to bypass auth for
-    // local subnets, in which case login is unnecessary and `/torrents/info`
-    // answers directly.
+    // qBittorrent 5.2+ issues `qbt_...` API keys, sent as a Bearer header.
+    // Stateless: no `/auth/login`, no cookie to expire, and immune to the
+    // login-response changes that have broken this flow between releases.
+    apiKey,
     configured: url !== '',
   };
 }
@@ -178,6 +180,9 @@ export function createQbittorrentConnector({
         body,
         headers: {
           ...headers,
+          // The API key authenticates every call on its own, so it takes
+          // precedence and no session is ever established alongside it.
+          ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}),
           ...(cookie ? { Cookie: cookie } : {}),
           // qBittorrent rejects cross-origin requests unless the Referer
           // matches its own address; sending our own base URL satisfies it.
@@ -275,11 +280,18 @@ export function createQbittorrentConnector({
    * misconfiguration into a denial of service against its own upstream.
    */
   async function fetchTorrents({ allowRetry = true } = {}) {
-    if (settings.username !== '' || cookie) await ensureSession();
+    if (!settings.apiKey && (settings.username !== '' || cookie)) await ensureSession();
 
     const response = await call('/torrents/info');
 
     if (response.status === 403) {
+      // A rejected API key is a permanent misconfiguration, not an expired
+      // session: there is nothing to re-establish, so retrying would just
+      // repeat the same refused call every tick.
+      if (settings.apiKey) {
+        throw new AuthError('qBittorrent rejected the API key.');
+      }
+
       cookie = null;
       if (!allowRetry) throw new SessionExpiredError();
       // The session died under us — mint a new one and try exactly once more.

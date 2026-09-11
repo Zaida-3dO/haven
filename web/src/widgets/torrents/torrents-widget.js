@@ -208,7 +208,8 @@ export class TorrentsWidget extends ElementBase {
       this.#renderMessage(
         els,
         'qBittorrent is not configured.',
-        payload.notices?.[0]?.hint ?? 'Set HAVEN_QBITTORRENT_URL, _USER and _PASS.'
+        payload.notices?.[0]?.hint ??
+          'Set HAVEN_QBITTORRENT_URL, plus either _API_KEY or _USER and _PASS.'
       );
       return;
     }

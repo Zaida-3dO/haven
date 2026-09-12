@@ -64,7 +64,7 @@ const ENV_CONNECTOR_KEY = 'env';
 
 export async function registerTorrentRoutes(
   app,
-  { connector, db, credentials, now = () => Date.now() } = {}
+  { connector, db, credentials, fetchImpl, env, now = () => Date.now() } = {}
 ) {
   const database = db ?? app.db ?? null;
 
@@ -102,7 +102,15 @@ export async function registerTorrentRoutes(
     const existing = connectors.get(cacheKey);
     if (existing && existing.print === print) return existing.qbt;
 
-    const qbt = createQbittorrentConnector({ settings, logger: app.log });
+    // `fetchImpl` is injected one layer further out than a stubbed connector,
+    // deliberately: a test that stubs the connector never exercises the
+    // config-to-connector wiring, which is where this feature actually lives.
+    // The same reasoning as `weather-settings-wiring.test.js`.
+    const qbt = createQbittorrentConnector({
+      settings,
+      logger: app.log,
+      ...(fetchImpl ? { fetchImpl } : {}),
+    });
     connectors.set(cacheKey, { print, qbt });
     return qbt;
   }
@@ -123,13 +131,16 @@ export async function registerTorrentRoutes(
         // legitimate reader of it (see `instances-store.readSecret`), and the
         // value is passed to the connector and never anywhere else.
         const secret = instances.readSecret(instanceId, SECRET_FIELD);
-        const settings = resolveQbittorrentSettings(instance.config, secret);
+        const settings = resolveQbittorrentSettings(instance.config, secret, env ?? process.env);
         return { qbt: connectorFor(`instance:${instanceId}`, settings), cacheKey: instanceId };
       }
     }
 
     return {
-      qbt: connectorFor(ENV_CONNECTOR_KEY, resolveQbittorrentSettings({}, null)),
+      qbt: connectorFor(
+        ENV_CONNECTOR_KEY,
+        resolveQbittorrentSettings({}, null, env ?? process.env)
+      ),
       cacheKey: ENV_CONNECTOR_KEY,
     };
   }

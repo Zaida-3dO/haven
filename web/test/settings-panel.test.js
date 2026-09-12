@@ -11,6 +11,8 @@ import {
 } from '../src/shell/settings-panel.js';
 import { createCustomElements, createFakeDocument } from './helpers/fake-dom.js';
 import { WidgetRegistry } from '../src/shell/registry.js';
+import { torrentsWidgetDefinition } from '../src/widgets/torrents/torrents-widget.js';
+import { SECRET_SET } from '../src/shell/instances-client.js';
 import { Dashboard } from '../src/shell/dashboard.js';
 import { Scheduler } from '../src/shell/scheduler.js';
 
@@ -688,6 +690,100 @@ function mountDashboard({ registry, doc, customElements }) {
   globalThis.customElements = customElements;
   return { dashboard, container };
 }
+
+/**
+ * The torrents widget's own schema, driven through the real panel.
+ *
+ * The block above proves the panel's generic secret rule against a synthetic
+ * fixture. This proves it against the schema actually shipped — and covers the
+ * one case the fixture cannot: what the panel does with `SECRET_SET`, the
+ * sentinel the SERVER sends in place of a stored credential. The fixture holds
+ * a bare plaintext string there, so the sentinel path was untested.
+ */
+describe('the torrents widget configures its own connector', () => {
+  const panelFor = (config) => {
+    const doc = createFakeDocument();
+    const saved = [];
+    const panel = createSettingsPanel({
+      document: doc,
+      resolve: () => ({ definition: torrentsWidgetDefinition, config, title: 'Torrents' }),
+      onSave: (id, next) => saved.push({ id, config: next }),
+    });
+    return { panel, saved };
+  };
+
+  test('the address and the API key are both offered once a server is set', () => {
+    const { panel } = panelFor({ maxRows: 6, url: 'https://qbt.invalid:8080' });
+    panel.open('torrents-a');
+
+    // Without these the feature is unreachable: the settings panel IS the UI
+    // Ope asked for.
+    assert.ok(panel.fieldKeys.includes('url'), 'no server address field');
+    assert.ok(panel.fieldKeys.includes('apiKey'), 'no API key field');
+    assert.equal(panel.field('apiKey').getAttribute('type'), 'password');
+  });
+
+  test('the API key is not asked for before there is a server to send it to', () => {
+    const { panel } = panelFor({ maxRows: 6 });
+    panel.open('torrents-a');
+
+    // `visible: { field: 'url', operator: 'truthy' }`. A key with nowhere to go
+    // is a credential collected for nothing.
+    assert.ok(panel.fieldKeys.includes('url'));
+    assert.equal(panel.fieldKeys.includes('apiKey'), false);
+  });
+
+  test('a stored key reads as set without the sentinel reaching the DOM', () => {
+    const { panel } = panelFor({
+      maxRows: 6,
+      url: 'https://qbt.invalid:8080',
+      // Exactly what `GET /api/instances` serves for a stored credential.
+      apiKey: SECRET_SET,
+    });
+    panel.open('torrents-a');
+
+    assert.equal(panel.field('apiKey').value, '', 'the key input must render empty');
+    assert.equal(
+      serialise(panel.el).includes(SECRET_SET),
+      false,
+      'the sentinel itself must not be rendered — it would look like a real value'
+    );
+    // The user is still told one is stored, which is the whole point of it.
+    assert.ok(serialise(panel.el).includes(SECRET_SET_HINT));
+  });
+
+  test('changing the row count does not wipe the stored key', () => {
+    const { panel, saved } = panelFor({
+      maxRows: 6,
+      url: 'https://qbt.invalid:8080',
+      apiKey: SECRET_SET,
+    });
+    panel.open('torrents-a');
+
+    type(panel, 'maxRows', '10');
+    panel.submit();
+
+    assert.equal(saved.length, 1);
+    // The sentinel survives untouched, and the server reads an unchanged
+    // sentinel as "leave the stored credential alone".
+    assert.equal(saved[0].config.apiKey, SECRET_SET, 'an unrelated edit wiped the credential');
+    assert.equal(Number(saved[0].config.maxRows), 10);
+  });
+
+  test('a typed key is sent as the new value, not as the sentinel', () => {
+    const { panel, saved } = panelFor({
+      maxRows: 6,
+      url: 'https://qbt.invalid:8080',
+      apiKey: SECRET_SET,
+    });
+    panel.open('torrents-a');
+
+    type(panel, 'apiKey', 'qbt_replacement');
+    panel.submit();
+
+    assert.equal(saved[0].config.apiKey, 'qbt_replacement');
+  });
+});
 
 /** The `.haven-settings__field` wrapper for a key. */
 function findByFieldKey(root, key) {

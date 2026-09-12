@@ -302,9 +302,37 @@ test('readQbittorrentConfig trims a trailing slash and reports configuredness', 
       HAVEN_QBITTORRENT_URL: 'http://qbittorrent.invalid:8080',
       HAVEN_QBITTORRENT_API_KEY: '  qbt_abc  ',
     }).apiKey,
-    'qbt_abc',
+    'qbt_abc'
   );
   assert.equal(readQbittorrentConfig({}).apiKey, '');
+
+  // A whitespace-only key is no key at all: it must trim to empty so the
+  // connector falls back to the credentials rather than sending `Bearer `.
+  assert.equal(
+    readQbittorrentConfig({
+      HAVEN_QBITTORRENT_URL: 'http://qbittorrent.invalid:8080',
+      HAVEN_QBITTORRENT_API_KEY: '   ',
+    }).apiKey,
+    ''
+  );
+});
+
+test('the API key never appears anywhere in the response', async () => {
+  const fake = createFakeQbittorrent({ torrents: [rawTorrent()] });
+  const qbt = createQbittorrentConnector({
+    env: fake.envWithApiKey({ HAVEN_QBITTORRENT_API_KEY: 'qbt_do_not_leak' }),
+    fetchImpl: fake.fetchImpl,
+  });
+
+  // Every outcome, not just the happy one: a rejected key is the result most
+  // likely to quote the offending value back into a tile the browser renders.
+  const ok = await qbt.getTorrents();
+  fake.setOffline(true);
+  const down = await qbt.getTorrents();
+
+  for (const result of [ok, down]) {
+    assert.equal(JSON.stringify(result).includes('qbt_do_not_leak'), false);
+  }
 });
 
 test('normaliseState collapses qBittorrent states to a small vocabulary', () => {

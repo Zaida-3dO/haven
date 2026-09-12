@@ -53,7 +53,23 @@ export const SECRET_SET = '__haven_secret_set__';
 /** Credential name for one instance's secret field. */
 export const secretName = (instanceId, key) => `widget:${instanceId}:${key}`;
 
-const COLUMNS = 'id, type, config, config_version, sort_order, created_at, updated_at';
+const COLUMNS = 'id, type, config, config_version, sort_order, zone, created_at, updated_at';
+
+/**
+ * The zones a widget can live in.
+ *
+ * Closed set, and validated as one — see `validateInstance`. An unrecognised
+ * zone is REFUSED rather than coerced to 'grid', because the two failure modes
+ * are not comparable: a refusal is a 400 the caller can see and fix, whereas
+ * silently relocating a widget to the grid is the widget appearing in the
+ * wrong place with nothing anywhere saying why. `validateLayout` refuses an
+ * unknown breakpoint for exactly that reason (`db/layout.js`), and this
+ * mirrors it.
+ */
+export const ZONES = Object.freeze(['grid', 'sidebar']);
+
+/** The zone a widget is in when nothing says otherwise. Matches 005's DEFAULT. */
+export const DEFAULT_ZONE = 'grid';
 
 const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -90,6 +106,7 @@ function toInstance(row) {
     config,
     configVersion: row.config_version ?? 1,
     sortOrder: row.sort_order ?? 0,
+    zone: row.zone ?? DEFAULT_ZONE,
     createdAt: row.created_at ?? null,
     updatedAt: row.updated_at ?? null,
   };
@@ -156,6 +173,18 @@ export function validateInstance(payload, { requireId = true } = {}) {
     throw new InstanceValidationError('sortOrder must be an integer.');
   }
 
+  // REFUSED, not dropped. `layout.js`'s node validator builds its output from
+  // a whitelist, so an unknown key there disappears without a word — and that
+  // trap cost real time to find. This validator does the opposite: it names
+  // the bad value and the allowed set, so a typo'd zone is a 400 with a
+  // readable message rather than a widget that quietly renders on the grid.
+  const zone = payload.zone;
+  if (zone !== undefined && !ZONES.includes(zone)) {
+    throw new InstanceValidationError(
+      `zone must be one of ${ZONES.join(', ')} — received ${JSON.stringify(zone)}.`
+    );
+  }
+
   const clean = {
     type: payload.type,
     config: payload.config ?? {},
@@ -163,6 +192,7 @@ export function validateInstance(payload, { requireId = true } = {}) {
     secretKeys: payload.secretKeys ?? [],
   };
   if (sortOrder !== undefined) clean.sortOrder = sortOrder;
+  if (zone !== undefined) clean.zone = zone;
   if (typeof payload.id === 'string') clean.id = payload.id;
 
   return clean;
@@ -174,14 +204,14 @@ export function createInstanceStore(db, { credentials } = {}) {
   const credentialStore = credentials ?? createCredentialStore(db);
 
   const insert = db.prepare(`
-    INSERT INTO widgets (id, type, config, config_version, sort_order)
-    VALUES (@id, @type, @config, @config_version, @sort_order)
+    INSERT INTO widgets (id, type, config, config_version, sort_order, zone)
+    VALUES (@id, @type, @config, @config_version, @sort_order, @zone)
   `);
 
   const update = db.prepare(`
     UPDATE widgets SET
       type = @type, config = @config, config_version = @config_version,
-      sort_order = @sort_order, updated_at = datetime('now')
+      sort_order = @sort_order, zone = @zone, updated_at = datetime('now')
     WHERE id = @id
   `);
 
@@ -191,10 +221,22 @@ export function createInstanceStore(db, { credentials } = {}) {
   const selectAll = db.prepare(
     `SELECT ${COLUMNS} FROM widgets ORDER BY sort_order ASC, created_at ASC, id ASC`
   );
-  const nextSort = db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM widgets');
+  // Scoped to the zone. A shared sequence would make the first widget added
+  // to the sidebar sort after every grid widget — harmless while each zone is
+  // read in isolation, but it means the two zones' orders are not independent,
+  // and reorder arithmetic then has to reason about gaps left by deletions in
+  // the other zone. One sequence per zone keeps each zone's order a dense
+  // 0..n-1 that a list index maps onto directly.
+  const nextSort = db.prepare(
+    'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM widgets WHERE zone = ?'
+  );
   const selectOne = db.prepare(`SELECT ${COLUMNS} FROM widgets WHERE id = ?`);
   const deleteOne = db.prepare('DELETE FROM widgets WHERE id = ?');
   const countRows = db.prepare('SELECT COUNT(*) AS n FROM widgets');
+  const countInZone = db.prepare('SELECT COUNT(*) AS n FROM widgets WHERE zone = ?');
+  const selectZone = db.prepare(
+    `SELECT ${COLUMNS} FROM widgets WHERE zone = ? ORDER BY sort_order ASC, created_at ASC, id ASC`
+  );
 
   /**
    * Splits an incoming config into the blob to store and the secrets to
@@ -265,6 +307,22 @@ export function createInstanceStore(db, { credentials } = {}) {
     },
 
     /**
+     * One zone's roster, in order.
+     *
+     * The shell reads the grid and the sidebar as two separate filtered lists
+     * rather than partitioning `list()` client-side, so each zone's
+     * `sort_order` is applied by SQLite against that zone alone.
+     */
+    listZone(zone) {
+      return selectZone.all(zone).map(toInstance);
+    },
+
+    /** How many instances are in one zone. See `seedInstances` for why. */
+    countZone(zone) {
+      return countInZone.get(zone).n;
+    },
+
+    /**
      * Creates an instance.
      *
      * Secrets are encrypted BEFORE the row is written, inside the same
@@ -279,9 +337,11 @@ export function createInstanceStore(db, { credentials } = {}) {
         null
       );
 
-      // A new widget goes to the end of the roster unless told otherwise, so
+      const zone = validated.zone ?? DEFAULT_ZONE;
+
+      // A new widget goes to the end of ITS OWN zone unless told otherwise, so
       // adding one never reshuffles what is already there.
-      const sortOrder = validated.sortOrder ?? nextSort.get().next;
+      const sortOrder = validated.sortOrder ?? nextSort.get(zone).next;
 
       const write = db.transaction(() => {
         persistSecrets(validated.id, { writes, deletes });
@@ -291,6 +351,7 @@ export function createInstanceStore(db, { credentials } = {}) {
           config: JSON.stringify(stored),
           config_version: validated.configVersion ?? 1,
           sort_order: sortOrder,
+          zone,
         });
       });
 
@@ -321,8 +382,13 @@ export function createInstanceStore(db, { credentials } = {}) {
           type: validated.type,
           config: JSON.stringify(stored),
           config_version: validated.configVersion ?? 1,
-          // An update that says nothing about placement keeps its place.
+          // An update that says nothing about placement keeps its place — in
+          // both senses. The settings panel sends a full replace of the
+          // mutable fields and says nothing about either, so without these two
+          // fallbacks saving a widget's config would reset its order to 0 AND
+          // relocate it to the grid.
           sort_order: validated.sortOrder ?? previous.sortOrder,
+          zone: validated.zone ?? previous.zone,
         });
       });
 
@@ -431,15 +497,29 @@ export function pruneLayoutReferences(db, instanceId) {
  *
  * @returns {{ seeded: number, reason: string }}
  */
-export function seedInstances(db, { path, logger, defaults = DEFAULT_INSTANCES } = {}) {
+export function seedInstances(
+  db,
+  { path, logger, defaults = DEFAULT_INSTANCES, zone = DEFAULT_ZONE } = {}
+) {
   const store = createInstanceStore(db, {
     // Seeding must never need HAVEN_SECRET_KEY: the built-in defaults carry
     // no secrets, and a seed file that does is refused by `create` anyway.
     credentials: { set: () => {}, get: () => null, delete: () => false },
   });
 
-  if (store.count() > 0) {
-    return { seeded: 0, reason: 'roster not empty' };
+  // ── Scoped to the ZONE, and this is load-bearing ──────────────────────
+  // This guard used to be `store.count() > 0` — the whole table. Once there
+  // is more than one zone to seed, a whole-table guard means the FIRST seed to
+  // run suppresses every later one: migration 006 inserts the four sidebar
+  // rows, `count()` is then 4, and the grid seed is skipped entirely, so a
+  // fresh install boots with a sidebar and a completely empty main board.
+  //
+  // The asymmetry the unscoped version was protecting is preserved exactly,
+  // just per zone: the file is the SEED and the database is the source of
+  // truth afterwards, so a widget the user removed is not resurrected on the
+  // next restart. Emptying one zone deliberately still means it stays empty.
+  if (store.countZone(zone) > 0) {
+    return { seeded: 0, reason: `${zone} roster not empty` };
   }
 
   let entries = defaults;
@@ -468,7 +548,11 @@ export function seedInstances(db, { path, logger, defaults = DEFAULT_INSTANCES }
         // The declaration order IS the roster order — hero as a banner, then
         // the apps grid. Stamped explicitly rather than left to insertion
         // order, which `created_at` cannot express at seed speed.
-        store.create(validateInstance({ sortOrder: index, ...entry }));
+        //
+        // `zone` is a default the entry may override, while `sortOrder` is
+        // spread BEFORE the entry for the same reason: a seed file that states
+        // either one explicitly wins over the position it happens to sit at.
+        store.create(validateInstance({ sortOrder: index, zone, ...entry }));
         seeded += 1;
       });
     });
@@ -478,7 +562,7 @@ export function seedInstances(db, { path, logger, defaults = DEFAULT_INSTANCES }
     return { seeded: 0, reason: `seed failed: ${err.message}` };
   }
 
-  logger?.info?.(`Seeded ${seeded} widget instance(s) — ${reason}.`);
+  logger?.info?.(`Seeded ${seeded} ${zone} widget instance(s) — ${reason}.`);
   return { seeded, reason };
 }
 

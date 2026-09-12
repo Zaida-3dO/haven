@@ -30,14 +30,40 @@ export function secretKeysOf(definition) {
     .map((field) => field.key);
 }
 
-/** Drops anything the server does not store, and normalises the shape. */
+/**
+ * Drops anything the server does not store, and normalises the shape.
+ *
+ * ── Every field the server persists must be listed here ──────────────────
+ * This rebuilds the payload key by key rather than spreading the instance, so
+ * a field the caller sets but this function does not name is dropped SILENTLY
+ * — the request leaves the browser without it and the server never sees it.
+ *
+ * That is not hypothetical. `sortOrder` was accepted by `validateInstance`,
+ * preserved by `store.update` and ordered by in `store.list` for an entire
+ * release while being unreachable from the browser, because it was missing
+ * from this object: the server half was complete and the field was write-once
+ * at seed. `zone` would have failed the same way.
+ *
+ * So: adding a persisted field to `instances-store.js` means adding it here
+ * too. Both are asserted by `web/test/instances-client.test.js`.
+ * ─────────────────────────────────────────────────────────────────────────
+ */
 function toStoredInstance(instance) {
-  return {
+  const stored = {
     id: instance.id,
     type: instance.type,
     config: instance.config ?? {},
     configVersion: instance.configVersion ?? instance.config?.configVersion ?? 1,
   };
+
+  // Both are omitted when undefined rather than defaulted, because the server
+  // reads an ABSENT field as "keep what is stored" (`zone ?? previous.zone`).
+  // Sending a default here would turn every config save into a relocation to
+  // the grid and a reset of the widget's position to 0.
+  if (instance.sortOrder !== undefined) stored.sortOrder = instance.sortOrder;
+  if (instance.zone !== undefined) stored.zone = instance.zone;
+
+  return stored;
 }
 
 export function createInstancesClient({ fetchImpl = globalThis.fetch, baseUrl = '/api' } = {}) {

@@ -465,7 +465,9 @@ test('seeding is skipped when the roster is not empty', (t) => {
   const result = seedInstances(db, { path: null });
 
   assert.equal(result.seeded, 0);
-  assert.equal(result.reason, 'roster not empty');
+  // Zone-scoped since migration 005: the guard asks whether THIS zone is
+  // already populated, not whether the table is. See `seedInstances`.
+  assert.equal(result.reason, 'grid roster not empty');
   // The user's own roster is not joined by the defaults on the next restart.
   assert.deepEqual(
     store.list().map((i) => i.id),

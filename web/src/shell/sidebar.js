@@ -192,7 +192,12 @@ export function createSidebarCard({
   body.className = 'haven-sidebar__body';
 
   el.append(heading, body);
-  return { el, body, title: heading };
+  // `pinned` is reported back, not just baked into the class string. The
+  // reorder path has to SKIP the pinned card — it is the sidebar's own child
+  // rather than a child of the scrollport — and re-deriving that by parsing
+  // the className would be one string change away from silently pulling the
+  // pinned card into the scrollport, where it can scroll out of view.
+  return { el, body, title: heading, pinned: Boolean(pinned) };
 }
 
 /**
@@ -220,7 +225,10 @@ export function createSidebarCard({
  *   `haven-sidebar__card--type-<type>` one. Stylesheet rules should use the
  *   TYPE class: instance ids are minted, so an id rule silently matches
  *   nothing for a user-added card.
- * @returns {{el, scroll, bodies: Map<string, HTMLElement>, cards: Map<string, object>}}
+ * @returns {{el, scroll, bodies: Map<string, HTMLElement>,
+ *   cards: Map<string, object>, addCard: (spec) => object|null}}
+ *   `addCard` attaches a card built AFTER the initial render, through the
+ *   same path, so the scrollport invariant holds for it too.
  */
 export function createSidebar({ cards = [], document: doc = globalThis.document } = {}) {
   const el = doc.createElement('aside');
@@ -239,7 +247,26 @@ export function createSidebar({ cards = [], document: doc = globalThis.document 
   const bodies = new Map();
   const built = new Map();
 
-  for (const spec of cards) {
+  /**
+   * Builds one card and puts it in the right container.
+   *
+   * THE one place a card is attached, used both for the initial build and for
+   * a card added later. That is the point: "an unpinned card goes inside the
+   * scrollport" is an invariant, and an invariant with two implementations is
+   * one refactor away from having one.
+   *
+   * The failure it prevents is measured, not theoretical. A card appended to
+   * the sidebar itself becomes a SIBLING of the pinned card and competes with
+   * it for height: at 1440x900, three such siblings drive the scrollport's
+   * `clientHeight` to 0px, and `.haven-sidebar { overflow: hidden }` then
+   * leaves those cards unreachable with no scrollbar — persisted, invisible,
+   * and unrecoverable from the UI.
+   *
+   * @returns the card, or null if a card with that id already exists.
+   */
+  function addCard(spec) {
+    if (!spec?.id || built.has(spec.id)) return null;
+
     const card = createSidebarCard({
       id: spec.id,
       type: spec.type,
@@ -248,15 +275,19 @@ export function createSidebar({ cards = [], document: doc = globalThis.document 
       pinned: spec.pinned,
       document: doc,
     });
+
     // The pinned card is the sidebar's own child; everything else goes in the
     // scrollport. Appending a pinned card to `scroll` would let it scroll out
     // of view, which is the exact bug this structure exists to prevent.
     (spec.pinned ? el : scroll).appendChild(card.el);
     bodies.set(spec.id, card.body);
     built.set(spec.id, card);
+    return card;
   }
 
-  return { el, scroll, bodies, cards: built };
+  for (const spec of cards) addCard(spec);
+
+  return { el, scroll, bodies, cards: built, addCard };
 }
 
 export default { createSidebar, createSidebarCard, SIDEBAR_ICONS };

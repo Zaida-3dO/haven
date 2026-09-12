@@ -16,6 +16,7 @@ import { createAddPanel } from './add-panel.js';
 import { createHeader } from './header.js';
 import { createProfileMenu } from './profile-menu.js';
 import { createSidebar } from './sidebar.js';
+import { createSidebarZone } from './sidebar-zone.js';
 import { createEditMode, createEditToolbar } from './edit-mode.js';
 import { connectGrid } from './dashboard-grid.js';
 import { connectSettings } from './settings-panel.js';
@@ -459,6 +460,24 @@ export async function bootDashboard(
 
   const sidebar = layoutEl ? createSidebar({ cards: sidebarEntries.map(cardSpecFor) }) : null;
 
+  /**
+   * The sidebar zone controller: add, reorder, remove.
+   *
+   * Its logic lives in its own module because `boot.js` imports GridStack and
+   * therefore cannot be loaded under `node --test` — so anything worth testing
+   * has to sit outside this file. See `sidebar-zone.js`.
+   */
+  const sidebarZone = sidebar
+    ? createSidebarZone({
+        sidebar,
+        dashboard,
+        instancesClient,
+        cardSpecFor,
+        secretKeysFor: (type) => secretKeysOf(registry.get(type)),
+      })
+    : null;
+  sidebarZone?.load(sidebarEntries);
+
   if (sidebar) {
     layoutEl.appendChild(sidebar.el);
     for (const entry of sidebarEntries) {
@@ -525,6 +544,7 @@ export async function bootDashboard(
     header,
     profile,
     sidebar,
+    sidebarZone,
     router,
     pages,
     destroy() {

@@ -153,7 +153,10 @@ export class Dashboard {
     if (!host) return;
 
     const definition = this.#registry.get(host.type);
-    const request = definition?.dataSource?.(host.config);
+    // The instance id is passed as well as the config, for a widget whose data
+    // depends on WHICH copy of it is asking — a torrents widget pointed at its
+    // own qBittorrent. Most widgets ignore it and share one request.
+    const request = definition?.dataSource?.(host.config, { instanceId: host.id });
     if (!request) return;
 
     const previous = this.#data.get(id) ?? null;

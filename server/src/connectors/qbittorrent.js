@@ -111,6 +111,51 @@ export function readQbittorrentConfig(env = process.env) {
 }
 
 /**
+ * Settings for ONE widget instance, falling back to the environment.
+ *
+ * ── The precedence rule, and why it is this way round ────────────────────
+ * A widget that names its own `url` is used *instead of* the environment,
+ * whole: its url, its key, its credentials. A widget that does not is served
+ * by the environment exactly as before.
+ *
+ * The fallback is keyed on the URL alone, not on "is any field set", because
+ * those two differ in the case that matters. Merging field-by-field would let
+ * a widget deliberately pointed at an unauthenticated instance silently
+ * inherit `HAVEN_QBITTORRENT_API_KEY` and authenticate as someone else — and
+ * would make clearing a credential in the UI appear to do nothing, because the
+ * env value would quietly take its place. An instance is a unit; it is not
+ * half-configured from two sources.
+ *
+ * The consequence for an upgrade is the one that was asked for: someone who
+ * has set no widget config at all keeps the environment they already have, and
+ * nothing about their dashboard changes.
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ * @param {object} widgetConfig the instance's stored config (no secrets in it)
+ * @param {string|null} secret the decrypted per-instance API key, if any
+ * @param {object} env
+ */
+export function resolveQbittorrentSettings(widgetConfig = {}, secret = null, env = process.env) {
+  const url = typeof widgetConfig?.url === 'string' ? widgetConfig.url.trim() : '';
+
+  if (url === '') return readQbittorrentConfig(env);
+
+  const apiKey = typeof secret === 'string' ? secret.trim() : '';
+
+  return {
+    url: url.replace(/\/+$/, ''),
+    // Username/password are deliberately NOT surfaced as widget config: the
+    // API key is the credential the UI offers, and a second auth mode in the
+    // form would be two ways to say the same thing. An instance configured in
+    // the UI authenticates by key or not at all.
+    username: '',
+    password: '',
+    apiKey,
+    configured: true,
+  };
+}
+
+/**
  * `torrents/info` gives bytes and seconds; the widget wants neither raw nor
  * pre-formatted — it wants stable numbers it can format itself, and it wants
  * them under names that do not change when qBittorrent renames a field.
@@ -178,12 +223,16 @@ class AuthRequiredError extends Error {
  */
 export function createQbittorrentConnector({
   env = process.env,
+  // Pre-resolved settings for one widget instance. When absent the connector
+  // reads the environment exactly as it always has, so the app-wide connector
+  // and a per-instance one are the same code on the same path.
+  settings: providedSettings = null,
   fetchImpl = globalThis.fetch,
   now = () => Date.now(),
   timeoutMs = DEFAULT_TIMEOUT_MS,
   logger = null,
 } = {}) {
-  const settings = readQbittorrentConfig(env);
+  const settings = providedSettings ?? readQbittorrentConfig(env);
 
   /** The session cookie. Held here, in the backend, and nowhere else. */
   let cookie = null;

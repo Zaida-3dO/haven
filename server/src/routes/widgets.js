@@ -101,8 +101,14 @@ export async function registerWidgetRoutes(app, opts = {}) {
   // Torrents lives in its own module: unlike weather it holds a login
   // session, so its retry and re-authentication logic is substantial enough
   // to be worth reading on its own. It registers GET /api/widgets/torrents.
+  //
+  // It takes the database because its config is PER WIDGET: `?instance=<id>`
+  // selects one widget's own server address and API key, read from the roster
+  // and the encrypted credential store. Neither ever reaches the browser.
   await registerTorrentRoutes(app, {
     connector: opts.torrentConnector,
+    db: opts.db,
+    credentials: opts.credentials,
     ...opts.torrentOptions,
   });
 

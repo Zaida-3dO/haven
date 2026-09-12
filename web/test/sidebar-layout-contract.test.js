@@ -3,7 +3,11 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { SIDEBAR_ICONS, createSidebar } from '../src/shell/sidebar.js';
-import { HOME_3D_PREVIEW_URL, HOME_3D_URL } from '../src/widgets/iframe/definition.js';
+import {
+  HOME_3D_PREVIEW_URL,
+  HOME_3D_URL,
+  iframeWidget,
+} from '../src/widgets/iframe/definition.js';
 import { createFakeDocument } from './helpers/fake-dom.js';
 
 /**
@@ -544,6 +548,69 @@ test('the sidebar embeds the non-interactive preview, not the full app', () => {
   // and boot could embed the other one.
   assert.match(HOME_3D_PREVIEW_URL, /[?&]preview=true\b/, 'the preview URL must set preview=true');
   assert.doesNotMatch(HOME_3D_URL, /[?&]preview=/, 'the interactive URL must not set preview');
+});
+
+test('an inert Save is styled as inert, and wins the !important fight to do it', () => {
+  // Measured on the live site before this fix: a disabled Save had
+  // `opacity: 1`, `cursor: pointer` and the same amber as an enabled one,
+  // because there was not one disabled rule in the whole stylesheet.
+  //
+  // The specificity trap is the real content of this test. `.haven-toolbar__save`
+  // sets border/background/colour with `!important`, so a plain rule here
+  // loses the cascade outright and the button stays full amber while
+  // claiming to be off. Asserting the DECLARATIONS carry `!important` is
+  // what stops someone "tidying them away" and silently reverting the fix.
+  const rule = ruleFor(".haven-toolbar__save[aria-disabled='true']");
+  assert.ok(rule, 'there must be a rule styling an inert Save');
+
+  assert.match(rule, /background:[^;]*!important/, 'the background must beat the amber !important');
+  assert.match(rule, /color:[^;]*!important/, 'the text colour must beat the amber !important');
+  assert.match(rule, /cursor:\s*not-allowed/, 'an inert control must not claim to be clickable');
+
+  // The selector is attribute-based, not `:disabled`, because the button
+  // deliberately keeps the `disabled` property off to stay focusable.
+  assert.equal(
+    ruleFor('.haven-toolbar__save:disabled'),
+    null,
+    'a :disabled rule would style a state this button never enters'
+  );
+});
+
+test('a user-added embed defaults to the INTERACTIVE URL, not the preview', () => {
+  // The unasserted side of the split-constant invariant, and the one a
+  // mutation test walked straight through: changing the widget's configSchema
+  // default from HOME_3D_URL to HOME_3D_PREVIEW_URL passed the entire suite.
+  //
+  // Every other assertion here constrains the two CONSTANTS, or constrains
+  // which one BOOT embeds. None of them says which one a widget a *user* adds
+  // by hand starts out pointing at — so a refactor "tidying up two constants
+  // into one" would silently make every hand-added 3D embed non-interactive,
+  // with no failing test and no symptom until someone tried to click a room.
+  //
+  // Asserted against the value AND against `preview=true` directly, because
+  // identity alone would still pass if the constants were later merged.
+  const urlField = iframeWidget.configSchema.find((field) => field.key === 'url');
+  assert.ok(urlField, 'the iframe widget must declare a url field');
+
+  assert.equal(
+    urlField.default,
+    HOME_3D_URL,
+    'a user-added embed must default to the interactive URL'
+  );
+  assert.doesNotMatch(
+    urlField.default,
+    /[?&]preview=/,
+    'the widget default must not be the non-interactive preview — only the sidebar is pinned to it'
+  );
+
+  // `getStubConfig` is the other path by which a user-added embed gets its
+  // URL ("Add widget" uses it), and it carries the identical risk.
+  assert.equal(
+    iframeWidget.getStubConfig().url,
+    HOME_3D_URL,
+    'the Add-widget stub must also start interactive'
+  );
+  assert.doesNotMatch(iframeWidget.getStubConfig().url, /[?&]preview=/);
 });
 
 test('the 3D home URL is a public https host, never a private address', () => {

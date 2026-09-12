@@ -36,7 +36,7 @@ Every widget is a Web Component declaring:
 | `configVersion` | Schema version, for the migration hook. Defaults to `1` |
 | `refreshMs` | How often the **host** refetches. `null` means never on a timer |
 | `searchable` | Whether it contributes to the global index |
-| `dataSource` | `(config) => ({ key, url, options })` — how a config becomes a request |
+| `dataSource` | `(config, { instanceId }) => ({ key, url, options })` — how a config becomes a request |
 
 ### `dataSource`
 
@@ -49,6 +49,30 @@ dataSource: (config) => ({ key: WEATHER_FETCH_KEY, url: WEATHER_ENDPOINT }),
 
 `key` is the dedup key — two widgets returning the same `key` produce **one**
 request. `options` is optional and passed through to `fetch`.
+
+The second argument carries the **instance id**, for a widget whose data
+depends on *which copy of it* is asking. Most widgets ignore it: weather is
+weather, so every weather widget shares one key and one request.
+
+A widget with **per-instance connector config** must not, and the torrents
+widget is the worked example. Two torrents widgets may point at two different
+qBittorrent instances, so each asks for `?instance=<id>` under a key of
+`widgets/torrents:<id>`:
+
+```js
+dataSource: (config, { instanceId } = {}) => ({
+  key: `widgets/torrents:${instanceId}`,
+  url: `/api/widgets/torrents?instance=${encodeURIComponent(instanceId)}`,
+}),
+```
+
+**A shared key here would be a bug, not an optimisation.** The fetcher collapses
+equal keys into one request, so two differently-configured widgets would both
+render whichever one asked first.
+
+Note what is still absent: the URL and the credentials are not in the request.
+The id names a row the *server* reads the config from, so a credential is still
+never in the browser.
 
 **A widget with no natural endpoint declares no `dataSource`** and sets
 `refreshMs: null`. The clock is the worked example: there is no time endpoint,

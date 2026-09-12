@@ -370,11 +370,53 @@ test('the definition registers, and its dataSource is a credential-free /api cal
   // acts on it.
   assert.ok(definition.refreshMs > 0);
 
-  const request = definition.dataSource({ maxRows: 6 });
-  assert.equal(request.url, '/api/widgets/torrents');
-  // Two torrent widgets on one dashboard must collapse to one request.
-  assert.equal(request.key, 'widgets/torrents');
+  const request = definition.dataSource({ maxRows: 6 }, { instanceId: 'torrents-a' });
+  assert.equal(request.url, '/api/widgets/torrents?instance=torrents-a');
+  // Two torrents widgets must NOT collapse to one request. They were keyed
+  // alike while the endpoint took no per-widget parameters; now that each may
+  // point at a different qBittorrent, a shared key would make both render
+  // whichever one asked first. The key is per instance for that reason.
+  assert.equal(request.key, 'widgets/torrents:torrents-a');
   assert.equal(JSON.stringify(request).includes('password'), false);
+});
+
+test('two widgets get two distinct requests, which is what makes them independent', () => {
+  const a = torrentsWidgetDefinition.dataSource({}, { instanceId: 'torrents-a' });
+  const b = torrentsWidgetDefinition.dataSource({}, { instanceId: 'torrents-b' });
+
+  // The single assertion the per-widget feature rests on in the browser: the
+  // fetcher dedups on `key`, so equal keys here would serve one widget's
+  // torrents to the other.
+  assert.notEqual(a.key, b.key);
+  assert.notEqual(a.url, b.url);
+});
+
+test('the request carries an id, never an address or a credential', () => {
+  // The id names a row the SERVER reads the config from. If a url or a key
+  // ever appeared here, the credential would be in the browser — the one
+  // thing docs/SECURITY.md exists to prevent.
+  const request = torrentsWidgetDefinition.dataSource(
+    { url: 'https://qbittorrent.invalid:8080', apiKey: 'qbt_must_not_travel', maxRows: 6 },
+    { instanceId: 'torrents-a' }
+  );
+
+  const serialised = JSON.stringify(request);
+  assert.equal(serialised.includes('qbt_must_not_travel'), false, 'the key reached the request');
+  assert.equal(
+    serialised.includes('qbittorrent.invalid'),
+    false,
+    'the address reached the request'
+  );
+  assert.ok(request.url.startsWith('/api/'), 'the shell only ever calls /api/*');
+});
+
+test('a widget with no instance id still produces a usable request', () => {
+  // `dataSource` is called directly in a few places (and by older tests) with
+  // no second argument. It must not build `undefined` into the URL.
+  const request = torrentsWidgetDefinition.dataSource({});
+
+  assert.ok(!request.url.includes('undefined'));
+  assert.ok(!request.key.includes('undefined'));
 });
 
 test('the stub config makes an added widget work immediately', () => {

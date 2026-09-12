@@ -85,7 +85,11 @@ export async function buildServer(opts = {}) {
       logger: app.log,
     }),
   });
-  await registerWidgetRoutes(app, widgets);
+  // The database and the credential store go through as well: the torrents
+  // route reads per-widget connector config from the roster, and its secret
+  // from the encrypted credential store. A test that injects a credential
+  // double gets the same one here as the instance routes above.
+  await registerWidgetRoutes(app, { db, credentials, ...widgets });
   await registerNoticeRoutes(app, { db, ...notices });
 
   // Serve the built shell. Registered LAST so it can never shadow an /api

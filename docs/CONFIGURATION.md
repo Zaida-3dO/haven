@@ -45,10 +45,42 @@ rather than failing.
 | Variable | For |
 |---|---|
 | `HAVEN_OPENWEATHER_API_KEY` | Weather widget |
-| `HAVEN_QBITTORRENT_URL` plus either `_API_KEY` or `_USER` / `_PASS` | Torrents widget. The API key (qBittorrent 5.2+, Options → WebUI → API Key) is preferred — stateless, with no session to expire — and wins when both are set |
+| `HAVEN_QBITTORRENT_URL` plus either `_API_KEY` or `_USER` / `_PASS` | Torrents widget, for every widget that does not configure itself — see [per-widget configuration](#per-widget-connector-configuration). The API key (qBittorrent 5.2+, Options → WebUI → API Key) is preferred — stateless, with no session to expire — and wins when both are set |
 | `HAVEN_HA_URL` / `HAVEN_HA_TOKEN` | Home Assistant, for notices |
 | `HAVEN_CALENDAR_ICS_URL` | Calendar. **A bearer credential** — anyone holding it can read the calendar |
 | `HAVEN_GITHUB_TOKEN` | Releases API. Raises the rate limit; public repos work unauthenticated at a lower one |
+
+### Per-widget connector configuration
+
+The torrents widget can be configured **per widget instance**, from its own
+settings panel — a server address and an API key. Two torrents widgets can
+therefore watch two different qBittorrent instances with different credentials,
+which no environment variable can express.
+
+**Precedence.** A widget that sets its own **server address** uses its own
+settings, whole. A widget that does not is served by the environment variables
+above, exactly as before.
+
+The fallback is decided by the server address alone, not field by field, and
+that is deliberate. Merging the two sources would let a widget deliberately
+pointed at an unauthenticated instance silently inherit
+`HAVEN_QBITTORRENT_API_KEY` and authenticate as someone else — and it would
+make clearing a credential in the UI appear to do nothing, because the
+environment value would quietly take its place.
+
+**Upgrading changes nothing.** An existing install has no per-widget config, so
+every widget continues to read the environment.
+
+**Where the credential lives.** The API key is encrypted at rest with
+`HAVEN_SECRET_KEY` in the `credentials` table, under a name derived from the
+widget's id. It is **write-only over the API**: the settings panel can set or
+replace it and is told only *whether* one is stored, and no endpoint returns
+it. Setting one therefore requires `HAVEN_SECRET_KEY` to be set — without it
+the write is refused rather than stored in the clear. See
+[SECURITY.md](SECURITY.md).
+
+Use `https`. The connector sends `redirect: 'manual'`, so an `http` address
+that redirects fails without a useful message.
 
 ## `config/apps.json`
 

@@ -208,8 +208,7 @@ export class TorrentsWidget extends ElementBase {
       this.#renderMessage(
         els,
         'qBittorrent is not configured.',
-        payload.notices?.[0]?.hint ??
-          'Set HAVEN_QBITTORRENT_URL, plus either _API_KEY or _USER and _PASS.'
+        payload.notices?.[0]?.hint ?? 'Add a server address and API key in this widget’s settings.'
       );
       return;
     }
@@ -424,22 +423,56 @@ export const torrentsWidgetDefinition = {
       min: 1,
       max: 25,
     },
+    {
+      key: 'url',
+      type: 'url',
+      label: 'Server address',
+      // `https` matters enough to say out loud: the connector sends
+      // `redirect: 'manual'`, so an `http` address that 301-redirects fails
+      // with nothing useful to show for it.
+      help: 'e.g. https://qbittorrent.example.com — leave blank to use the server’s own configuration.',
+    },
+    {
+      key: 'apiKey',
+      type: 'secret',
+      label: 'API key',
+      help: 'qBittorrent 5.2+, Options → WebUI → API Key.',
+      // Only worth asking for once there is somewhere to send it. The stored
+      // value survives while the field is hidden — `validateConfig` carries
+      // hidden values through untouched.
+      visible: { field: 'url', operator: 'truthy' },
+    },
   ],
 
-  /** Adding the widget must produce something that works immediately. */
+  /**
+   * Adding the widget must produce something that works immediately.
+   *
+   * No `url` and no `apiKey`: a new widget inherits whatever the server is
+   * already configured with, so adding one to a working dashboard shows
+   * torrents rather than an empty form.
+   */
   getStubConfig: () => ({ maxRows: DEFAULT_MAX_ROWS }),
 
   /**
-   * The dedup key is deliberately constant: two torrent widgets on one
-   * dashboard are one request, because the endpoint takes no per-widget
-   * parameters. `cacheMs` is kept under `refreshMs` so the cache smooths
-   * concurrent callers without ever making the tile skip a refresh.
+   * One request PER WIDGET, because each may point at a different service.
+   *
+   * The key was a constant, and had to stop being one: the fetcher collapses
+   * equal keys into a single request, so two differently-configured widgets
+   * would both have rendered whichever one asked first. `cacheMs` is kept
+   * under `refreshMs` so the cache still smooths concurrent callers of the
+   * SAME widget without ever making the tile skip a refresh.
+   *
+   * The id names a row the server reads the config from. No address and no
+   * credential is in this request — the backend still holds both.
    */
-  dataSource: () => ({
-    key: 'widgets/torrents',
-    url: '/api/widgets/torrents',
-    cacheMs: 2_000,
-  }),
+  dataSource: (config, { instanceId } = {}) => {
+    const id = instanceId ?? 'default';
+    return {
+      key: `widgets/torrents:${id}`,
+      url: `/api/widgets/torrents?instance=${encodeURIComponent(id)}`,
+      cacheMs: 2_000,
+    };
+  },
 };
 
 /** Registering the element is idempotent — a module may be imported twice. */

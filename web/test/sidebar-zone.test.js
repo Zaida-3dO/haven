@@ -324,3 +324,102 @@ test('createSidebarZone refuses to be built without its dependencies', () => {
   assert.throws(() => createSidebarZone({ sidebar: {} }), /dashboard is required/);
   assert.throws(() => createSidebarZone({ sidebar: {}, dashboard: {} }), /cardSpecFor is required/);
 });
+
+/* ── edit-mode controls ──────────────────────────────────────────────────── */
+
+const withControls = (doc, instances = SEEDED, handlers = {}) =>
+  createSidebar({
+    cards: instances.map(cardSpecFor),
+    controls: true,
+    onMoveUp: handlers.onMoveUp ?? (() => {}),
+    onMoveDown: handlers.onMoveDown ?? (() => {}),
+    onRemove: handlers.onRemove ?? (() => {}),
+    document: doc,
+  });
+
+const controlsOf = (card) => card.controls?.children ?? [];
+const kindsOf = (card) => controlsOf(card).map((b) => b.dataset.sidebarControl);
+
+test('a card renders no controls unless they are asked for', () => {
+  // View-only mounts (and every existing caller) must not grow buttons.
+  const doc = createFakeDocument();
+  const sidebar = createSidebar({ cards: SEEDED.map(cardSpecFor), document: doc });
+
+  assert.equal(sidebar.cards.get('sidebar-weather').controls, null);
+});
+
+test('controls are built DISABLED and untabbable, not merely hidden', () => {
+  // Hiding with CSS alone would leave a keyboard user able to tab into a
+  // control that does nothing in view mode.
+  const doc = createFakeDocument();
+  const sidebar = withControls(doc);
+
+  for (const button of controlsOf(sidebar.cards.get('sidebar-weather'))) {
+    assert.equal(button.disabled, true);
+    assert.equal(button.tabIndex, -1);
+  }
+});
+
+test('setEditable(true) actually ENABLES the controls', () => {
+  // THE test for the finding behind this slice. `edit-mode.js` sweeps
+  // `gridHandle.root`, and the sidebar is a SIBLING of the grid chrome — so a
+  // sidebar control relying on that sweep would be built disabled and stay
+  // disabled forever, with nothing throwing and no test noticing.
+  const doc = createFakeDocument();
+  const sidebar = withControls(doc);
+
+  sidebar.setEditable(true);
+
+  for (const button of controlsOf(sidebar.cards.get('sidebar-weather'))) {
+    assert.equal(button.disabled, false, 'edit mode must enable sidebar controls');
+    assert.equal(button.tabIndex, 0, 'an enabled control must be tabbable');
+  }
+
+  sidebar.setEditable(false);
+  for (const button of controlsOf(sidebar.cards.get('sidebar-weather'))) {
+    assert.equal(button.disabled, true, 'leaving edit mode must disable them again');
+    assert.equal(button.tabIndex, -1);
+  }
+});
+
+test('the pinned card gets Remove but no move arrows', () => {
+  // It is the sidebar's own child rather than a child of the scrollport, so it
+  // holds the bottom edge and is not part of the order — but a user must still
+  // be able to get rid of it.
+  const doc = createFakeDocument();
+  const sidebar = withControls(doc);
+
+  assert.deepEqual(kindsOf(sidebar.cards.get('sidebar-status')), ['remove']);
+  assert.deepEqual(kindsOf(sidebar.cards.get('sidebar-weather')), ['up', 'down', 'remove']);
+});
+
+test('clicking a control calls through with the card id', () => {
+  const calls = [];
+  const doc = createFakeDocument();
+  const sidebar = withControls(doc, SEEDED, {
+    onMoveUp: (id) => calls.push(['up', id]),
+    onMoveDown: (id) => calls.push(['down', id]),
+    onRemove: (id) => calls.push(['remove', id]),
+  });
+
+  for (const button of controlsOf(sidebar.cards.get('sidebar-calendar'))) {
+    button.listeners.get('click')?.forEach((fn) => fn());
+  }
+
+  assert.deepEqual(calls, [
+    ['up', 'sidebar-calendar'],
+    ['down', 'sidebar-calendar'],
+    ['remove', 'sidebar-calendar'],
+  ]);
+});
+
+test('a card added later gets controls too', () => {
+  // `addCard` is the shared attach path; a card added at runtime must not come
+  // out inert while the seeded ones are editable.
+  const doc = createFakeDocument();
+  const sidebar = withControls(doc);
+
+  const card = sidebar.addCard({ id: 'sidebar-extra', type: 'weather', title: 'Extra' });
+
+  assert.deepEqual(kindsOf(card), ['up', 'down', 'remove']);
+});

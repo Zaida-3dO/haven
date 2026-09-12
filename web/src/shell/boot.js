@@ -17,7 +17,7 @@ import { createHeader } from './header.js';
 import { createProfileMenu } from './profile-menu.js';
 import { createSidebar } from './sidebar.js';
 import { createSidebarZone } from './sidebar-zone.js';
-import { createEditMode, createEditToolbar } from './edit-mode.js';
+import { MODE, createEditMode, createEditToolbar } from './edit-mode.js';
 import { connectGrid } from './dashboard-grid.js';
 import { connectSettings } from './settings-panel.js';
 import { createLayoutClient } from './layout-client.js';
@@ -274,6 +274,26 @@ export async function bootDashboard(
     gridHandle,
     layoutClient,
     addPanel,
+    /**
+     * Edit mode reaches the SIDEBAR through here, not through its own sweep.
+     *
+     * `edit-mode.js` enables per-widget controls with
+     * `gridHandle.root.querySelectorAll(...)`, scoped to the grid's root — and
+     * the sidebar is mounted as a SIBLING of the grid chrome, so that sweep
+     * can never see it. Sidebar controls left to it would be built disabled
+     * and stay disabled forever: no error, no failing test, three dead
+     * buttons. So the sidebar exposes `setEditable` and this drives it.
+     *
+     * The class on the layout element is what the stylesheet keys on
+     * (`.haven-layout--edit-mode .haven-sidebar__controls`). The grid's own
+     * edit class lives on the GRID root, which again the sidebar is not
+     * inside — so it needs its own, or the controls never become visible.
+     */
+    onModeChange: (mode) => {
+      const editing = mode === MODE.EDIT;
+      sidebar?.setEditable(editing);
+      layoutEl?.classList?.toggle('haven-layout--edit-mode', editing);
+    },
     onError: (error) => console.error('Haven: saving the layout failed.', error),
   });
 
@@ -458,7 +478,18 @@ export async function bootDashboard(
   // whereas a failed request is not a statement about the roster at all.
   const sidebarEntries = loaded === FALLBACK_INSTANCES ? SIDEBAR_INSTANCES : sidebarInstances;
 
-  const sidebar = layoutEl ? createSidebar({ cards: sidebarEntries.map(cardSpecFor) }) : null;
+  const sidebar = layoutEl
+    ? createSidebar({
+        cards: sidebarEntries.map(cardSpecFor),
+        controls: true,
+        // `sidebarZone` is constructed just below, so these read it lazily
+        // through the closure rather than capturing an undefined value now —
+        // the same pattern the header's `onSearch` uses for `searchUI`.
+        onMoveUp: (id) => sidebarZone?.move(id, -1),
+        onMoveDown: (id) => sidebarZone?.move(id, 1),
+        onRemove: (id) => sidebarZone?.remove(id),
+      })
+    : null;
 
   /**
    * The sidebar zone controller: add, reorder, remove.

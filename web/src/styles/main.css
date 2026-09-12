@@ -577,6 +577,47 @@ body {
   flex: 0 0 auto;
 }
 
+/* Edit-mode controls on a sidebar card, mirroring `.haven-widget__controls`
+   on a grid tile: hidden in view mode, revealed while editing. `margin-left:
+   auto` pushes them to the right of the title in the heading's flex row.
+
+   The visibility toggle is CSS, but the tab stop is not — `setEditable` in
+   `sidebar.js` also sets `disabled` and `tabIndex`, because `display: none`
+   alone would still leave a keyboard user able to reach a dead control if the
+   rule ever changed. */
+.haven-sidebar__controls {
+  display: none;
+  gap: var(--haven-space-1);
+  margin-left: auto;
+}
+
+.haven-layout--edit-mode .haven-sidebar__controls {
+  display: flex;
+}
+
+.haven-sidebar__control {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 var(--haven-space-1);
+  border: 1px solid var(--haven-border);
+  border-radius: var(--haven-radius-sm);
+  background: var(--haven-bg);
+  color: var(--haven-fg);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.haven-sidebar__control:hover {
+  border-color: var(--haven-accent);
+  background: var(--haven-surface-hover);
+}
+
+.haven-sidebar__control:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .haven-sidebar__body {
   min-width: 0;
 }

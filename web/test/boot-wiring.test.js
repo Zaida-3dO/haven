@@ -129,3 +129,29 @@ test('a widget with no zone is treated as a grid widget', () => {
       'entry with no zone still lands on the grid'
   );
 });
+
+test('edit mode is wired to the SIDEBAR, not only to the grid', () => {
+  // `edit-mode.js` enables per-widget controls with
+  // `gridHandle.root.querySelectorAll(...)` — scoped to the GRID's root. The
+  // sidebar is mounted as a SIBLING of the grid chrome, so that sweep cannot
+  // reach it: sidebar controls left to it are built disabled and stay disabled
+  // forever. Nothing throws and no unit test of `sidebar.js` would notice,
+  // because the capability exists — it is the WIRING that is missing.
+  //
+  // Comments are stripped first, so this prose cannot satisfy the assertion.
+  assert.match(
+    BOOT_NO_COMMENTS,
+    /onModeChange:/,
+    'boot.js never passes onModeChange, so entering edit mode cannot reach the sidebar'
+  );
+  assert.match(
+    BOOT_NO_COMMENTS,
+    /sidebar\?\.setEditable\(/,
+    'edit mode must drive the sidebar own control sweep'
+  );
+  assert.match(
+    BOOT_NO_COMMENTS,
+    /haven-layout--edit-mode/,
+    'the layout needs its own edit class, or the sidebar controls never become visible'
+  );
+});

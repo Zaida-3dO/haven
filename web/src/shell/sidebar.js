@@ -154,6 +154,10 @@ export function createSidebarCard({
   title,
   icon = null,
   pinned = false,
+  controls = false,
+  onMoveUp = () => {},
+  onMoveDown = () => {},
+  onRemove = () => {},
   document: doc = globalThis.document,
 } = {}) {
   const el = doc.createElement('section');
@@ -188,6 +192,43 @@ export function createSidebarCard({
   label.textContent = title;
   heading.appendChild(label);
 
+  // Edit-mode controls, on the heading so they sit beside the card title.
+  //
+  // Built DISABLED with `tabIndex: -1`, exactly like the grid's per-widget
+  // controls (`createWidgetControls`): they are only reachable in edit mode,
+  // and hiding them with CSS alone would leave them in the tab order for a
+  // keyboard user in view mode. `setEditable` on the sidebar handle is what
+  // turns them on — see the note there about why the grid's own sweep cannot.
+  //
+  // The pinned card gets no MOVE controls: it is the sidebar's own child
+  // rather than a child of the scrollport, so it holds the bottom edge and is
+  // not part of the order. It keeps Remove — a user must still be able to get
+  // rid of it.
+  let controlsEl = null;
+  if (controls) {
+    controlsEl = doc.createElement('div');
+    controlsEl.className = 'haven-sidebar__controls';
+
+    const button = (kind, label, handler) => {
+      const btn = doc.createElement('button');
+      btn.type = 'button';
+      btn.className = `haven-sidebar__control haven-sidebar__control--${kind}`;
+      btn.setAttribute('aria-label', `${label} ${title}`);
+      btn.dataset.sidebarControl = kind;
+      btn.textContent = { up: '↑', down: '↓', remove: '×' }[kind];
+      btn.disabled = true;
+      btn.tabIndex = -1;
+      btn.addEventListener?.('click', () => handler(id));
+      return btn;
+    };
+
+    if (!pinned) {
+      controlsEl.append(button('up', 'Move up', onMoveUp), button('down', 'Move down', onMoveDown));
+    }
+    controlsEl.appendChild(button('remove', 'Remove', onRemove));
+    heading.appendChild(controlsEl);
+  }
+
   const body = doc.createElement('div');
   body.className = 'haven-sidebar__body';
 
@@ -197,7 +238,7 @@ export function createSidebarCard({
   // rather than a child of the scrollport — and re-deriving that by parsing
   // the className would be one string change away from silently pulling the
   // pinned card into the scrollport, where it can scroll out of view.
-  return { el, body, title: heading, pinned: Boolean(pinned) };
+  return { el, body, title: heading, pinned: Boolean(pinned), controls: controlsEl };
 }
 
 /**
@@ -230,7 +271,14 @@ export function createSidebarCard({
  *   `addCard` attaches a card built AFTER the initial render, through the
  *   same path, so the scrollport invariant holds for it too.
  */
-export function createSidebar({ cards = [], document: doc = globalThis.document } = {}) {
+export function createSidebar({
+  cards = [],
+  controls = false,
+  onMoveUp = () => {},
+  onMoveDown = () => {},
+  onRemove = () => {},
+  document: doc = globalThis.document,
+} = {}) {
   const el = doc.createElement('aside');
   el.className = 'haven-sidebar';
   // Named, so a screen reader's landmark list distinguishes it from the main
@@ -273,6 +321,10 @@ export function createSidebar({ cards = [], document: doc = globalThis.document 
       title: spec.title,
       icon: spec.icon,
       pinned: spec.pinned,
+      controls,
+      onMoveUp,
+      onMoveDown,
+      onRemove,
       document: doc,
     });
 
@@ -287,7 +339,32 @@ export function createSidebar({ cards = [], document: doc = globalThis.document 
 
   for (const spec of cards) addCard(spec);
 
-  return { el, scroll, bodies, cards: built, addCard };
+  /**
+   * Turns the card controls on or off.
+   *
+   * ── Why the sidebar needs its own sweep ──────────────────────────────
+   * `edit-mode.js` enables per-widget controls with
+   * `gridHandle.root.querySelectorAll('.haven-widget__control')` — scoped to
+   * the GRID's root. The sidebar is mounted as a SIBLING of the grid chrome
+   * inside `.haven-layout`, so it is not under that root and that sweep can
+   * never reach it. A sidebar control relying on it would be built disabled
+   * and stay disabled forever: no error, no failing test, just three buttons
+   * that do nothing.
+   *
+   * So the sidebar exposes this and `boot.js` drives it from edit mode's
+   * `onModeChange`. Disabled AND untabbable, not merely hidden, so a keyboard
+   * user cannot tab into a control that does nothing in view mode.
+   */
+  function setEditable(editing) {
+    for (const card of built.values()) {
+      for (const control of card.controls?.children ?? []) {
+        control.disabled = !editing;
+        control.tabIndex = editing ? 0 : -1;
+      }
+    }
+  }
+
+  return { el, scroll, bodies, cards: built, addCard, setEditable };
 }
 
 export default { createSidebar, createSidebarCard, SIDEBAR_ICONS };

@@ -116,8 +116,10 @@ export { expect };
  * gets seeded. The web fallback is used only when `GET /api/instances` fails,
  * which it does not in these tests.
  *
- * `render-smoke.spec.js` asserts this list against the live endpoint, so it
- * cannot silently drift out of step and quietly test fewer widgets.
+ * `render-smoke.spec.js` asserts this list against the GRID-ZONED subset of
+ * the live endpoint, so it cannot silently drift out of step and quietly test
+ * fewer widgets. The endpoint serves both zones flat, so the comparison has to
+ * be scoped or the four sidebar rows read as unexpected additions.
  */
 export const WIDGET_IDS = [
   'hero-main',
@@ -135,12 +137,41 @@ export const WIDGET_IDS = [
  * GridStack node — so anything selecting `.grid-stack-item` will never see
  * them. They are listed separately for that reason.
  *
- * `sidebar-home3d` is deliberately excluded: the iframe widget lazy-loads its
- * document on visibility, so what it has rendered at boot is a function of
- * scroll position rather than of correctness, and asserting on it would be
- * flaky by construction.
+ * ── DERIVED from the live roster, not hand-copied ────────────────────────
+ * Sidebar widgets are ordinary rows in `widgets` with `zone = 'sidebar'` now,
+ * and their ids are minted as soon as a user adds one. A hardcoded list would
+ * be wrong the first time anybody does that, and wrong SILENTLY: every spec
+ * iterating it would keep passing while quietly measuring fewer widgets.
+ *
+ * The `iframe` type is excluded by TYPE rather than by id, which is the same
+ * exclusion as before made durable. The iframe widget lazy-loads its document
+ * on visibility, so what it has rendered at boot is a function of scroll
+ * position rather than of correctness — asserting on it would be flaky by
+ * construction, and that is true of ANY embed a user drops in the sidebar, not
+ * just the seeded 3D home.
  */
-export const SIDEBAR_WIDGET_IDS = ['sidebar-weather', 'sidebar-calendar', 'sidebar-status'];
+const UNMEASURABLE_SIDEBAR_TYPES = new Set(['iframe']);
+
+export async function sidebarWidgetIds(page) {
+  const served = await page.request.get('/api/instances');
+  expect(served.ok(), 'the roster endpoint should answer').toBeTruthy();
+
+  const body = await served.json();
+  return (body.instances ?? body)
+    .filter((entry) => entry.zone === 'sidebar' && !UNMEASURABLE_SIDEBAR_TYPES.has(entry.type))
+    .map((entry) => entry.id);
+}
+
+/** Every sidebar id the server seeds, embeds included. */
+export async function allSidebarWidgetIds(page) {
+  const served = await page.request.get('/api/instances');
+  expect(served.ok(), 'the roster endpoint should answer').toBeTruthy();
+
+  const body = await served.json();
+  return (body.instances ?? body)
+    .filter((entry) => entry.zone === 'sidebar')
+    .map((entry) => entry.id);
+}
 
 /**
  * Waits until the dashboard has booted and every widget tile is on the grid.

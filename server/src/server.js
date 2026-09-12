@@ -4,7 +4,7 @@ import Fastify from 'fastify';
 import { config } from './config.js';
 import { openDatabase } from './db/index.js';
 import { seedApps } from './db/apps-store.js';
-import { seedInstances } from './db/instances-store.js';
+import { SIDEBAR_DEFAULTS, seedInstances } from './db/instances-store.js';
 import { createContainerVersionsReader } from './container-versions.js';
 import { registerAppRoutes } from './routes/apps.js';
 import { registerHealthRoutes } from './routes/health.js';
@@ -69,6 +69,30 @@ export async function buildServer(opts = {}) {
   // `seedInstances` falls back to a built-in default roster when no seed file
   // exists, rather than leaving a fresh install with nothing on screen.
   seedInstances(db, { path: instancesSeedPath, logger: app.log });
+
+  // The SIDEBAR roster, seeded the same way and guarded the same way — but
+  // separately, because the guard is per zone.
+  //
+  // That is the whole reason `seedInstances` takes a zone at all. The guard
+  // used to ask "is the widgets table empty?"; with two zones to seed, the
+  // first call would then populate the table and suppress the second, so a
+  // fresh install would boot with a sidebar and a completely empty main board
+  // (or vice versa, depending on call order). It now asks "is THIS zone
+  // empty?", which keeps the seed-once asymmetry per zone: a user who removes
+  // every sidebar widget still gets an empty sidebar on the next restart
+  // rather than having the four defaults grow back.
+  //
+  // `path: null` deliberately — there is no sidebar seed FILE. The grid roster
+  // supports one for operators who want to ship a custom dashboard; the
+  // sidebar's four cards are a built-in default that has never been
+  // file-configurable, and inventing a config surface nobody asked for is not
+  // this change's job.
+  seedInstances(db, {
+    path: null,
+    zone: 'sidebar',
+    defaults: SIDEBAR_DEFAULTS,
+    logger: app.log,
+  });
 
   await registerHealthRoutes(app);
   await registerLayoutRoutes(app);

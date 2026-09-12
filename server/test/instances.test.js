@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { migrate } from '../src/db/migrate.js';
 import {
   DEFAULT_INSTANCES,
+  HOME_3D_PREVIEW_URL,
   SECRET_SET,
+  SIDEBAR_DEFAULTS,
   createInstanceStore,
   secretName,
   seedInstances,
+  validateInstance,
 } from '../src/db/instances-store.js';
 import { buildServer } from '../src/server.js';
 
@@ -104,9 +108,13 @@ test('a fresh install is seeded with a usable roster rather than a blank page', 
 
   assert.equal(res.statusCode, 200);
   const { instances } = res.json();
-  assert.equal(instances.length, DEFAULT_INSTANCES.length);
+  // Scoped to the GRID zone. `/api/instances` serves the whole roster flat,
+  // both zones together, because the shell splits it by zone itself — so the
+  // grid's seed is a subset of the response rather than the whole of it.
+  const grid = instances.filter((i) => i.zone === 'grid');
+  assert.equal(grid.length, DEFAULT_INSTANCES.length);
   assert.deepEqual(
-    instances.map((i) => i.id),
+    grid.map((i) => i.id),
     DEFAULT_INSTANCES.map((i) => i.id)
   );
 });
@@ -114,7 +122,10 @@ test('a fresh install is seeded with a usable roster rather than a blank page', 
 test('the seeded roster keeps its declared order, not alphabetical order', async (t) => {
   const { app } = await freshApp(t);
 
-  const ids = (await list(app)).json().instances.map((i) => i.id);
+  const ids = (await list(app))
+    .json()
+    .instances.filter((i) => i.zone === 'grid')
+    .map((i) => i.id);
 
   // The order is meaningful: the hero is a banner across the top and the apps
   // widget leads the grid below it. Ordering by `created_at` looks like it
@@ -492,4 +503,156 @@ test('a removed widget stays removed across a restart', (t) => {
     store.list().some((i) => i.id === 'clock-tokyo'),
     false
   );
+});
+
+// ── the SIDEBAR zone ──────────────────────────────────────────────────────
+//
+// These tests carry guarantees RELOCATED from
+// `web/test/sidebar-layout-contract.test.js`. They used to grep `boot.js` for
+// a hardcoded `SIDEBAR_INSTANCES` array; the sidebar is built from the seeded
+// roster now, so the guarantees moved to where the data actually lives. The
+// iframe-sandbox assertion in particular is a SECURITY test and was moved
+// rather than dropped.
+
+test('a fresh install seeds the sidebar as well as the grid', async (t) => {
+  const { app } = await freshApp(t);
+
+  const sidebar = (await list(app)).json().instances.filter((i) => i.zone === 'sidebar');
+
+  assert.equal(sidebar.length, SIDEBAR_DEFAULTS.length);
+  assert.deepEqual(
+    sidebar.map((i) => i.id),
+    SIDEBAR_DEFAULTS.map((i) => i.id)
+  );
+});
+
+test('the seeded sidebar order is weather · calendar · 3D home · status', async (t) => {
+  // RELOCATED from the web contract test. Order is the requirement, not just
+  // membership: the 3D home sits between calendar and status, and status is
+  // last because it is the card pinned to the bottom of the column.
+  const { app } = await freshApp(t);
+
+  const ids = (await list(app))
+    .json()
+    .instances.filter((i) => i.zone === 'sidebar')
+    .map((i) => i.id);
+
+  assert.deepEqual(ids, [
+    'sidebar-weather',
+    'sidebar-calendar',
+    'sidebar-home3d',
+    'sidebar-status',
+  ]);
+});
+
+test('the seeded 3D home embed keeps its locked-down sandbox', async (t) => {
+  // RELOCATED from the web contract test, and this one is SECURITY, not
+  // layout. The embed is a cross-origin third-party page; `allowSameOrigin`
+  // is what stops the framed document reaching `parent.document` — i.e. this
+  // dashboard. Moving the roster from a hardcoded array into the database is
+  // not an occasion to widen an iframe sandbox, so the flags are asserted
+  // against the row that is actually seeded.
+  const { app } = await freshApp(t);
+
+  const embed = (await list(app)).json().instances.find((i) => i.id === 'sidebar-home3d');
+
+  assert.ok(embed, 'the sidebar 3D home instance was not seeded');
+  assert.equal(embed.config.allowSameOrigin, 'no', 'the embed must not get same-origin access');
+  assert.equal(embed.config.allowForms, 'no', 'the embed must not get forms');
+  assert.equal(embed.config.allowPopups, 'no', 'the embed must not get popups');
+});
+
+test('the seeded embed points at the non-interactive preview route', async (t) => {
+  // `?preview=true` is what makes the 3D home auto-rotate and hide its own
+  // chrome, including the controls button. It has silently regressed once
+  // before: the flag was dropped when the URL became absolute and the sidebar
+  // showed the full interactive app for a whole release.
+  const { app } = await freshApp(t);
+
+  const embed = (await list(app)).json().instances.find((i) => i.id === 'sidebar-home3d');
+
+  assert.match(embed.config.url, /[?&]preview=true\b/);
+});
+
+test('the server-side preview URL agrees with the web widget definition', () => {
+  // `HOME_3D_PREVIEW_URL` is deliberately duplicated: the server cannot import
+  // from `web/`, and the seed needs the URL because the roster is server-side
+  // data now. A duplicate with no cross-check is a divergence waiting to
+  // happen, so this asserts the two literals are the same string.
+  const definition = readFileSync(
+    new URL('../../web/src/widgets/iframe/definition.js', import.meta.url),
+    'utf8'
+  );
+
+  const base = /HOME_3D_URL\s*=\s*'([^']+)'/.exec(definition);
+  assert.ok(base, 'could not find HOME_3D_URL in the web iframe definition');
+
+  const preview = /HOME_3D_PREVIEW_URL\s*=\s*`\$\{HOME_3D_URL\}([^`]*)`/.exec(definition);
+  assert.ok(preview, 'could not find HOME_3D_PREVIEW_URL in the web iframe definition');
+
+  assert.equal(
+    HOME_3D_PREVIEW_URL,
+    `${base[1]}${preview[1]}`,
+    'the server seed and the web widget definition disagree about the 3D home preview URL'
+  );
+});
+
+test('seeding the sidebar does not suppress the grid seed', (t) => {
+  // THE TRAP. The guard used to be `store.count() > 0` across the whole table,
+  // so whichever zone seeded first would make the table non-empty and suppress
+  // the other entirely — a fresh install would boot with a sidebar and a
+  // completely empty main board. Seeded here in the hostile order (sidebar
+  // first) precisely because that is the order that used to break.
+  const db = new Database(':memory:');
+  migrate(db);
+  t.after(() => db.close());
+
+  seedInstances(db, { path: null, zone: 'sidebar', defaults: SIDEBAR_DEFAULTS });
+  const gridResult = seedInstances(db, { path: null });
+
+  assert.equal(gridResult.seeded, DEFAULT_INSTANCES.length);
+
+  const store = createInstanceStore(db, { credentials: fakeCredentials() });
+  assert.equal(store.countZone('grid'), DEFAULT_INSTANCES.length);
+  assert.equal(store.countZone('sidebar'), SIDEBAR_DEFAULTS.length);
+});
+
+test('a removed sidebar widget stays removed across a restart', (t) => {
+  // The seed-once asymmetry has to hold PER ZONE, not just globally: emptying
+  // the sidebar deliberately must not grow the four defaults back on reboot.
+  const db = new Database(':memory:');
+  migrate(db);
+  t.after(() => db.close());
+
+  seedInstances(db, { path: null, zone: 'sidebar', defaults: SIDEBAR_DEFAULTS });
+  const store = createInstanceStore(db, { credentials: fakeCredentials() });
+  store.delete('sidebar-home3d');
+
+  seedInstances(db, { path: null, zone: 'sidebar', defaults: SIDEBAR_DEFAULTS });
+
+  assert.equal(
+    store.listZone('sidebar').some((i) => i.id === 'sidebar-home3d'),
+    false
+  );
+});
+
+test('a sidebar widget added later goes to the end of the SIDEBAR, not the grid', (t) => {
+  // `nextSort` is scoped per zone. On a shared sequence the first sidebar
+  // addition would sort after every grid widget, so the two zones' orders
+  // would not be independent.
+  const db = new Database(':memory:');
+  migrate(db);
+  t.after(() => db.close());
+
+  seedInstances(db, { path: null });
+  seedInstances(db, { path: null, zone: 'sidebar', defaults: SIDEBAR_DEFAULTS });
+
+  const store = createInstanceStore(db, { credentials: fakeCredentials() });
+  const added = store.create(
+    validateInstance({ id: 'sidebar-extra', type: 'status', config: {}, zone: 'sidebar' })
+  );
+
+  assert.equal(added.zone, 'sidebar');
+  assert.equal(added.sortOrder, SIDEBAR_DEFAULTS.length);
+  assert.equal(store.listZone('sidebar').at(-1).id, 'sidebar-extra');
 });

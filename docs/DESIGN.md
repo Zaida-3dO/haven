@@ -146,12 +146,22 @@ whole page. A widget lives in one of **two zones**:
 | `sidebar` | One column, intrinsically sized, non-overlapping stack | order only | Plain flex layout |
 
 **These are two layout models, not one editable zone and one fixed one.** A sidebar card is
-as tall as its content and as wide as the column: there is no x, no y, no width and no
-height to choose, so the only free variable is where it sits in the stack. That is a
-genuinely different thing from the grid, which is why the sidebar is not simply GridStack
-at `column: 1` — a one-column grid is a list with cell-height arithmetic bolted on. You
-would compute geometry only to collapse it straight back to an index, and a uniform
-`cellHeight` would crop the cards whose whole point is that they size to their content.
+as wide as the column and, normally, as tall as its content: there is no x, no y, no width
+and no height *the user chooses*, so the only free variable is where it sits in the stack.
+That is a genuinely different thing from the grid, which is why the sidebar is not simply
+GridStack at `column: 1` — a one-column grid is a list with cell-height arithmetic bolted
+on. You would compute geometry only to collapse it straight back to an index, and a uniform
+`cellHeight` would crop a card whose whole point is that it sizes to its content.
+
+**One exception, and it is in the code today:** the 3D home card carries a fixed height
+(`.haven-sidebar__card--home3d .haven-sidebar__body { height: 200px }`, `web/src/styles/main.css`).
+Its widget is an iframe that sizes itself to its container (`:host { height: 100% }`), so a
+content-sized parent resolves to zero and the scene renders into a 0px box. That height is a
+property of the *widget type*, set in the stylesheet — not a dimension the user picks — so
+the rule above still holds from the user's point of view. It does mean "sidebar cards size
+to their content" is a default with a named exception rather than an invariant, and code
+that manages the card list has to hold that rule rather than assume the four cards that
+happen to ship today.
 
 **Zone is a property of the widget instance, not of the layout — and is therefore
 breakpoint-independent.** A widget is a sidebar widget everywhere, or a grid widget

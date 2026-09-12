@@ -592,14 +592,21 @@ body {
  *
  * Every other sidebar widget is intrinsically tall (a forecast, an event
  * list, a server list) and grows the body on its own, which is why no card
- * has needed this until now. The 3D home is the first sidebar widget that
- * sizes itself to its container, so it is the first that needs the container
- * to have a size.
+ * needed this until the 3D home arrived. An embed is the one widget kind that
+ * sizes itself to its container, so it is the one kind that needs the
+ * container to have a size.
+ *
+ * Selected by TYPE, not by card id. Sidebar cards are built from real widget
+ * instances now, and instance ids are minted (`iframe-3f9a2c71`) — so the old
+ * `--home3d` rule would match nothing for a user-added embed and the scene
+ * would paint into a 0px box with nothing in the console. Keying on the widget
+ * kind also states the actual rule: ANY embed in this column needs a height,
+ * not just the one card that happened to ship first.
  *
  * 200px is chosen to match the live dashboard's own 3D home card and to fit
  * alongside weather, calendar and a bottom-pinned status card in a 900px
  * viewport without pushing the pin off screen. */
-.haven-sidebar__card--home3d .haven-sidebar__body {
+.haven-sidebar__card--type-iframe .haven-sidebar__body {
   height: 200px;
 }
 

@@ -90,3 +90,42 @@ test('every shell module with a default-ish entry point is reachable from boot',
     `these shell modules exist but nothing boots them: ${unwired.join(', ')}`
   );
 });
+
+/* -- the sidebar zone filter ---------------------------------------------- */
+
+const BOOT_SRC = readFileSync(new URL('../src/shell/boot.js', import.meta.url), 'utf8');
+const BOOT_NO_COMMENTS = BOOT_SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+
+test('the grid is loaded from the roster with sidebar widgets filtered OUT', () => {
+  // The roster carries every widget in the app now, both zones together
+  // (`widgets.zone`, migration 005). If the sidebar-zoned entries are not
+  // filtered out before `grid.load`, each one is ALSO mounted as a GridStack
+  // tile: four unexpected tiles on the board, and the 3D home loads its whole
+  // WebGL scene twice. Nothing throws — it just renders wrong.
+  //
+  // Comments are stripped first, so the prose above explaining the filter
+  // cannot be what satisfies this.
+  assert.match(
+    BOOT_NO_COMMENTS,
+    /zone\s*===\s*'sidebar'/,
+    'boot.js never tests for the sidebar zone, so the grid gets every widget'
+  );
+  assert.match(
+    BOOT_NO_COMMENTS,
+    /reconcileRoster\(\s*gridInstances/,
+    'the grid must be reconciled against the GRID-zoned subset, not the whole roster'
+  );
+});
+
+test('a widget with no zone is treated as a grid widget', () => {
+  // The fallback roster (`FALLBACK_INSTANCES`) carries no `zone` field at all,
+  // and every entry in it is a grid widget. A filter written as
+  // `zone !== 'grid'` would send all of them to the sidebar the moment
+  // `GET /api/instances` failed — turning a degraded state into a broken one.
+  assert.match(
+    BOOT_NO_COMMENTS,
+    /!isSidebarZone|zone\s*!==\s*'sidebar'/,
+    'the grid subset must be "not sidebar" rather than "equals grid", so an ' +
+      'entry with no zone still lands on the grid'
+  );
+});

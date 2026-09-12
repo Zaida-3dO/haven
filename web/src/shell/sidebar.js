@@ -150,19 +150,32 @@ export const SIDEBAR_ICONS = Object.freeze({
  */
 export function createSidebarCard({
   id = null,
+  type = null,
   title,
   icon = null,
   pinned = false,
   document: doc = globalThis.document,
 } = {}) {
   const el = doc.createElement('section');
-  // A per-card modifier from the card's id, so a card with a widget that
-  // needs particular treatment can be styled without the stylesheet reaching
-  // for `:nth-child`, which breaks the moment the order changes. The 3D home
-  // is the first user: its iframe sizes to its container, so its body needs
-  // an explicit height or it collapses to 0px.
+  // Two modifiers, and the TYPE one is what the stylesheet should target.
+  //
+  // The id modifier came first, back when the four card ids were literals in
+  // `boot.js` ('weather', 'calendar', 'home3d', 'status') and a rule could
+  // safely say `.haven-sidebar__card--home3d`. Sidebar cards are now built
+  // from real widget instances whose ids are minted (`iframe-3f9a2c71`), so an
+  // id-based rule matches nothing the moment a user adds a card — and the
+  // failure is invisible: the 3D home's iframe sizes to its container, so
+  // losing its height rule renders the scene into a 0px box with no error.
+  //
+  // The type modifier is stable across instances and is the honest carrier of
+  // "a widget of this KIND needs particular treatment", which is what the
+  // height rule actually means. Both are emitted: the id class stays useful
+  // for targeting one specific seeded card, and dropping it would be a
+  // behaviour change this commit does not need to make.
   const idClass = id ? ` haven-sidebar__card--${id}` : '';
-  el.className = `haven-sidebar__card${idClass}${pinned ? ' haven-sidebar__card--pinned' : ''}`;
+  const typeClass = type ? ` haven-sidebar__card--type-${type}` : '';
+  el.className =
+    `haven-sidebar__card${idClass}${typeClass}` + (pinned ? ' haven-sidebar__card--pinned' : '');
 
   const heading = doc.createElement('h2');
   heading.className = 'haven-sidebar__title';
@@ -203,7 +216,10 @@ export function createSidebarCard({
  *
  * @param {object} [deps]
  * @param {Array<{id: string, title: string, icon?: string, pinned?: boolean}>} [deps.cards]
- *   `id` also becomes a `haven-sidebar__card--<id>` modifier class.
+ *   `id` becomes a `haven-sidebar__card--<id>` modifier class and `type` a
+ *   `haven-sidebar__card--type-<type>` one. Stylesheet rules should use the
+ *   TYPE class: instance ids are minted, so an id rule silently matches
+ *   nothing for a user-added card.
  * @returns {{el, scroll, bodies: Map<string, HTMLElement>, cards: Map<string, object>}}
  */
 export function createSidebar({ cards = [], document: doc = globalThis.document } = {}) {
@@ -226,6 +242,7 @@ export function createSidebar({ cards = [], document: doc = globalThis.document 
   for (const spec of cards) {
     const card = createSidebarCard({
       id: spec.id,
+      type: spec.type,
       title: spec.title,
       icon: spec.icon,
       pinned: spec.pinned,

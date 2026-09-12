@@ -589,3 +589,71 @@ export const DEFAULT_INSTANCES = Object.freeze([
     config: { label: 'Tokyo', source: 'timezone', timezone: 'Asia/Tokyo', showSeconds: 'yes' },
   },
 ]);
+
+/**
+ * The 3D home's preview URL, as the SIDEBAR seed needs it.
+ *
+ * ⚠️ A deliberate duplicate of `HOME_3D_PREVIEW_URL` in
+ * `web/src/widgets/iframe/definition.js`. The server cannot import from `web/`
+ * — they are separate workspaces with no build step between them — and the
+ * seed has to know the URL because the roster is now server-side data rather
+ * than a hardcoded array in the shell.
+ *
+ * `?preview=true` is not decoration. It is a route the 3D home implements: on
+ * that flag it builds the scene non-interactive and auto-rotating, hides its
+ * own chrome including the controls button, and tunes itself for a tile. The
+ * plain interactive URL stays the default for a widget a USER adds by hand,
+ * where clicking a room is the point.
+ *
+ * This exact value has silently regressed once before — the `?preview=true`
+ * was dropped when the URL became absolute, and the sidebar showed the full
+ * interactive app with its controls button for an entire release before anyone
+ * noticed. `server/test/instances.test.js` asserts the two literals agree, so
+ * changing one without the other fails the suite rather than shipping.
+ */
+export const HOME_3D_PREVIEW_URL = 'https://3dhome.3dojoda.com/?preview=true';
+
+/**
+ * The default SIDEBAR roster.
+ *
+ * Moved here verbatim from `SIDEBAR_INSTANCES` in `web/src/shell/boot.js`,
+ * where it was a hardcoded array the user could not touch — which is the whole
+ * reason a sidebar widget could not be added, reordered or removed. These are
+ * ordinary instances: same table, same CRUD, same delete-cascade. The only
+ * thing that makes them sidebar widgets is `zone`, which `seedInstances`
+ * stamps from its `zone` option rather than each entry repeating it.
+ *
+ * Order matters and is the declaration order, exactly as for the grid roster:
+ * weather · calendar · 3D home · status, with status last because it is the
+ * pinned card that holds the bottom of the column.
+ */
+export const SIDEBAR_DEFAULTS = Object.freeze([
+  { id: 'sidebar-weather', type: 'weather', config: {} },
+  {
+    id: 'sidebar-calendar',
+    type: 'calendar',
+    // Eight, not the grid calendar's 25: this is a glanceable column, not a
+    // full agenda, and the card has to fit above a pinned status card.
+    config: { title: 'Calendar', maxEvents: 8 },
+  },
+  {
+    id: 'sidebar-home3d',
+    type: 'iframe',
+    config: {
+      url: HOME_3D_PREVIEW_URL,
+      title: '3D home',
+      scroll: 'no',
+      // ── SECURITY: these three flags are load-bearing ──────────────────
+      // A cross-origin embed of a third-party page. `allowSameOrigin: 'no'`
+      // is what stops the framed document reaching `parent.document` — i.e.
+      // this dashboard. A move from a hardcoded array into the database is
+      // emphatically not the place to widen an iframe sandbox, so the flags
+      // came across unchanged and `server/test/instances.test.js` asserts
+      // every one of them against the SEEDED ROW.
+      allowForms: 'no',
+      allowPopups: 'no',
+      allowSameOrigin: 'no',
+    },
+  },
+  { id: 'sidebar-status', type: 'status', config: {} },
+]);

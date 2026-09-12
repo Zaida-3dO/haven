@@ -3,7 +3,12 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { SIDEBAR_ICONS, createSidebar } from '../src/shell/sidebar.js';
-import { HOME_3D_PREVIEW_URL, HOME_3D_URL } from '../src/widgets/iframe/definition.js';
+import {
+  DEFAULT_SANDBOX,
+  HOME_3D_PREVIEW_URL,
+  HOME_3D_URL,
+  iframeWidget,
+} from '../src/widgets/iframe/definition.js';
 import { createFakeDocument } from './helpers/fake-dom.js';
 
 /**
@@ -511,15 +516,71 @@ test('the status card is still the pinned one', () => {
   );
 });
 
-test('the 3D home embed keeps its locked-down sandbox', () => {
-  // It kept the same config when it moved. A move is not the place to widen
-  // an iframe sandbox, and `allowSameOrigin: 'yes'` would let the embed read
-  // this dashboard.
-  const entry = /card:\s*'home3d',[\s\S]{0,400}?\},\s*\n/.exec(BOOT_CODE);
+test('the 3D home embed keeps its sandbox as tight as the embed allows', () => {
+  // Forms and popups stay off: nothing about a WebGL scene needs either, and
+  // a move is not the place to widen a sandbox.
+  //
+  // `allowSameOrigin: 'yes'` IS set here, deliberately, and this test used to
+  // assert the opposite on the grounds that it "would let the embed read this
+  // dashboard". That reasoning is WRONG FOR THIS EMBED and is why the
+  // assertion is now narrower rather than simply flipped.
+  //
+  // allow-scripts + allow-same-origin is "equivalent to no sandbox at all"
+  // only when the framed page is SAME-ORIGIN with the embedder: it then keeps
+  // the embedder's real origin and can reach `parent.document`, its storage
+  // and its session. `HOME_3D_URL` is an absolute PUBLIC host, so this frame
+  // is cross-origin and never holds Haven's origin whatever the sandbox says.
+  // The grant here buys the third-party page back its OWN storage and
+  // credentialled fetches, nothing of Haven's.
+  //
+  // It is load-bearing: without a real origin the frame gets an opaque one and
+  // sends `Origin: null`, which 3dhome cannot allow-list (every sandboxed
+  // iframe and file:// page on earth sends it, so trusting `null` is strictly
+  // worse than `*`). Every scene fetch was CORS-blocked and the tile rendered
+  // blank. 3dhome now ships a real 7-origin allow-list instead of a wildcard,
+  // which only works if this frame has an origin to be recognised by.
+  //
+  // The WIDGET DEFAULT must stay 'no' — asserted separately below — because a
+  // relative-path embed added later WOULD be same-origin, and that is exactly
+  // the case the default has to keep covering.
+  // Anchored on the `config: { ... }` block rather than a character budget.
+  // BOOT_CODE strips comments line-by-line, so a long comment inside the entry
+  // leaves a run of blank lines behind; a lazy `[\s\S]{0,N}?` then overshoots
+  // the closing brace and swallows the rest of the function, which silently
+  // turns these assertions into a scan of unrelated code.
+  const entry = /card:\s*'home3d',[\s\S]*?config:\s*\{([\s\S]*?)\n\s*\},/.exec(BOOT_CODE);
   assert.ok(entry, 'could not find the home3d sidebar instance');
-  assert.match(entry[0], /allowSameOrigin:\s*'no'/, 'the embed must not get same-origin access');
   assert.match(entry[0], /allowForms:\s*'no'/, 'the embed must not get forms');
   assert.match(entry[0], /allowPopups:\s*'no'/, 'the embed must not get popups');
+  assert.match(
+    entry[0],
+    /allowSameOrigin:\s*'yes'/,
+    'the 3D embed needs a real origin so 3dhome can allow-list it by name; ' +
+      'see the comment above before changing this'
+  );
+  // The thing that made the grant safe is that the URL is cross-origin. If
+  // this ever becomes a relative path, the reasoning above collapses.
+  assert.ok(
+    /^https:\/\//.test(HOME_3D_URL),
+    'HOME_3D_URL must stay an absolute cross-origin URL while the embed has ' +
+      'allow-same-origin: a relative path here would be same-origin with the ' +
+      'dashboard, which IS the "no sandbox at all" case'
+  );
+});
+
+test('the iframe widget DEFAULT sandbox still withholds same-origin', () => {
+  // The per-embed grant above is an exception, not a new default. A future
+  // embed — especially a relative-path one, which would be same-origin — must
+  // keep landing on the locked-down side unless someone opts it out by hand.
+  assert.ok(
+    !DEFAULT_SANDBOX.includes('allow-same-origin'),
+    'the default sandbox must not include allow-same-origin'
+  );
+  assert.equal(
+    iframeWidget.getStubConfig().allowSameOrigin,
+    'no',
+    "a newly-added iframe widget must still start with allowSameOrigin: 'no'"
+  );
 });
 
 test('the 3D home URL comes from a constant, never an inline address', () => {

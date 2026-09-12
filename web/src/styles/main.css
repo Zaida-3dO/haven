@@ -740,8 +740,33 @@ body {
   color: var(--haven-accent-fg) !important;
 }
 
-.haven-toolbar__save:hover {
+.haven-toolbar__save:hover:not([aria-disabled='true']) {
   background: var(--haven-accent-hover) !important;
+}
+
+/* Save with nothing to save.
+ *
+ * `[aria-disabled='true']`, not `:disabled`, because the button deliberately
+ * keeps the `disabled` PROPERTY off so it stays focusable — a disabled button
+ * is not focusable, and the reason it is inert would then be announced to
+ * nobody. See the note in `edit-mode.js`'s `sync()`.
+ *
+ * **The `!important` is not decoration.** `.haven-toolbar__save` above sets
+ * border/background/colour with `!important`, so a plain rule here loses the
+ * cascade outright no matter how specific it is, and the button stays full
+ * amber while claiming to be off. These declarations match that weight and
+ * win on source order.
+ *
+ * The amber is the affirmative-action colour; a button that cannot act must
+ * not wear it. Dropping to the muted surface is what makes "there is nothing
+ * to save" legible at a glance rather than only on hover. */
+.haven-toolbar__save[aria-disabled='true'] {
+  border-color: var(--haven-border) !important;
+  background: var(--haven-surface) !important;
+  color: var(--haven-muted) !important;
+  /* `not-allowed`, and NOT `opacity`: dimming an already-muted colour pushes
+     it under the contrast floor, and this text still has to be readable. */
+  cursor: not-allowed !important;
 }
 
 /* A visible focus ring is what makes the chrome usable without a mouse. One

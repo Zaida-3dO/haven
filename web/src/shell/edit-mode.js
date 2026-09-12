@@ -114,7 +114,6 @@ export function createEditMode({
 
   let mode = MODE.VIEW;
   let snapshot = null;
-  let removed = [];
 
   const setMode = (next) => {
     mode = next;
@@ -161,11 +160,6 @@ export function createEditMode({
       return mode === MODE.EDIT;
     },
 
-    /** Widgets removed this session, pending Save. Empty outside edit mode. */
-    get pendingRemovals() {
-      return [...removed];
-    },
-
     /**
      * Whether this session has anything to save.
      *
@@ -176,11 +170,15 @@ export function createEditMode({
      * **False outside edit mode**, where there is no snapshot to compare
      * against and Save is not reachable anyway.
      *
-     * **A pending removal counts even with no geometry change.** `removed` is
-     * tracked separately from the grid's own nodes, so a session whose only
-     * act was removing a widget must still be dirty — reporting it clean is
-     * strictly worse than the old always-enabled button, because it actively
-     * tells the user their change is already saved.
+     * **A removal needs no separate tracking**, which is worth stating
+     * because it used to have some. A removed widget is deleted server-side
+     * the moment it is clicked (`boot.js` → `instancesClient.remove` →
+     * `instances-store.delete`, which calls `pruneLayoutReferences` and drops
+     * the layout node across every breakpoint inside the same transaction).
+     * There is nothing about the removal itself left for a layout save to
+     * persist. What a save DOES still owe is the reflow it caused — the
+     * surviving tiles' geometry — and `layoutDiffers` sees that through the
+     * node count and the id comparison, with no help needed.
      *
      * **An addition counts too**, and that one is a judgement call worth
      * stating. A widget added during the session is persisted eagerly over the
@@ -192,7 +190,6 @@ export function createEditMode({
      */
     get isDirty() {
       if (mode !== MODE.EDIT || !snapshot) return false;
-      if (removed.length > 0) return true;
       return layoutDiffers(snapshot.nodes, gridHandle.extract(gridHandle.breakpoint()));
     },
 
@@ -203,7 +200,6 @@ export function createEditMode({
     enter() {
       if (mode === MODE.EDIT) return;
       snapshot = snapshotLayout(gridHandle, gridHandle.breakpoint());
-      removed = [];
       setMode(MODE.EDIT);
     },
 
@@ -237,7 +233,6 @@ export function createEditMode({
       try {
         const result = await layoutClient.save({ [breakpoint]: nodes });
         snapshot = null;
-        removed = [];
         setMode(MODE.VIEW);
         return result;
       } catch (err) {
@@ -258,19 +253,20 @@ export function createEditMode({
       if (snapshot) gridHandle.applyLayout(snapshot.nodes);
 
       snapshot = null;
-      removed = [];
       setMode(MODE.VIEW);
     },
 
-    /** Toggles between the two modes. Discards on exit — Save is explicit. */
+    /**
+     * Toggles between the two modes. Discards on exit — Save is explicit.
+     *
+     * Note what Discard does NOT undo: a widget removed this session is
+     * already gone server-side (see `isDirty`), so Discard restores the
+     * geometry of what remains and cannot bring it back. That asymmetry is
+     * why removals are not modelled as pending changes.
+     */
     toggle() {
       if (mode === MODE.EDIT) this.discard();
       else this.enter();
-    },
-
-    /** Records a widget removal so Save can act on it. */
-    noteRemoval(widgetId) {
-      if (mode === MODE.EDIT && widgetId) removed.push(widgetId);
     },
   };
 }
@@ -326,9 +322,48 @@ export function createEditToolbar({ editMode, document: doc = globalThis.documen
     sync();
   });
 
+  /**
+   * The message from the last failed save, or null.
+   *
+   * It lives out here rather than being written straight onto the button
+   * because `sync()` runs in the `finally` immediately afterwards and rewrites
+   * exactly those attributes — a failed save leaves the layout dirty, so
+   * `sync()` would take the "live" branch and strip the explanation one line
+   * after it was set. Holding the error and letting `sync()` render it keeps
+   * one writer for the button's accessible state.
+   */
+  let saveError = null;
+
   save.addEventListener('click', async () => {
+    // The button stays focusable and keeps its `click` when there is nothing
+    // to save (see `sync()`), so the no-op has to be enforced here rather
+    // than by the browser. Returning before `sync()` is deliberate: nothing
+    // has changed, so there is nothing to re-render.
+    if (save.getAttribute('aria-disabled') === 'true') return;
+
+    // A new attempt supersedes the previous failure, so the stale message
+    // cannot outlive the thing it described.
+    saveError = null;
+
     try {
       await editMode.save();
+    } catch (err) {
+      /**
+       * Without this `catch` a refused save is an unhandled rejection: the
+       * button appears to work and the layout is silently not persisted.
+       *
+       * Two things reject here, not one. `save()` throws outright for a
+       * breakpoint GridStack has never arranged — latent today, because only
+       * the rendered breakpoint is ever saved, and armed the moment anyone
+       * saves both at once. It ALSO re-throws after `onError` when the
+       * layout PUT itself fails, which is reachable right now on any network
+       * or server error.
+       *
+       * The message is surfaced on the button rather than in an `alert`, so
+       * the failure is reported where the failing control is.
+       */
+      saveError = err?.message ?? String(err);
+      console.error('Haven: saving the layout failed.', err);
     } finally {
       sync();
     }
@@ -349,20 +384,47 @@ export function createEditToolbar({ editMode, document: doc = globalThis.documen
     /**
      * Save is inert until there is something to save.
      *
-     * **`disabled`, not `hidden`.** The button keeps its place in the toolbar
-     * and greys out. A Save that disappears and reappears as you drag tiles
-     * around is a moving target, and its absence reads as "this dashboard
-     * cannot be saved" rather than "there is nothing to save yet".
+     * **Inert, not hidden.** The button keeps its place in the toolbar. A Save
+     * that disappears and reappears as you drag tiles around is a moving
+     * target, and its absence reads as "this dashboard cannot be saved"
+     * rather than "there is nothing to save yet".
      *
-     * The `title` is the only thing that explains *why* it is inert — a
-     * disabled button is otherwise silent about it. It is cleared rather than
-     * left stale when the layout is dirty, so a hover never claims there is
-     * nothing to save while Save is live.
+     * **`aria-disabled`, NOT the `disabled` property**, and that is the whole
+     * point of this block. A `disabled` button is removed from the tab order,
+     * so it can never be focused — which means the explanation for why it is
+     * inert is announced to nobody using a keyboard or a screen reader, and
+     * `title` alone is a mouse-only affordance. Keeping the button focusable
+     * and marking it `aria-disabled` leaves the reason reachable: the label
+     * itself carries it, so focusing Save says "Save — no changes to save"
+     * instead of an unexplained dead control.
+     *
+     * The cost is that the click must be swallowed in JS, because
+     * `aria-disabled` is advisory and the browser still fires the event. The
+     * handler above does that.
+     *
+     * Both the label and the `title` are CLEARED rather than left stale when
+     * the layout is dirty, so neither ever claims there is nothing to save
+     * while Save is live.
+     *
+     * Three states, in priority order: a failed save explains itself, an
+     * inert Save explains itself, and a live Save says nothing beyond its own
+     * text. The failure wins over "live" because a dirty layout is exactly
+     * what a failed save leaves behind — reporting only "there is something
+     * to save" would drop the news that saving it just failed.
      */
     const dirty = editMode.isDirty;
-    save.disabled = !dirty;
-    if (dirty) save.removeAttribute('title');
-    else save.setAttribute('title', 'No changes to save');
+    save.setAttribute('aria-disabled', String(!dirty));
+
+    if (saveError) {
+      save.setAttribute('title', `Could not save: ${saveError}`);
+      save.setAttribute('aria-label', `Save — could not save: ${saveError}`);
+    } else if (dirty) {
+      save.removeAttribute('title');
+      save.removeAttribute('aria-label');
+    } else {
+      save.setAttribute('title', 'No changes to save');
+      save.setAttribute('aria-label', 'Save — no changes to save');
+    }
 
     // The bar itself only exists while editing — see the note above.
     bar.hidden = !editing;

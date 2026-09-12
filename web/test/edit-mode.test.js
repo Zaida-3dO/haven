@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test, { describe } from 'node:test';
 
-import { MODE, createEditMode, layoutDiffers } from '../src/shell/edit-mode.js';
+import { MODE, createEditMode, createEditToolbar, layoutDiffers } from '../src/shell/edit-mode.js';
+import { createFakeDocument } from './helpers/fake-dom.js';
 
 /**
  * A stand-in for the handle `mountGrid` returns.
@@ -340,31 +341,156 @@ describe('save', () => {
   });
 });
 
-describe('pending removals', () => {
-  test('are recorded during an edit session and cleared by discard', () => {
-    const editMode = createEditMode({
-      gridHandle: fakeGridHandle(),
-      layoutClient: fakeLayoutClient(),
-    });
+describe('the edit toolbar', () => {
+  /**
+   * The toolbar had NO tests at all before this suite — `createEditToolbar`
+   * appeared only in `boot.js` and its own module. That is how a Save button
+   * that never greyed out, and a refused save that surfaced nothing, both
+   * survived review: nothing could see them.
+   */
+  function build({ nodes = [{ id: 'a', x: 0, y: 0, w: 2, h: 2 }], fail = false } = {}) {
+    const doc = createFakeDocument();
+    const gridHandle = fakeGridHandle({ nodes });
+    const layoutClient = fakeLayoutClient({ fail });
+    const editMode = createEditMode({ gridHandle, layoutClient });
+    const toolbar = createEditToolbar({ editMode, document: doc });
+    return { toolbar, editMode, gridHandle, layoutClient };
+  }
+
+  /** Fire the click listener the toolbar registered, as the browser would. */
+  const click = async (el) => {
+    for (const handler of el.listeners.get('click') ?? []) await handler();
+  };
+
+  const move = (gridHandle) => {
+    gridHandle.state.nodes = [{ id: 'a', x: 6, y: 4, w: 2, h: 2 }];
+  };
+
+  test('Save is marked aria-disabled, NOT disabled, so it stays focusable', () => {
+    // The finding: a `disabled` button is not focusable, so the reason it is
+    // inert is announced to nobody. Keeping the property off is the whole
+    // fix — if it comes back, the explanation becomes unreachable again.
+    const { toolbar, editMode } = build();
 
     editMode.enter();
-    editMode.noteRemoval('clock-1');
+    toolbar.sync();
 
-    assert.deepEqual(editMode.pendingRemovals, ['clock-1']);
-
-    editMode.discard();
-    assert.deepEqual(editMode.pendingRemovals, []);
+    assert.equal(toolbar.save.getAttribute('aria-disabled'), 'true');
+    assert.notEqual(toolbar.save.disabled, true, 'the disabled property must stay off');
   });
 
-  test('are ignored outside edit mode', () => {
-    const editMode = createEditMode({
-      gridHandle: fakeGridHandle(),
-      layoutClient: fakeLayoutClient(),
+  test('an inert Save says why, in its accessible name and not only a tooltip', () => {
+    const { toolbar, editMode } = build();
+
+    editMode.enter();
+    toolbar.sync();
+
+    assert.equal(toolbar.save.getAttribute('title'), 'No changes to save');
+    assert.match(toolbar.save.getAttribute('aria-label') ?? '', /no changes to save/i);
+  });
+
+  test('a dirty layout clears both the reason and the inert flag', () => {
+    // The stale half: a hover must never claim there is nothing to save while
+    // Save is live.
+    const { toolbar, editMode, gridHandle } = build();
+
+    editMode.enter();
+    move(gridHandle);
+    toolbar.sync();
+
+    assert.equal(toolbar.save.getAttribute('aria-disabled'), 'false');
+    assert.equal(toolbar.save.getAttribute('title'), null);
+    assert.equal(toolbar.save.getAttribute('aria-label'), null);
+  });
+
+  test('clicking an inert Save saves nothing', async () => {
+    // `aria-disabled` is advisory — the browser still fires the click, so the
+    // no-op has to be enforced in JS. Without that, marking the button
+    // aria-disabled instead of disabled would make a dead button live.
+    const { toolbar, editMode, layoutClient } = build();
+
+    editMode.enter();
+    toolbar.sync();
+    await click(toolbar.save);
+
+    assert.equal(layoutClient.saves.length, 0);
+    assert.equal(editMode.isEditing, true, 'a swallowed click must not leave edit mode');
+  });
+
+  test('a live Save still saves', async () => {
+    // The other side of the swallow: it must not swallow everything.
+    const { toolbar, editMode, gridHandle, layoutClient } = build();
+
+    editMode.enter();
+    move(gridHandle);
+    toolbar.sync();
+    await click(toolbar.save);
+
+    assert.equal(layoutClient.saves.length, 1);
+    assert.equal(editMode.isEditing, false);
+  });
+
+  test('a refused save surfaces the reason instead of rejecting unhandled', async () => {
+    // Before the `catch`, the throw inside `save()` became an unhandled
+    // rejection: the button appeared to work and nothing was persisted.
+    const { toolbar, editMode, gridHandle } = build({ fail: true });
+
+    editMode.enter();
+    move(gridHandle);
+    toolbar.sync();
+
+    await assert.doesNotReject(async () => {
+      await click(toolbar.save);
     });
 
-    editMode.noteRemoval('clock-1');
+    assert.match(toolbar.save.getAttribute('title') ?? '', /could not save/i);
+    assert.match(toolbar.save.getAttribute('title') ?? '', /network down/);
+    // Announced, not just hoverable — the same reason the inert state uses a
+    // label rather than relying on `title`.
+    assert.match(toolbar.save.getAttribute('aria-label') ?? '', /could not save/i);
+    assert.equal(editMode.isEditing, true, 'a failed save must stay in edit mode');
+  });
 
-    assert.deepEqual(editMode.pendingRemovals, []);
+  test('the failure message does not outlive the failure', async () => {
+    // `sync()` runs in the `finally` straight after the catch and rewrites
+    // these very attributes, so the error has to be held and rendered rather
+    // than written directly — otherwise it is stripped one line after it is
+    // set. This asserts the other end: it must also GO when a retry works,
+    // or the button accuses itself of a failure that has been fixed.
+    const doc = createFakeDocument();
+    const gridHandle = fakeGridHandle({ nodes: [{ id: 'a', x: 0, y: 0, w: 2, h: 2 }] });
+    let fail = true;
+    const layoutClient = {
+      saves: [],
+      async save(payload) {
+        this.saves.push(payload);
+        if (fail) throw new Error('network down');
+        return { saved: Object.keys(payload) };
+      },
+    };
+    const editMode = createEditMode({ gridHandle, layoutClient });
+    const toolbar = createEditToolbar({ editMode, document: doc });
+
+    editMode.enter();
+    move(gridHandle);
+    toolbar.sync();
+
+    await click(toolbar.save);
+    assert.match(toolbar.save.getAttribute('title') ?? '', /network down/);
+
+    fail = false;
+    await click(toolbar.save);
+
+    // The retry succeeds and drops back to view mode, where Save is inert
+    // again — so the title is the ordinary "nothing to save", NOT absent. The
+    // claim being made is that no trace of the failure survives it.
+    assert.doesNotMatch(
+      toolbar.save.getAttribute('title') ?? '',
+      /could not save|network down/i,
+      'the stale failure must not outlive a successful retry'
+    );
+    assert.doesNotMatch(toolbar.save.getAttribute('aria-label') ?? '', /could not save/i);
+    assert.equal(editMode.isEditing, false, 'the retry must actually save');
   });
 });
 
@@ -478,16 +604,28 @@ describe('isDirty', () => {
     assert.equal(editMode.isDirty, false);
   });
 
-  test('is true after a removal even when no tile moved', () => {
-    // `removed` is tracked separately from the grid's nodes, so a session
-    // whose only act was a removal has identical geometry. Reporting that
-    // clean is worse than an always-enabled Save: it tells the user their
-    // change is already saved.
-    const gridHandle = fakeGridHandle({ nodes: [{ id: 'a', x: 0, y: 0, w: 2, h: 2 }] });
+  test('is true after a removal, seen through the grid rather than a tally', () => {
+    // Removals used to be tracked in a separate `removed` array that nothing
+    // in the app ever wrote to, so this branch was unreachable in production
+    // while looking covered. The array is gone; what makes a removal dirty is
+    // that the tile is no longer among the grid's nodes, which is the same
+    // thing `layoutDiffers` already uses for every other kind of change.
+    //
+    // Removing the SECOND tile leaves the first exactly where it was, so a
+    // geometry-only comparison would call this clean. Only the node count and
+    // the id check catch it.
+    const gridHandle = fakeGridHandle({
+      nodes: [
+        { id: 'a', x: 0, y: 0, w: 2, h: 2 },
+        { id: 'b', x: 2, y: 0, w: 2, h: 2 },
+      ],
+    });
     const editMode = createEditMode({ gridHandle, layoutClient: fakeLayoutClient() });
 
     editMode.enter();
-    editMode.noteRemoval('a');
+    assert.equal(editMode.isDirty, false);
+
+    gridHandle.state.nodes = [{ id: 'a', x: 0, y: 0, w: 2, h: 2 }];
 
     assert.equal(editMode.isDirty, true);
   });

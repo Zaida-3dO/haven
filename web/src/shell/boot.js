@@ -179,6 +179,18 @@ export async function bootDashboard(
     onSettings: (widgetId) => settingsPanel.open(widgetId),
     onRemoved: (widgetId) => {
       roster.delete(widgetId);
+      // Removing a tile reflows the ones around it, and that surviving
+      // geometry is exactly what a layout save persists — so Save has to
+      // re-evaluate. Without this the button is stale after a removal: it
+      // still reads "No changes to save" while the board has visibly moved.
+      //
+      // Optional-chained because `connectGrid` is built before `toolbar`
+      // exists. Nothing can actually call this that early — the only caller
+      // of `remove()` is a tile's own remove button, which needs edit mode
+      // and therefore a rendered toolbar — but the binding is in its temporal
+      // dead zone until then, so the `?.` is what keeps that a design
+      // statement rather than a load-order hazard.
+      toolbar?.sync();
       if (!instancesClient) return;
       // Deleting server-side also drops the layout node and the instance's
       // stored credentials — see `instances-store.delete`.

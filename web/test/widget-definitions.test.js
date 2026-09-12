@@ -168,8 +168,13 @@ const sources = Object.fromEntries(
 test('the widget scan actually covers every widget directory', () => {
   // Guards the glob itself: if `widgetSourceFiles` silently returned nothing
   // (a bad URL, a rename), every invariant below would vacuously pass.
-  const dirs = new Set(Object.keys(sources).map((f) => f.split('/')[0]));
-  for (const expected of [
+  //
+  // This list is deliberately hardcoded and NOT derived from the filesystem.
+  // Deriving it from `readdirSync` — the very call under test — would mean a
+  // `readdirSync` regression made both sides agree on nothing and the test
+  // passed vacuously, which is precisely the failure being guarded against.
+  // Its whole value is being independent of the thing it checks.
+  const expectedDirs = [
     'apps',
     'calendar',
     'clock',
@@ -181,9 +186,27 @@ test('the widget scan actually covers every widget directory', () => {
     'status',
     'torrents',
     'weather',
-  ]) {
+  ];
+  const dirs = new Set(Object.keys(sources).map((f) => f.split('/')[0]));
+
+  for (const expected of expectedDirs) {
     assert.ok(dirs.has(expected), `${expected}/ must be scanned`);
   }
+
+  // ...and the reverse. Without this the guard is one-directional: a brand-new
+  // widget directory is still *scanned* (the per-file invariants below iterate
+  // `Object.keys(sources)` directly), but it is never flagged as missing from
+  // this inventory, so the list silently rots. The `>= 25` count has enough
+  // headroom that it would not catch it either. PR #58 fixed one instance of
+  // that drift — `status/` was absent from ten of eleven entries; this is the
+  // mechanism that let it drift unnoticed.
+  const unlisted = [...dirs].filter((dir) => !expectedDirs.includes(dir)).sort();
+  assert.deepEqual(
+    unlisted,
+    [],
+    `a widget directory is not in this test's inventory — add ${unlisted.join(', ')} to expectedDirs`
+  );
+
   assert.ok(Object.keys(sources).length >= 25, 'expected the whole widget tree, not a subset');
 });
 

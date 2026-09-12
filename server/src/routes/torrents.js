@@ -14,6 +14,7 @@
  *   service down + cache -> 200, the last good list + a `stale` notice
  *   service down, no cache -> 200, `unreachable: true` and an empty list
  *   not configured       -> 200, `configured: false` and a hint
+ *   auth wanted, none set -> 200, `authRequired: true` and a hint naming the vars
  *
  * Note what is NOT in any of those: a 5xx. A transient upstream failure is not
  * a server error, and returning one would make the shell's error boundary draw
@@ -88,7 +89,11 @@ export async function registerTorrentRoutes(app, { connector, now = () => Date.n
       // An auth failure is separated out because the fix is different: one
       // needs the service started, the other needs the password corrected.
       authFailed: result.status === RESULT.AUTH_FAILED,
-      notices: [{ message: result.message }],
+      // And "we were never given credentials" is separated from both, because
+      // its fix is to *supply* a credential rather than to correct one. The
+      // hint travels with it so the tile can name the variables to set.
+      authRequired: result.status === RESULT.AUTH_REQUIRED,
+      notices: [{ message: result.message, ...(result.hint ? { hint: result.hint } : {}) }],
     };
   });
 

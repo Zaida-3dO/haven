@@ -45,7 +45,7 @@ rather than failing.
 | Variable | For |
 |---|---|
 | `HAVEN_OPENWEATHER_API_KEY` | Weather widget |
-| `HAVEN_QBITTORRENT_URL` / `_USER` / `_PASS` | Torrents widget |
+| `HAVEN_QBITTORRENT_URL` plus either `_API_KEY` or `_USER` / `_PASS` | Torrents widget. The API key (qBittorrent 5.2+, Options → WebUI → API Key) is preferred — stateless, with no session to expire — and wins when both are set |
 | `HAVEN_HA_URL` / `HAVEN_HA_TOKEN` | Home Assistant, for notices |
 | `HAVEN_CALENDAR_ICS_URL` | Calendar. **A bearer credential** — anyone holding it can read the calendar |
 | `HAVEN_GITHUB_TOKEN` | Releases API. Raises the rate limit; public repos work unauthenticated at a lower one |

@@ -50,7 +50,7 @@ export async function registerTorrentRoutes(app, { connector, now = () => Date.n
             message: 'qBittorrent is not configured.',
             // The hint names the variables rather than describing them, so the
             // tile tells you exactly what to set without a trip to the docs.
-            hint: 'Set HAVEN_QBITTORRENT_URL, _USER and _PASS, then restart Haven.',
+            hint: 'Set HAVEN_QBITTORRENT_URL, plus either _API_KEY or _USER and _PASS, then restart Haven.',
           },
         ],
       };

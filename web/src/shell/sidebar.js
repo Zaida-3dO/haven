@@ -1,20 +1,57 @@
 /**
  * The sidebar — a fixed 320px column on the right of the main grid.
  *
- * ## Why this is not just more widgets on the grid
+ * ## The sidebar is a ZONE, not a second grid
  *
- * Everything here could technically be a GridStack tile. It should not be.
- * The dashboard Haven replaces has a genuine two-part layout: a main area you
- * arrange, and a column of ambient readouts you do not. Weather, the calendar
- * and the server status are glanceable context — you want them in the same
- * place every time you look, and you do not want to be able to drag them into
- * the middle of the app grid by accident.
+ * Haven has two zones a widget can live in: `grid` and `sidebar`. They are not
+ * "the editable one and the fixed one" — they are two different LAYOUT MODELS,
+ * and which one a widget wants is a real design choice rather than a
+ * limitation.
  *
- * So the sidebar is plain layout, outside the grid entirely. It is not
- * editable, it is not draggable, and its contents are fixed in code. That is a
- * deliberate limitation, not an oversight: a "customisable" sidebar would be
- * the same thing as the grid, and then there would be no reason for it to
- * exist.
+ * - The **grid** is two-dimensional free placement: you choose x, y, width and
+ *   height, tiles collide and reflow, and geometry is remembered per
+ *   breakpoint. GridStack owns it.
+ * - The **sidebar** is a one-column, intrinsically-sized, non-overlapping
+ *   stack. A card is as tall as its content and as wide as the column; the
+ *   only thing you choose is ORDER. There is no x, no y, no width, no height,
+ *   and so nothing per-breakpoint to remember — the same order applies
+ *   everywhere.
+ *
+ * That is why the sidebar is not GridStack at `column: 1`. A one-column grid is
+ * a list with cell-height arithmetic bolted on: you would compute geometry only
+ * to collapse it straight back to an index, and a uniform cellHeight would crop
+ * a card (the forecast) whose whole point is that it sizes to its content.
+ *
+ * The zone is a property of the widget INSTANCE, not of the layout — see
+ * `docs/DESIGN.md` §3.1.
+ *
+ * ## What the user gets to do (design decision — Ope, 2026-09-09)
+ *
+ * A widget's zone and its position within the sidebar are the user's, not the
+ * code's:
+ *
+ * - choose grid-or-sidebar when adding a widget,
+ * - reorder cards within the sidebar,
+ * - remove a card from the sidebar.
+ *
+ * Dragging a tile from the grid into the sidebar is a nice-to-have on top of
+ * that, not part of the requirement.
+ *
+ * **NOT BUILT YET.** As of 2026-09-10 this file still builds the sidebar from a
+ * hardcoded card list (`boot.js`), and none of the above is wired up. This
+ * block describes the model the code is being built TOWARD so the next reader
+ * is not misled about the destination; check the code, not this comment, for
+ * what ships today.
+ *
+ * A previous version of this comment asserted the opposite — that a fixed,
+ * non-editable sidebar was "a deliberate limitation, not an oversight" and that
+ * a customisable sidebar "would be the same thing as the grid". That was an
+ * agent's inference written as though it were settled design. It was not Ope's,
+ * he has explicitly disowned it, and it had already been quoted back to him as
+ * a constraint by two readers who took it at face value. Hence the attribution
+ * lines in this file: **if a paragraph here states a design decision, it names
+ * the person who made it and the date.** Anything unattributed is an
+ * observation about the code, not a ruling about the product.
  *
  * ## The one asymmetry worth naming
  *

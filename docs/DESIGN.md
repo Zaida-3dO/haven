@@ -135,6 +135,62 @@ mobile view nobody would choose; a hero carousel and a 3D iframe want different 
 treatment than a 6-item app grid. You arrange desktop and mobile separately, and each is
 remembered.
 
+### 3.1 Zones
+
+GridStack is the layout engine for the **main grid**. It is not the layout engine for the
+whole page. A widget lives in one of **two zones**:
+
+| Zone | Layout model | What the user chooses | Engine |
+|---|---|---|---|
+| `grid` | Two-dimensional free placement — collision + reflow, geometry per breakpoint | x, y, width, height | GridStack |
+| `sidebar` | One column, intrinsically sized, non-overlapping stack | order only | Plain flex layout |
+
+**These are two layout models, not one editable zone and one fixed one.** A sidebar card is
+as tall as its content and as wide as the column: there is no x, no y, no width and no
+height to choose, so the only free variable is where it sits in the stack. That is a
+genuinely different thing from the grid, which is why the sidebar is not simply GridStack
+at `column: 1` — a one-column grid is a list with cell-height arithmetic bolted on. You
+would compute geometry only to collapse it straight back to an index, and a uniform
+`cellHeight` would crop the cards whose whole point is that they size to their content.
+
+**Zone is a property of the widget instance, not of the layout — and is therefore
+breakpoint-independent.** A widget is a sidebar widget everywhere, or a grid widget
+everywhere; there is no way to express "sidebar on desktop, grid on mobile", deliberately.
+This follows the existing split rather than departing from it: the widget roster is global,
+and only *geometry* is per-breakpoint. Below the CSS breakpoint the sidebar stops being a
+column beside the grid and becomes a stacked section under it, in the same order.
+
+**This does not contradict "explicit per-breakpoint layouts, not auto-reflow" above.** That
+rule is about *geometry* — the thing that genuinely wants a different answer on a phone
+than on a desktop. Zone is not geometry, and a user forced to sort the same sidebar twice
+would be doing bookkeeping, not design.
+
+Within the sidebar, order is `sort_order` on the widget instance — the ordering column the
+roster already carries — rather than a y-coordinate. The grid ignores it.
+
+**Status as of 2026-09-10: the model above is what the code is being built toward, and only
+the grid half of it ships today.** The sidebar renders from a hardcoded card list, its
+contents cannot be changed from the UI, and no `zone` field exists in the schema yet. The
+requirement that it become user-arrangeable is Ope's, 2026-09-09:
+
+> "i should be able to add widgets to the main body or to the sidebar and move widgets
+> around on the sidebar, (and bonus points if we can drag widgets from the main body to the
+> sidebar but that's not the hard requirement if i can maybe remove it from the main body
+> and then re-add directly to the sidebar, that works too)"
+
+So: choosing the destination zone when adding, reordering within the sidebar, and removing
+from the sidebar are the requirement. Dragging a tile from the grid into the sidebar is a
+nice-to-have on top, and may not be built — it is the one part that would need a second
+GridStack instance and cross-grid drop targets.
+
+> **A note on where this section came from.** Until 2026-09-10 the sidebar appeared nowhere
+> in these docs, and its rationale existed only as a comment in `web/src/shell/sidebar.js`
+> asserting that a fixed sidebar was "a deliberate limitation, not an oversight". No person
+> decided that; an agent inferred it and wrote it as settled design, after which two
+> readers quoted it back as a constraint. It is recorded here so the model lives somewhere
+> a reader will look, and so the next such claim can be checked against a document rather
+> than a comment.
+
 ---
 
 ## 4. The widget contract
@@ -359,6 +415,13 @@ grid.
   panel opens, and each widget gets a settings gear + remove button.
 - Layout saves on exit, with an explicit Save/Discard. Mobile and desktop layouts are edited
   separately, each in its own breakpoint.
+- **Planned, not yet built (see §3.1):** edit mode currently covers the grid zone only —
+  every selector it uses is rooted at the grid, so sidebar cards never dim and never gain
+  controls. The sidebar zone is to get its own controls: reorder a card within the column
+  and remove it. Reordering is a one-dimensional move rather than a drag on a canvas, so it
+  wants explicit per-card controls (which are keyboard-accessible by construction) rather
+  than GridStack drag handles. The "Add widget" panel gains a destination choice — main
+  grid or sidebar.
 
 ---
 

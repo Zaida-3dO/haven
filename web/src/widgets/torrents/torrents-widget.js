@@ -214,6 +214,18 @@ export class TorrentsWidget extends ElementBase {
       return;
     }
 
+    // Credentials were never supplied and the service insists on them. Said
+    // before the generic auth branch, and deliberately NOT phrased as a
+    // rejected login: nothing was rejected, because nothing was sent.
+    if (payload?.authRequired) {
+      this.#renderMessage(
+        els,
+        'qBittorrent requires credentials.',
+        payload.notices?.[0]?.hint ?? 'Set HAVEN_QBITTORRENT_API_KEY, or _USER and _PASS.'
+      );
+      return;
+    }
+
     if (payload?.unreachable) {
       this.#renderMessage(
         els,

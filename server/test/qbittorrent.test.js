@@ -360,3 +360,63 @@ test('loginBackoff widens and then caps', () => {
   assert.equal(loginBackoff(3), 20_000);
   assert.equal(loginBackoff(50), 300_000);
 });
+
+test('no credentials at all reports the truth, not a session that never existed', async () => {
+  // A URL against an auth-requiring instance, with no key and no username.
+  // This used to answer "rejected the session after re-authenticating" — a
+  // message naming a re-authentication that provably never ran (login calls
+  // were zero), which sends anyone debugging it hunting for credentials that
+  // are wrong rather than absent.
+  const fake = createFakeQbittorrent({ torrents: [rawTorrent()] });
+  const qbt = createQbittorrentConnector({
+    env: { HAVEN_QBITTORRENT_URL: FAKE_URL },
+    fetchImpl: fake.fetchImpl,
+  });
+
+  const result = await qbt.getTorrents();
+
+  assert.equal(result.status, RESULT.AUTH_REQUIRED);
+  assert.doesNotMatch(
+    result.message,
+    /re-authenticat|session/i,
+    'must not blame a session or a re-authentication that never happened'
+  );
+  assert.match(result.message, /credentials/i);
+  // The hint names the variables, so the tile says what to set.
+  assert.match(result.hint, /HAVEN_QBITTORRENT_API_KEY/);
+  assert.equal(fake.state.calls.login, 0, 'there are no credentials to log in with');
+  // And exactly one data call: retrying a request that was refused for having
+  // no credentials would be refused identically every tick.
+  assert.equal(fake.state.calls.info, 1, 'no pointless retry');
+});
+
+test('a genuine session expiry is still reported as one', async () => {
+  // The counterpart to the test above: with real credentials, a 403 after a
+  // fresh login IS a session the service refused, and must keep saying so.
+  const fake = createFakeQbittorrent({ torrents: [rawTorrent()] });
+  let infoCalls = 0;
+  const alwaysForbidden = async (url, options) => {
+    if (String(url).endsWith('/torrents/info')) {
+      infoCalls += 1;
+      return {
+        status: 403,
+        ok: false,
+        headers: { get: () => null },
+        async text() {
+          return 'Forbidden';
+        },
+        async json() {
+          return null;
+        },
+      };
+    }
+    return fake.fetchImpl(url, options);
+  };
+
+  const qbt = createQbittorrentConnector({ env: fake.env(), fetchImpl: alwaysForbidden });
+  const result = await qbt.getTorrents();
+
+  assert.equal(result.status, RESULT.AUTH_FAILED);
+  assert.match(result.message, /re-authenticating/i);
+  assert.equal(infoCalls, 2, 'credentials earn exactly one retry');
+});

@@ -406,7 +406,22 @@ export async function bootDashboard(
         scroll: 'no',
         allowForms: 'no',
         allowPopups: 'no',
-        allowSameOrigin: 'no',
+        // 'yes' here and nowhere else. The sandbox's opaque origin made the
+        // scene's own `houses/<id>/geometry.json` fetches arrive at 3dhome as
+        // `Origin: null`, which cannot be allowlisted meaningfully, so every
+        // fetch was CORS-blocked and the tile rendered nothing. With a real
+        // origin 3dhome can allowlist this embed by name instead of opening up
+        // to `*` — a floor plan of the house is behind those URLs.
+        //
+        // This is NOT the "equivalent to no sandbox at all" case the module
+        // doc warns about: that requires the framed page to be SAME-origin
+        // with the dashboard, where it could reach `parent.document`. This
+        // embed is cross-origin (3dhome.3dojoda.com), so the grant is scoped
+        // to giving that third-party page back its own storage and
+        // credentialled fetches. The widget default stays 'no' deliberately —
+        // a relative-path embed added later would be same-origin, and that is
+        // the case this must not silently cover.
+        allowSameOrigin: 'yes',
       },
     },
     { card: 'status', id: 'sidebar-status', type: 'status', config: {} },

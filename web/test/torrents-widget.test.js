@@ -259,6 +259,37 @@ test('an unreachable service is a clear tile that promises to recover', () => {
   });
 });
 
+test('credentials that were never set are not reported as a rejected login', () => {
+  withFakeDom(() => {
+    const widget = makeWidget();
+
+    widget.onData(
+      payload({
+        configured: true,
+        unreachable: true,
+        authFailed: false,
+        authRequired: true,
+        torrents: [],
+        notices: [
+          {
+            message: 'qBittorrent requires credentials, but none are configured.',
+            hint: 'Set HAVEN_QBITTORRENT_API_KEY, or _USER and _PASS, then restart Haven.',
+          },
+        ],
+      })
+    );
+
+    const text = textOf(widget);
+    assert.match(text, /requires credentials/i);
+    assert.match(text, /HAVEN_QBITTORRENT_API_KEY/);
+    // The point of the whole fix: nothing was rejected, because nothing was
+    // ever sent. Saying "rejected the login" here sends the reader hunting for
+    // a credential that is wrong rather than one that is absent.
+    assert.doesNotMatch(text, /rejected/i);
+    assert.doesNotMatch(text, /session/i);
+  });
+});
+
 test('an auth failure says what to fix, which is a different fix', () => {
   withFakeDom(() => {
     const widget = makeWidget();

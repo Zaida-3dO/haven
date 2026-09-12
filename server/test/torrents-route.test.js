@@ -176,3 +176,23 @@ test('a recovered service replaces the stale cache with fresh data', async (t) =
   assert.equal(body.stale, undefined);
   assert.equal(body.torrents[0].hash, 'bbbb2222');
 });
+
+test('credentials the user never set are flagged apart from a rejected login', async (t) => {
+  const app = await serverWith(
+    scriptedConnector({
+      status: RESULT.AUTH_REQUIRED,
+      message: 'qBittorrent requires credentials, but none are configured.',
+      hint: 'Set HAVEN_QBITTORRENT_API_KEY, or _USER and _PASS, then restart Haven.',
+    })
+  );
+  t.after(() => app.close());
+
+  const body = (await app.inject({ method: 'GET', url: '/api/widgets/torrents' })).json();
+
+  assert.equal(body.authRequired, true);
+  // Not a rejected credential: nothing was sent to be rejected. The widget
+  // branches on this to avoid saying "rejected the login".
+  assert.equal(body.authFailed, false);
+  // The hint travels to the tile so it can name the variables to set.
+  assert.match(body.notices[0].hint, /HAVEN_QBITTORRENT_API_KEY/);
+});

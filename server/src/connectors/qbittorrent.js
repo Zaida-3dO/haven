@@ -32,6 +32,17 @@ export const RESULT = Object.freeze({
   NOT_CONFIGURED: 'not_configured',
   UNREACHABLE: 'unreachable',
   AUTH_FAILED: 'auth_failed',
+  /**
+   * The service wants credentials and none were ever supplied.
+   *
+   * Distinct from AUTH_FAILED — which means credentials were offered and
+   * refused — because the two need different fixes and, more importantly,
+   * because the honest message for this one names no mechanism that did not
+   * run. It is also distinct from NOT_CONFIGURED: a URL alone IS a valid
+   * configuration (qBittorrent can bypass auth for local subnets), so this
+   * state is only knowable once the service has actually answered 403.
+   */
+  AUTH_REQUIRED: 'auth_required',
 });
 
 /** Login backoff: base * 2^(n-1), capped. Mirrors the shell's scheduler. */
@@ -143,6 +154,18 @@ class SessionExpiredError extends Error {
   constructor() {
     super('qBittorrent session expired');
     this.name = 'SessionExpiredError';
+  }
+}
+
+/**
+ * Thrown internally when the service demanded auth we never had — never
+ * escapes the module. Separate from AuthError because AuthError means a
+ * credential was tried and refused, and that distinction is the entire point.
+ */
+class AuthRequiredError extends Error {
+  constructor() {
+    super('qBittorrent requires credentials and none are configured');
+    this.name = 'AuthRequiredError';
   }
 }
 
@@ -292,6 +315,16 @@ export function createQbittorrentConnector({
         throw new AuthError('qBittorrent rejected the API key.');
       }
 
+      // No credentials were ever supplied, so there is no session to have
+      // expired and no login to retry. Reporting this as a re-authentication
+      // failure names a mechanism that never ran and sends whoever is
+      // debugging it looking for credentials that are *wrong* rather than
+      // *absent*. Checked before the retry so we do not make a second call
+      // that was never going to be accepted either.
+      if (settings.username === '' && !cookie) {
+        throw new AuthRequiredError();
+      }
+
       cookie = null;
       if (!allowRetry) throw new SessionExpiredError();
       // The session died under us — mint a new one and try exactly once more.
@@ -349,6 +382,16 @@ export function createQbittorrentConnector({
       } catch (error) {
         if (error instanceof AuthError) {
           return { status: RESULT.AUTH_FAILED, message: error.message };
+        }
+        if (error instanceof AuthRequiredError) {
+          // The hint names the variables, matching the not-configured tile —
+          // the fix here is the same action, just prompted by the service
+          // rather than by an empty URL.
+          return {
+            status: RESULT.AUTH_REQUIRED,
+            message: 'qBittorrent requires credentials, but none are configured.',
+            hint: 'Set HAVEN_QBITTORRENT_API_KEY, or _USER and _PASS, then restart Haven.',
+          };
         }
         if (error instanceof SessionExpiredError) {
           return {

@@ -839,6 +839,24 @@ body {
   cursor: not-allowed !important;
 }
 
+/* "Done editing" with unsaved changes.
+ *
+ * While the layout is dirty the only exits are Save and Discard, so the
+ * toggle is inert until one of them has been used. Same `aria-disabled`
+ * mechanism as Save above, and for the same accessibility reason: the button
+ * keeps the `disabled` PROPERTY off so it stays focusable and can announce
+ * why it is inert.
+ *
+ * No `!important` needed here — unlike `.haven-toolbar__save`, the base
+ * `.haven-toolbar button` rule sets no `!important` declarations for this to
+ * fight, so ordinary specificity wins. */
+.haven-toolbar__toggle[aria-disabled='true'] {
+  color: var(--haven-muted);
+  /* `not-allowed` rather than `opacity`, matching Save: dimming an already
+     muted colour pushes it under the contrast floor. */
+  cursor: not-allowed;
+}
+
 /* A visible focus ring is what makes the chrome usable without a mouse. One
    ring, one colour, everywhere. */
 .haven-toolbar button:focus-visible,

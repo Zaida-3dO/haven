@@ -26,6 +26,12 @@
  * `overflow: hidden` those cards are then unreachable with no scrollbar to
  * find them — persisted, invisible, and unrecoverable from the UI.
  *
+ * ── Changes are DRAFTED while edit mode is open ──────────────────────────
+ * Reorders and removals used to be written to the server on the click. That
+ * made a refresh without saving KEEP the change, and made Discard unable to
+ * undo a removal at all, because the row was already gone. Both are now
+ * buffered until Save: see `beginDraft` / `commitDraft` / `cancelDraft`.
+ *
  * **2. A move RE-PARENTS the host, it never destroys and rebuilds it.**
  * `dashboard.remove(id)` calls `host.destroy()`, which tears down the element
  * and its shadow root; following it with `dashboard.add()` would reload every
@@ -117,6 +123,33 @@ export function createSidebarZone({
   let entries = [];
 
   /**
+   * The entries as they were when the draft opened, or null outside a draft.
+   *
+   * This is the sidebar's half of the snapshot/restore model edit mode already
+   * uses for the grid (`snapshotLayout` in `edit-mode.js`), and deliberately
+   * not a parallel mechanism: the grid snapshots geometry because geometry is
+   * its free variable, and the sidebar snapshots ORDER because order is its
+   * only one. Discard restores from here exactly as the grid's Discard
+   * restores from its own snapshot.
+   */
+  let draftEntries = null;
+
+  /**
+   * Ids removed during the draft, in click order, with the card kept alive.
+   *
+   * A removal is buffered rather than performed because `dashboard.remove(id)`
+   * calls `host.destroy()`, which tears down the element AND its shadow root.
+   * Once that has happened there is nothing left to restore — bringing the
+   * widget back would mean building a fresh host and reloading it from
+   * scratch, which for the 3D home means its entire WebGL scene. So a removal
+   * in a draft only HIDES the card; the teardown happens on Save, and Discard
+   * simply shows it again.
+   */
+  let pendingRemovals = [];
+
+  const drafting = () => draftEntries !== null;
+
+  /**
    * Persists one entry's placement.
    *
    * A null client is the injected-roster case (`bootDashboard({instances})`),
@@ -127,6 +160,35 @@ export function createSidebarZone({
     void instancesClient
       .save(entry.id, { ...entry, zone: 'sidebar' }, { secretKeys: secretKeysFor(entry.type) })
       .catch(onError);
+  };
+
+  /**
+   * Hides or shows a card without detaching it.
+   *
+   * `hidden` rather than `el.remove()`, because the card has to stay in the
+   * scrollport for Discard to be able to put it back in place: a detached
+   * element would have to be re-appended at the right index, which re-derives
+   * an order the entries already hold. Hiding leaves the DOM order alone and
+   * makes restoring it a single flag flip.
+   */
+  const setCardHidden = (id, hidden) => {
+    const card = sidebar.cards.get(id);
+    if (card?.el) card.el.hidden = hidden;
+  };
+
+  /** Tears a widget down for real: host, card and the sidebar's maps. */
+  const destroyCard = (id) => {
+    const card = sidebar.cards.get(id);
+    if (!card) return false;
+
+    // The host first: `dashboard.remove` destroys it and drops its search
+    // entries and its scheduler task. Removing the card out from under a
+    // live host would leave that host mounted into a detached element.
+    dashboard.remove(id);
+    card.el.remove();
+    sidebar.cards.delete(id);
+    sidebar.bodies.delete(id);
+    return true;
   };
 
   /**
@@ -159,14 +221,101 @@ export function createSidebarZone({
       return this.entries;
     },
 
+    /** Whether a draft is currently open. */
+    get drafting() {
+      return drafting();
+    },
+
     /**
-     * Moves one widget up or down, persisting the new order immediately.
+     * Whether this draft holds anything a Save would write.
      *
-     * Persisted on the click rather than behind a Save button: a click on an
-     * arrow is one discrete, complete act, and there is no half-finished state
-     * a Discard could meaningfully restore. The grid is different — a drag is
-     * a continuous gesture with an obvious commit point — which is why edit
-     * mode's Save/Discard governs geometry and not this.
+     * Two things count, and they are checked separately because one of them
+     * is invisible in the order alone: a pending removal leaves the surviving
+     * entries renumbered 0..n-1, which for a removal from the END is the same
+     * list of ids in the same order as the snapshot. Comparing ids only would
+     * report that draft as clean and leave Save greyed out over a real change.
+     */
+    get isDirty() {
+      if (!drafting()) return false;
+      if (pendingRemovals.length > 0) return true;
+      if (entries.length !== draftEntries.length) return true;
+      return entries.some((entry, i) => entry.id !== draftEntries[i]?.id);
+    },
+
+    /**
+     * Opens a draft: from here until `commitDraft`/`cancelDraft`, reorders and
+     * removals are buffered in memory instead of being written to the server.
+     *
+     * Called on entry to edit mode, never later — the same rule as the grid's
+     * snapshot, and for the same reason: re-snapshotting mid-session would
+     * silently move the point Discard returns to.
+     */
+    beginDraft() {
+      if (drafting()) return;
+      draftEntries = [...entries];
+      pendingRemovals = [];
+    },
+
+    /**
+     * Applies the draft: tears down what was removed, writes what moved.
+     *
+     * The teardown happens HERE rather than at click time, which is the whole
+     * point of the draft — see `pendingRemovals`. Order matters: the hosts go
+     * first, then the surviving rows are renumbered on the server, so a
+     * reordered survivor is never written with a `sortOrder` that a
+     * still-pending removal is about to invalidate.
+     */
+    commitDraft() {
+      if (!drafting()) return this.entries;
+
+      for (const id of pendingRemovals) {
+        destroyCard(id);
+        if (instancesClient) void instancesClient.remove(id).catch(onError);
+      }
+
+      // Every surviving row whose number differs from the snapshot, written
+      // once. `renumber` has already made `entries` dense, so this compares
+      // against the order the draft opened with rather than re-deriving it.
+      const before = new Map(draftEntries.map((entry) => [entry.id, entry.sortOrder ?? 0]));
+      for (const entry of entries) {
+        if (before.get(entry.id) !== entry.sortOrder) persist(entry);
+      }
+
+      draftEntries = null;
+      pendingRemovals = [];
+      return this.entries;
+    },
+
+    /**
+     * Abandons the draft, restoring the order and every card removed in it.
+     *
+     * This is the half that was impossible before: a removal used to delete
+     * the row server-side on the click, so there was nothing for a Discard to
+     * put back. Nothing has been destroyed or deleted here, so restoring is
+     * un-hiding the cards and re-applying the snapshotted order.
+     */
+    cancelDraft() {
+      if (!drafting()) return this.entries;
+
+      for (const id of pendingRemovals) setCardHidden(id, false);
+      pendingRemovals = [];
+
+      entries = draftEntries;
+      draftEntries = null;
+      applyOrder();
+      return this.entries;
+    },
+
+    /**
+     * Moves one widget up or down.
+     *
+     * **Inside a draft the new order is held in memory**, so refreshing
+     * without saving loses it — which is what a draft means, and what Ope
+     * asked for: "changes should be drafted if i don't click save and i
+     * refresh my changes should be lost not persisted".
+     *
+     * Outside a draft (no edit mode open) the move persists immediately, so
+     * the injected-roster and programmatic callers keep their old behaviour.
      */
     move(id, delta) {
       const next = reorder(entries, id, delta);
@@ -176,7 +325,9 @@ export function createSidebarZone({
       const { entries: renumbered, changed } = renumber(next);
       entries = renumbered;
       applyOrder();
-      for (const entry of changed) persist(entry);
+      if (!drafting()) {
+        for (const entry of changed) persist(entry);
+      }
       return this.entries;
     },
 
@@ -208,18 +359,25 @@ export function createSidebarZone({
       return host;
     },
 
-    /** Removes a widget from the sidebar, its card and the roster. */
+    /**
+     * Removes a widget from the sidebar.
+     *
+     * **Inside a draft nothing is destroyed and nothing is deleted.** The card
+     * is hidden and the id is buffered, so Discard can bring it back — see
+     * `pendingRemovals` for why a destroyed host could not be restored.
+     *
+     * Outside a draft this is immediate and irreversible, as it always was.
+     */
     remove(id) {
       const card = sidebar.cards.get(id);
       if (!card) return false;
 
-      // The host first: `dashboard.remove` destroys it and drops its search
-      // entries and its scheduler task. Removing the card out from under a
-      // live host would leave that host mounted into a detached element.
-      dashboard.remove(id);
-      card.el.remove();
-      sidebar.cards.delete(id);
-      sidebar.bodies.delete(id);
+      if (drafting()) {
+        pendingRemovals.push(id);
+        setCardHidden(id, true);
+      } else {
+        destroyCard(id);
+      }
 
       entries = entries.filter((entry) => entry.id !== id);
 
@@ -228,7 +386,7 @@ export function createSidebarZone({
       const { entries: renumbered, changed } = renumber(entries);
       entries = renumbered;
 
-      if (instancesClient) {
+      if (instancesClient && !drafting()) {
         void instancesClient.remove(id).catch(onError);
         for (const entry of changed) persist(entry);
       }

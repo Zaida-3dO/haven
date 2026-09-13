@@ -314,6 +314,20 @@ export async function bootDashboard(
     },
   });
 
+  /**
+   * Declared up here, assigned once the sidebar exists further down.
+   *
+   * `const` at the assignment site would leave this in the temporal dead zone
+   * for everything above it — and `createEditToolbar` calls `sync()`
+   * SYNCHRONOUSLY while constructing, which reads `isDirty`, which reads this.
+   * That threw `ReferenceError: Cannot access 'sidebarSizing' before
+   * initialization` during boot: the grid rendered its six tiles and then the
+   * shell died before mounting the sidebar or the profile menu. A browser
+   * caught it in one page load; every unit test passed, because `boot.js`
+   * imports GridStack and cannot be loaded under `node --test` at all.
+   */
+  let sidebarSizing = null;
+
   const editMode = createEditMode({
     gridHandle,
     layoutClient,
@@ -346,7 +360,26 @@ export async function bootDashboard(
     onError: (error) => console.error('Haven: saving the layout failed.', error),
   });
 
-  const toolbar = createEditToolbar({ editMode });
+  /**
+   * The toolbar's dirty check, widened to see SIDEBAR resizes.
+   *
+   * `editMode.isDirty` compares grid geometry (`layoutDiffers`) and knows
+   * nothing about the sidebar — by design, `edit-mode.js` owns the grid zone.
+   * So a sidebar-only resize left Save inert and the change unsaveable: the
+   * browser suite caught this as a click that waited forever on a button that
+   * never enabled.
+   *
+   * Wrapped here rather than by changing `edit-mode.js`, so the grid's own
+   * rule is untouched and the sidebar's is additive: dirty is "the grid moved
+   * OR a sidebar size changed".
+   */
+  const editModeView = Object.create(editMode, {
+    isDirty: {
+      get: () => editMode.isDirty || Boolean(sidebarSizing?.isDirty),
+    },
+  });
+
+  const toolbar = createEditToolbar({ editMode: editModeView });
 
   /**
    * The profile menu — where "Edit dashboard" lives now.
@@ -610,7 +643,7 @@ export async function bootDashboard(
    * Every change is DRAFTED: `snapshot()` on entering edit mode, `commit()`
    * from Save, `discard()` from Discard. Nothing is written while dragging.
    */
-  const sidebarSizing = sidebar
+  sidebarSizing = sidebar
     ? createSidebarSizing({
         sidebar,
         layoutEl,
@@ -649,7 +682,16 @@ export async function bootDashboard(
         .catch((error) => console.warn('Haven: could not load the sidebar width.', error));
     }
 
-    installSidebarResize({ sidebar, sidebarSizing, dashboard, layoutEl });
+    installSidebarResize({
+      sidebar,
+      sidebarSizing,
+      dashboard,
+      layoutEl,
+      // Save is inert until something is dirty, so a resize has to re-run the
+      // toolbar's check — otherwise the button stays greyed out until an
+      // unrelated event happens to refresh it.
+      onChange: () => toolbar.sync(),
+    });
   }
 
   // Full-bleed: before the LAYOUT element, not inside the chrome's padded box,

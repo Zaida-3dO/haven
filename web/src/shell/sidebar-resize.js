@@ -41,7 +41,13 @@
  * @param {HTMLElement} [deps.layoutEl] carries the `--resizing` class
  * @returns {() => void}
  */
-export function installSidebarResize({ sidebar, sidebarSizing, dashboard, layoutEl } = {}) {
+export function installSidebarResize({
+  sidebar,
+  sidebarSizing,
+  dashboard,
+  layoutEl,
+  onChange = () => {},
+} = {}) {
   if (!sidebar || !sidebarSizing) return () => {};
 
   /**
@@ -94,6 +100,9 @@ export function installSidebarResize({ sidebar, sidebarSizing, dashboard, layout
       origin = null;
       layoutEl?.classList?.remove('haven-layout--resizing');
       end?.();
+      // Save is inert until something is dirty; without this the button stays
+      // greyed out after a resize and the change cannot be committed.
+      onChange();
     };
 
     const onDown = (event) => {
@@ -140,6 +149,7 @@ export function installSidebarResize({ sidebar, sidebarSizing, dashboard, layout
       event.preventDefault?.();
       set(next);
       after?.();
+      onChange();
     };
 
     handle.addEventListener('keydown', onKey);

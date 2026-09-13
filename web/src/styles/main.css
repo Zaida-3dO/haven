@@ -497,6 +497,10 @@ body {
 .haven-sidebar {
   display: flex;
   flex-direction: column;
+  /* The containing block for the absolutely-positioned width handle. Without
+     it the handle positions against the viewport and lands somewhere else
+     entirely. */
+  position: relative;
   gap: var(--haven-space-4);
   padding: var(--haven-space-6);
   border-left: 1px solid var(--haven-border);
@@ -708,10 +712,6 @@ body {
  *
  * `display: none` in view mode, not merely transparent: an invisible but
  * present handle still swallows clicks aimed at the cards behind it. */
-.haven-sidebar {
-  position: relative;
-}
-
 .haven-sidebar__width-handle {
   display: none;
   position: absolute;

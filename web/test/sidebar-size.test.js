@@ -280,6 +280,33 @@ test('commit writes the width and only the heights that changed', async () => {
   assert.equal(instancesClient.saves[0].zone, 'sidebar');
 });
 
+test('commit skips a card whose height did NOT change this session', async () => {
+  // Anti-vacuity for the test above, and it caught a real gap: with only one
+  // card ever resized, "write the changed ones" and "write all of them" are
+  // the same single write, so that test passes either way. A mutation
+  // replacing the skip with `if (false) continue` survived it.
+  //
+  // Here TWO cards carry heights and only one is touched, so the two
+  // behaviours diverge: correct code writes one row, the mutant writes two.
+  const instances = [
+    entry('sidebar-weather', 'weather', { height: 200 }),
+    entry('sidebar-calendar', 'calendar', { height: 300 }),
+    entry('sidebar-status', 'status'),
+  ];
+  const { sizing, instancesClient } = setup({ instances });
+
+  sizing.load({ entries: instances });
+  sizing.snapshot();
+  sizing.setHeight('sidebar-calendar', 250);
+  await sizing.commit();
+
+  assert.deepEqual(
+    instancesClient.saves.map((s) => s.id),
+    ['sidebar-calendar'],
+    'only the card that actually changed may be written — each height costs a PUT'
+  );
+});
+
 test('commit writes nothing when nothing was resized', async () => {
   const { sizing, instancesClient, preferencesClient } = setup();
 
@@ -362,7 +389,14 @@ test('load applies a stored height and leaves an unset one content-sized', () =>
   });
 
   assert.equal(sidebar.cards.get('sidebar-calendar').body.style.height, '260px');
-  assert.equal(sidebar.cards.get('sidebar-weather').body.style.height, undefined);
+  // Falsy rather than `undefined` specifically: `load` clears an unset height
+  // through the same path that clears a set one, which writes `''`. Both mean
+  // "no inline height" to a browser, and asserting the exact spelling would
+  // pin an implementation detail of the fake DOM rather than the behaviour.
+  assert.ok(
+    !sidebar.cards.get('sidebar-weather').body.style.height,
+    'a card with no stored height must carry no inline height'
+  );
 });
 
 /* ── 6. the client and the server must agree on the range ────────────────── */

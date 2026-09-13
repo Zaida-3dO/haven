@@ -24,24 +24,38 @@
  * @param {string} type
  * @param {string} [breakpoint] which breakpoint's default size to use
  */
-export function buildInsertion(registry, type, breakpoint = 'desktop') {
+export function buildInsertion(registry, type, breakpoint = 'desktop', zone = 'grid') {
   const definition = registry.get(type);
   if (!definition) return null;
+
+  const insertion = {
+    type,
+    zone,
+    name: definition.name,
+    tag: definition.tag,
+    config: registry.stubConfig(type),
+  };
+
+  // A SIDEBAR insertion carries no geometry, deliberately.
+  //
+  // The sidebar is a one-column stack of intrinsically-sized cards: there is
+  // no x, y, width or height to place, and `size`/`minSize` map onto
+  // GridStack's `w/h/minW/minH`, which nothing in that zone reads. Computing
+  // them anyway and handing them to a caller that discards them is the kind of
+  // meaningless field that later reads as a missing feature — someone
+  // eventually tries to honour it. See `docs/DESIGN.md` §3.1.
+  if (zone === 'sidebar') return insertion;
 
   // A widget declaring a `mobileSize` gets it on the mobile breakpoint; the
   // registry defaults it to `defaultSize` when the widget declares none.
   const size = breakpoint === 'mobile' ? definition.mobileSize : definition.defaultSize;
 
-  return {
-    type,
-    name: definition.name,
-    tag: definition.tag,
-    config: registry.stubConfig(type),
-    size: { w: size.w, h: size.h },
-    // `minSize` maps to GridStack's minW/minH, which is what stops a widget
-    // being resized below the size it can actually render at.
-    minSize: { w: definition.minSize.w, h: definition.minSize.h },
-  };
+  insertion.size = { w: size.w, h: size.h };
+  // `minSize` maps to GridStack's minW/minH, which is what stops a widget
+  // being resized below the size it can actually render at.
+  insertion.minSize = { w: definition.minSize.w, h: definition.minSize.h };
+
+  return insertion;
 }
 
 /**
@@ -72,10 +86,59 @@ export function createAddPanel({
   heading.className = 'haven-add-panel__heading';
   heading.textContent = 'Add widget';
 
+  /**
+   * Where the widget goes: the main grid, or the sidebar.
+   *
+   * ONE control at the top of the panel, not a pair of buttons on every
+   * widget. Two buttons per row doubles the width of a list whose whole job is
+   * to be scanned quickly, and it asks the destination question N times when
+   * the answer is the same for the whole visit. A radio group also states the
+   * default — "Main grid" — which a pair of equal buttons cannot.
+   */
+  const destination = doc.createElement('fieldset');
+  destination.className = 'haven-add-panel__destination';
+
+  const legend = doc.createElement('legend');
+  legend.className = 'haven-add-panel__destination-legend';
+  legend.textContent = 'Add to';
+  destination.appendChild(legend);
+
+  const zoneInputs = new Map();
+  for (const [zone, label] of [
+    ['grid', 'Main grid'],
+    ['sidebar', 'Sidebar'],
+  ]) {
+    const wrap = doc.createElement('label');
+    wrap.className = 'haven-add-panel__destination-option';
+
+    const input = doc.createElement('input');
+    input.type = 'radio';
+    // A shared name is what makes the two mutually exclusive; without it a
+    // user can select both and the panel silently reads the first.
+    input.name = 'haven-add-destination';
+    input.value = zone;
+    input.checked = zone === 'grid';
+    input.dataset.zone = zone;
+
+    const text = doc.createElement('span');
+    text.textContent = label;
+
+    wrap.append(input, text);
+    destination.appendChild(wrap);
+    zoneInputs.set(zone, input);
+  }
+
+  /** The chosen destination, defaulting to the grid. */
+  const chosenZone = () => {
+    for (const [zone, input] of zoneInputs) if (input.checked) return zone;
+    return 'grid';
+  };
+
   const list = doc.createElement('ul');
   list.className = 'haven-add-panel__list';
 
   el.appendChild(heading);
+  el.appendChild(destination);
   el.appendChild(list);
 
   /** Re-renders the list from the registry. Cheap; called on every open. */
@@ -112,9 +175,14 @@ export function createAddPanel({
     list.replaceChildren(...children);
   }
 
-  /** Inserts a widget at its default size with a working stub config. */
-  function add(type) {
-    const insertion = buildInsertion(registry, type, breakpoint());
+  /**
+   * Inserts a widget at its default size with a working stub config.
+   *
+   * `zone` is explicit rather than read from the DOM inside `buildInsertion`,
+   * so the insertion contract stays testable without a document.
+   */
+  function add(type, zone = chosenZone()) {
+    const insertion = buildInsertion(registry, type, breakpoint(), zone);
     if (!insertion) return null;
     onAdd(insertion);
     return insertion;
@@ -124,6 +192,8 @@ export function createAddPanel({
     el,
     refresh,
     add,
+    /** The destination currently selected. Exposed for tests and for boot. */
+    zone: chosenZone,
 
     open() {
       refresh();

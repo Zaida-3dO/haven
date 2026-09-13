@@ -206,3 +206,95 @@ describe('createAddPanel', () => {
     }
   });
 });
+
+/** The destination fieldset's radio inputs, by zone. */
+function zoneRadios(panel) {
+  const fieldset = panel.el.children.find((c) => c.className === 'haven-add-panel__destination');
+  const inputs = new Map();
+  for (const child of fieldset?.children ?? []) {
+    const input = child.children?.find?.((c) => c.tagName === 'INPUT');
+    if (input) inputs.set(input.dataset.zone, input);
+  }
+  return inputs;
+}
+
+describe('the destination chooser', () => {
+  test('offers exactly two destinations, defaulting to the main grid', () => {
+    const panel = createAddPanel({ registry: registryWith(clock), document: fakeDocument() });
+    panel.open();
+
+    const radios = zoneRadios(panel);
+    assert.deepEqual([...radios.keys()], ['grid', 'sidebar']);
+    assert.equal(radios.get('grid').checked, true);
+    assert.equal(radios.get('sidebar').checked, false);
+    assert.equal(panel.zone(), 'grid');
+  });
+
+  test('the two radios share a name, or both can be selected at once', () => {
+    // Without a shared `name` they are not a group: a user can tick both and
+    // the panel silently reads whichever comes first.
+    const panel = createAddPanel({ registry: registryWith(clock), document: fakeDocument() });
+    panel.open();
+
+    const radios = zoneRadios(panel);
+    assert.equal(radios.get('grid').name, radios.get('sidebar').name);
+    assert.ok(radios.get('grid').name, 'the radios need a name to be mutually exclusive');
+  });
+
+  test('choosing the sidebar carries that zone into the insertion', () => {
+    const added = [];
+    const panel = createAddPanel({
+      registry: registryWith(clock),
+      onAdd: (insertion) => added.push(insertion),
+      document: fakeDocument(),
+    });
+    panel.open();
+
+    const radios = zoneRadios(panel);
+    radios.get('grid').checked = false;
+    radios.get('sidebar').checked = true;
+
+    buttons(panel)[0].click();
+
+    assert.equal(added.length, 1);
+    assert.equal(added[0].zone, 'sidebar');
+  });
+
+  test('a grid insertion is unchanged — it still carries its geometry', () => {
+    const added = [];
+    const panel = createAddPanel({
+      registry: registryWith(clock),
+      onAdd: (insertion) => added.push(insertion),
+      document: fakeDocument(),
+    });
+    panel.open();
+    buttons(panel)[0].click();
+
+    assert.equal(added[0].zone, 'grid');
+    assert.deepEqual(added[0].size, { w: clock.defaultSize.w, h: clock.defaultSize.h });
+    assert.ok(added[0].minSize, 'a grid insertion still needs minW/minH');
+  });
+});
+
+describe('buildInsertion and zones', () => {
+  test('a sidebar insertion carries NO geometry', () => {
+    // The sidebar is a one-column stack of intrinsically-sized cards: there is
+    // no x, y, width or height to place. `size`/`minSize` map onto GridStack's
+    // `w/h/minW/minH`, which nothing in that zone reads — and a meaningless
+    // field eventually reads as a missing feature someone tries to honour.
+    const insertion = buildInsertion(registryWith(clock), 'clock', 'desktop', 'sidebar');
+
+    assert.equal(insertion.zone, 'sidebar');
+    assert.equal(insertion.size, undefined);
+    assert.equal(insertion.minSize, undefined);
+    // It still has to WORK the moment it appears, so the stub config stays.
+    assert.ok(insertion.config, 'a sidebar insertion still needs a working config');
+  });
+
+  test('the zone defaults to grid, so every existing caller is unaffected', () => {
+    const insertion = buildInsertion(registryWith(clock), 'clock');
+
+    assert.equal(insertion.zone, 'grid');
+    assert.ok(insertion.size);
+  });
+});

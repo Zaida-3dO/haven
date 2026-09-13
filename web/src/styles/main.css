@@ -1079,6 +1079,37 @@ body {
   text-transform: uppercase;
 }
 
+/* "Add to: Main grid / Sidebar" — one destination chooser at the top of the
+   panel rather than a pair of buttons on every row. A fieldset because the two
+   radios are one question: a screen reader announces the legend with each
+   option, so "Add to, Main grid" rather than a bare "Main grid". */
+.haven-add-panel__destination {
+  display: flex;
+  align-items: center;
+  gap: var(--haven-space-3);
+  margin: 0 0 var(--haven-space-3);
+  padding: 0;
+  border: 0;
+}
+
+.haven-add-panel__destination-legend {
+  padding: 0;
+  color: var(--haven-fg-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.haven-add-panel__destination-option {
+  display: flex;
+  align-items: center;
+  gap: var(--haven-space-1);
+  color: var(--haven-fg);
+  font-size: 13px;
+  cursor: pointer;
+}
+
 .haven-add-panel__list {
   display: flex;
   flex-wrap: wrap;

@@ -155,3 +155,58 @@ test('edit mode is wired to the SIDEBAR, not only to the grid', () => {
     'the layout needs its own edit class, or the sidebar controls never become visible'
   );
 });
+
+test('an add destined for the SIDEBAR never goes through the grid', () => {
+  // Caught by mutation testing: disabling this branch entirely — so a widget
+  // chosen for the sidebar silently appears on the grid instead — killed no
+  // test at all. That is the first bug a user would hit after choosing
+  // "Sidebar" in the add panel, and nothing was watching it.
+  //
+  // `grid.insert` mints a GridStack node and calls `makeWidget`, which puts
+  // the widget on the board; `buildInsertion` carries no geometry for this
+  // zone, so there is nothing for the grid to place even if it tried.
+  //
+  // Comments are stripped first, so the prose above cannot satisfy this.
+  assert.match(
+    BOOT_NO_COMMENTS,
+    /insertion\.zone === 'sidebar'/,
+    'boot.js never branches on the insertion zone, so the add panel destination is inert'
+  );
+  assert.match(
+    BOOT_NO_COMMENTS,
+    /sidebarZone\.add\(/,
+    'a sidebar insertion must be added through the sidebar zone, not the grid'
+  );
+
+  // And the branch must RETURN rather than falling through into grid.insert:
+  // without the early return the widget is added to BOTH zones at once.
+  //
+  // Sliced by index rather than matched with a multiline regex — a JS regex
+  // literal cannot span lines, and writing one that tries is a syntax error
+  // that takes the whole test file down with it.
+  const branchAt = BOOT_NO_COMMENTS.indexOf("insertion.zone === 'sidebar'");
+  const gridInsertAt = BOOT_NO_COMMENTS.indexOf('grid.insert(insertion)', branchAt);
+  assert.ok(branchAt >= 0 && gridInsertAt > branchAt, 'could not locate the sidebar branch');
+
+  // The branch must END with `return;` — not merely CONTAIN one.
+  //
+  // Caught by mutation testing, and worth recording: the first version of this
+  // asserted `branchBody.includes('return;')` and was vacuous. The branch has
+  // four guard returns of its own (`if (!sidebarZone) return;` and friends),
+  // so removing the FINAL return — the one that stops a sidebar widget also
+  // being inserted into the grid — left the assertion passing happily.
+  //
+  // Sliced to the branch's own closing brace, NOT to `grid.insert`: everything
+  // between the two — the blank line and `const host = ` — is outside the
+  // branch, and including it means nothing can ever match "ends with a
+  // return". (That mistake made this assertion fail on correct source, which
+  // is just as useless as one that passes on broken source.)
+  const closingBraceAt = BOOT_NO_COMMENTS.lastIndexOf('}', gridInsertAt);
+  const branchBody = BOOT_NO_COMMENTS.slice(branchAt, closingBraceAt);
+  assert.match(
+    branchBody.trimEnd(),
+    /return;$/,
+    'the sidebar branch must END with a return, or the widget is inserted into ' +
+      'the grid as well as the sidebar'
+  );
+});

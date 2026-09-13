@@ -30,7 +30,13 @@
  * an embedded renderer can resize its drawing buffer.
  */
 
-import { EmbedUrlError, defeatsSandbox, parseEmbedUrl, sandboxTokens } from './embed-url.js';
+import {
+  EmbedUrlError,
+  SANDBOX_NOTICE,
+  defeatsSandbox,
+  parseEmbedUrl,
+  sandboxTokens,
+} from './embed-url.js';
 import { postGeometry } from './geometry.js';
 
 /**
@@ -47,7 +53,32 @@ const STYLES = `
   .embed__frame[hidden] { display: none; }
   .embed__placeholder { flex: 1 1 auto; display: flex; align-items: center;
                         justify-content: center; font-size: 0.8rem; opacity: 0.6; }
-  .embed__warning { font-size: 0.7rem; padding: 0.25rem 0.5rem; opacity: 0.85; }
+  /* The sandbox disclosure is a corner badge, not a line of body text.
+   *
+   * It is positioned OUT of the flex flow deliberately. As body text it was a
+   * 24.8px paragraph inside a 200px card body — 12% of the embed's height,
+   * spent on a notice — which both squeezed the frame and read as content the
+   * user had chosen to put on their dashboard. Absolute positioning means the
+   * frame gets the whole card and the disclosure still sits on the tile. */
+  .embed__warning {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.15rem;
+    height: 1.15rem;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1;
+    cursor: help;
+  }
+  .embed__warning[hidden] { display: none; }
   .embed__error { padding: 0.5rem; font-size: 0.8rem; }
   .embed__error pre { overflow: auto; font-size: 0.7rem; opacity: 0.8; }
 `;
@@ -207,13 +238,31 @@ export class HavenIframe extends ElementBase {
 
     const nodes = this.#ensureScaffold();
 
-    // The sandbox warning is visible, not buried in a doc: a user who opted
-    // into allow-same-origin alongside allow-scripts has turned the sandbox
-    // off, and should be able to see that from the tile.
+    // ── The sandbox disclosure ──────────────────────────────────────────
+    //
+    // Still SURFACED, deliberately relocated. A user who opted into
+    // allow-same-origin alongside allow-scripts has turned the sandbox off,
+    // and "I ticked a box and silently lost all isolation" is not an
+    // acceptable outcome — so this must never become invisible.
+    //
+    // What changed is WHERE, not WHETHER. It was a paragraph of body text
+    // inside the card, which put a security notice on the dashboard as though
+    // it were content and cost 24.8px of a 200px card body. It is now a badge
+    // in the tile's corner whose `title` carries the full sentence, and the
+    // same disclosure is repeated as help text on the `allowSameOrigin` field
+    // in the widget's settings panel — next to the control that grants it,
+    // which is where someone deciding about the grant is actually looking.
+    //
+    // The accessible name is the full sentence, not the glyph: a screen
+    // reader must get the disclosure, not the word "exclamation mark".
     const unsandboxed = defeatsSandbox(this.#config);
     nodes.warning.hidden = !unsandboxed;
     if (unsandboxed) {
-      setText(nodes.warning, 'Sandbox off: this embed runs with the dashboard permissions.');
+      setText(nodes.warning, '!');
+      if (nodes.warning.getAttribute('title') !== SANDBOX_NOTICE) {
+        nodes.warning.setAttribute('title', SANDBOX_NOTICE);
+        nodes.warning.setAttribute('aria-label', SANDBOX_NOTICE);
+      }
     }
 
     // Lazy: the frame exists but carries no `src` until the widget is visible,
@@ -267,8 +316,12 @@ export class HavenIframe extends ElementBase {
     const embed = document.createElement('div');
     embed.className = 'embed';
 
-    const warning = document.createElement('p');
+    // A `<span>`, not a `<p>`: this is no longer a paragraph of body text, and
+    // it is positioned out of the flow. `role="note"` keeps it announced as a
+    // standalone remark rather than read as part of the embed's content.
+    const warning = document.createElement('span');
     warning.className = 'embed__warning';
+    warning.setAttribute('role', 'note');
     warning.hidden = true;
 
     const placeholder = document.createElement('div');

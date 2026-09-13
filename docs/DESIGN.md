@@ -154,7 +154,7 @@ on. You would compute geometry only to collapse it straight back to an index, an
 `cellHeight` would crop a card whose whole point is that it sizes to its content.
 
 **One exception, and it is in the code today:** the 3D home card carries a fixed height
-(`.haven-sidebar__card--home3d .haven-sidebar__body { height: 200px }`, `web/src/styles/main.css`).
+(`.haven-sidebar__card--type-iframe .haven-sidebar__body { height: 200px }`, `web/src/styles/main.css`).
 Its widget is an iframe that sizes itself to its container (`:host { height: 100% }`), so a
 content-sized parent resolves to zero and the scene renders into a 0px box. That height is a
 property of the *widget type*, set in the stylesheet — not a dimension the user picks — so

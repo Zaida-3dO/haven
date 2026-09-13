@@ -548,6 +548,20 @@ body {
   border: 1px solid var(--haven-border);
   border-radius: var(--haven-radius);
   background: var(--haven-surface);
+  /* Clip content to the card's own rounded corners.
+   *
+   * Without this the card is `overflow: visible`, so anything that paints to
+   * its edge spills past the 12px radius and out over the card's border — the
+   * 3D home render visibly overshooting its container. Every other sidebar
+   * card hid the gap by being intrinsically sized, so its content could never
+   * exceed the box; an embed is the one widget kind that fills a container it
+   * did not measure, which is why it is the one that showed the defect.
+   *
+   * The grid tile already solves exactly this, one zone over:
+   * `.haven-widget-tile { overflow: hidden }` clips the hero's carousel to the
+   * same radius. This is that rule's sidebar counterpart, and the two should
+   * be changed together. */
+  overflow: hidden;
 }
 
 /* Pinned to the bottom, matching the live dashboard's status card. `auto`
@@ -620,6 +634,14 @@ body {
 
 .haven-sidebar__body {
   min-width: 0;
+  /* The other half of the containment, mirroring `.haven-widget__body` on a
+   * grid tile. `min-height: 0` lets the body actually be the height the card
+   * gives it rather than "at least as tall as my content", and `overflow`
+   * keeps a widget that overshoots inside the box instead of painting over
+   * the card's edge. Without these the clip above still holds the visible
+   * bounds, but the content underneath is cropped with no way to reach it. */
+  min-height: 0;
+  overflow: auto;
 }
 
 /* ── The 3D home card needs an explicit height ───────────────────────────

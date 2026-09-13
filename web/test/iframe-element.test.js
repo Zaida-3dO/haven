@@ -35,8 +35,8 @@ globalThis.HTMLElement = class extends FakeElement {
 globalThis.location = { origin: 'https://haven.invalid' };
 
 const { HavenIframe } = await import('../src/widgets/iframe/element.js');
-const { HOME_3D_URL } = await import('../src/widgets/iframe/definition.js');
-const { EmbedUrlError } = await import('../src/widgets/iframe/embed-url.js');
+const { HOME_3D_URL, iframeWidget } = await import('../src/widgets/iframe/definition.js');
+const { EmbedUrlError, SANDBOX_NOTICE } = await import('../src/widgets/iframe/embed-url.js');
 const { RESIZE_MESSAGE_TYPE } = await import('../src/widgets/iframe/geometry.js');
 
 after(() => {
@@ -211,12 +211,56 @@ test('opting into same-origin access is visible on the tile', () => {
   const warning = el.shadowRoot.querySelector('.embed__warning');
   assert.ok(warning);
   assert.equal(warning.hidden, false);
-  assert.match(warning.textContent, /sandbox off/i);
+});
+
+/**
+ * The disclosure MOVED; it did not go away.
+ *
+ * It used to be a paragraph of body text inside the card. Ope asked for it off
+ * the dashboard, and the tempting reading of that request is "delete it" —
+ * which would silently drop disclosure of a real security grant. So the badge
+ * still has to carry the full sentence somewhere a user can reach it, and the
+ * glyph alone must never be the whole message.
+ *
+ * This is the test that fails if someone later "tidies up" the badge by
+ * dropping its title, leaving a bare `!` that discloses nothing.
+ */
+test('the badge carries the full disclosure, not just a glyph', () => {
+  const el = makeEmbed({ config: { ...CONFIG, allowSameOrigin: 'yes' } });
+  const warning = el.shadowRoot.querySelector('.embed__warning');
+
+  // The visible glyph is deliberately terse — the notice is not body text any
+  // more — but the sentence must still be one hover or one screen reader away.
+  assert.equal(warning.getAttribute('title'), SANDBOX_NOTICE);
+  // The accessible name is the sentence, NOT the glyph. Without this a screen
+  // reader announces "exclamation mark" and the disclosure is lost entirely
+  // for exactly the users least able to inspect the tile.
+  assert.equal(warning.getAttribute('aria-label'), SANDBOX_NOTICE);
+  assert.match(SANDBOX_NOTICE, /sandbox off/i);
 });
 
 test('the warning stays hidden with the default sandbox', () => {
   const el = makeEmbed();
   assert.equal(el.shadowRoot.querySelector('.embed__warning').hidden, true);
+});
+
+/**
+ * The other half of the relocation: the settings panel.
+ *
+ * The badge is the at-a-glance surface; this is the one that explains the
+ * grant next to the control that gives it. Asserted on the shipped schema so
+ * that removing the help text — the thing that makes relocating the notice
+ * legitimate rather than a quiet deletion — fails here.
+ */
+test('the sandbox grant is disclosed in the settings panel too', () => {
+  const field = iframeWidget.configSchema.find((f) => f.key === 'allowSameOrigin');
+
+  assert.ok(field, 'the allowSameOrigin field should exist');
+  assert.ok(field.help, 'the allowSameOrigin field must carry the disclosure as help text');
+  assert.ok(
+    field.help.includes(SANDBOX_NOTICE),
+    `the settings help must carry the same notice as the tile badge, got: ${field.help}`
+  );
 });
 
 // ── Contract odds and ends ───────────────────────────────────────────────

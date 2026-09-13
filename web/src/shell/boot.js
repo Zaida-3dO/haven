@@ -265,6 +265,31 @@ export async function bootDashboard(
     registry,
     breakpoint: () => gridHandle.breakpoint(),
     onAdd: (insertion) => {
+      // ── The SIDEBAR branch ───────────────────────────────────────────
+      // A sidebar insertion never touches the grid. `grid.insert` mints a
+      // GridStack node and calls `makeWidget`, which would put the widget on
+      // the board — the opposite of what was asked for — and `buildInsertion`
+      // deliberately carries no geometry for this zone anyway.
+      //
+      // The id is minted here because only the grid path mints one today
+      // (`dashboard-grid.js` does it inside `insert`). Same shape, so an id
+      // reads the same wherever it came from.
+      if (insertion.zone === 'sidebar') {
+        if (!sidebarZone) return;
+        const id = `${insertion.type}-${crypto.randomUUID().slice(0, 8)}`;
+        const host = sidebarZone.add({ id, type: insertion.type, config: insertion.config ?? {} });
+        if (!host) return;
+        if (insertion.type === 'clock') startClock(host);
+
+        const entry = { id, type: insertion.type, config: host.config ?? {}, zone: 'sidebar' };
+        roster.set(id, entry);
+        if (!instancesClient) return;
+        void instancesClient
+          .create(entry, { secretKeys: secretKeysOf(registry.get(insertion.type)) })
+          .catch((error) => console.error('Haven: could not persist the new widget.', error));
+        return;
+      }
+
       const host = grid.insert(insertion);
       if (!host) return;
       if (insertion.type === 'clock') startClock(host);

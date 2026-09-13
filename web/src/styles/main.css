@@ -566,6 +566,10 @@ body {
    * same radius. This is that rule's sidebar counterpart, and the two should
    * be changed together. */
   overflow: hidden;
+  /* The containing block for the per-card height grip, which sits on the
+     card's bottom edge. In flow the grip would add its own height to every
+     card, including the ones nobody resizes. */
+  position: relative;
 }
 
 /* Pinned to the bottom, matching the live dashboard's status card. `auto`
@@ -743,15 +747,9 @@ body {
 }
 
 /* The per-card height grip: a short bar centred on the card's bottom edge,
-   mirroring a GridStack south grip.
- *
- * The card is `position: relative` so the grip can sit on its bottom edge
- * without being part of the card's flow — in flow it would add its own height
- * to every card, including the ones nobody resizes. */
-.haven-sidebar__card {
-  position: relative;
-}
-
+   mirroring a GridStack south grip. The card is `position: relative` (set with
+   the card's own rule above) so this can sit on the bottom edge without being
+   part of the card's flow. */
 .haven-sidebar__grip {
   display: none;
   position: absolute;

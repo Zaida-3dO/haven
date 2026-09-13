@@ -413,6 +413,70 @@ test('the 3D home card body has an explicit height', () => {
   assert.match(rule, /height\s*:\s*\d+px/, `expected an explicit pixel height, found: ${rule}`);
 });
 
+test('a sidebar card clips its content to its own rounded corners', () => {
+  // The defect this pins, from Ope's screenshot of the deployed dashboard: the
+  // 3D home render visibly extended PAST the card's rounded container.
+  //
+  // Measured on https://haven.3dojoda.com before the fix: the card computes
+  // `border-radius: 12px` with a background and a border, and `overflow:
+  // visible`. Nothing clipped content to that radius, so a widget painting to
+  // the edge of the box spilled over the corners and across the border.
+  //
+  // Every OTHER sidebar card hid this by being intrinsically sized — its
+  // content defines the box, so it can never exceed it. An embed is the one
+  // widget kind that fills a container it did not measure (`:host { height:
+  // 100% }` against the fixed 200px above), which is why the 3D home is the
+  // card the overflow showed up on.
+  const rule = ruleFor('.haven-sidebar__card');
+
+  assert.ok(rule, 'main.css has no `.haven-sidebar__card` rule');
+  assert.match(
+    rule,
+    /overflow\s*:\s*hidden/,
+    'a sidebar card must clip to its own radius, or a widget that fills its ' +
+      `box paints over the card's rounded corners and border. Found: ${rule}`
+  );
+});
+
+test('the card actually HAS corners to overflow, so the clip is load-bearing', () => {
+  // Anti-vacuity for the rule above. `overflow: hidden` on a square, unpainted
+  // box would be a no-op and a fair candidate for deletion; it only matters
+  // because the card draws a rounded, filled container that content can
+  // visibly escape. If the radius ever goes, this test says so rather than
+  // leaving the clip looking arbitrary.
+  const rule = ruleFor('.haven-sidebar__card');
+
+  assert.match(
+    rule,
+    /border-radius\s*:/,
+    'the sidebar card no longer has a border-radius. If that is deliberate, ' +
+      'the `overflow: hidden` clip can be reconsidered with it — but not on its own.'
+  );
+});
+
+test('a sidebar card body can be the height its card gives it', () => {
+  // The other half, mirroring `.haven-widget__body` on a grid tile.
+  //
+  // A flex/grid child defaults to `min-height: auto` — "never smaller than my
+  // content" — so a body holding an oversized widget pushes the card taller
+  // instead of containing it, and the clip above then crops something the user
+  // has no way to reach. `min-height: 0` is what lets the body actually be the
+  // 200px the card assigns, and `overflow` gives the surplus somewhere to go.
+  const rule = ruleFor('.haven-sidebar__body');
+
+  assert.ok(rule, 'main.css has no `.haven-sidebar__body` rule');
+  assert.match(
+    rule,
+    /min-height\s*:\s*0/,
+    `the card body must be allowed to shrink to its assigned height, found: ${rule}`
+  );
+  assert.match(
+    rule,
+    /overflow\s*:\s*(auto|hidden|scroll)/,
+    `the card body must contain a widget that overshoots it, found: ${rule}`
+  );
+});
+
 test('the 3D home widget really does need that height', () => {
   // Anti-vacuity for the rule above: it is only load-bearing while the iframe
   // widget sizes itself to its container. If it ever stopped, the rule would

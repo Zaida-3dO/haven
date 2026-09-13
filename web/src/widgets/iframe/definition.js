@@ -6,7 +6,7 @@
  * sizes and the version can be asserted in a plain Node test.
  */
 
-import { DEFAULT_SANDBOX } from './embed-url.js';
+import { DEFAULT_SANDBOX, SANDBOX_NOTICE } from './embed-url.js';
 
 export const IFRAME_WIDGET_TYPE = 'iframe';
 export const IFRAME_WIDGET_TAG = 'haven-widget-iframe';
@@ -150,6 +150,20 @@ export const iframeWidget = {
       key: 'allowSameOrigin',
       type: 'select',
       label: 'Allow same-origin access (turns the sandbox off)',
+      /**
+       * The disclosure, next to the control that grants it.
+       *
+       * This is the settings-panel half of the sandbox notice. It used to be
+       * a line of body text rendered inside the card itself, which put a
+       * security warning on the dashboard as though it were content. The tile
+       * now shows a corner badge whose tooltip carries the same sentence, and
+       * the full explanation lives here — where someone actually deciding
+       * about the grant is looking.
+       *
+       * `SANDBOX_NOTICE` is shared with the badge rather than retyped, so the
+       * two surfaces cannot drift apart.
+       */
+      help: `${SANDBOX_NOTICE} Only unsafe when the embedded page is on this dashboard's own origin — a page from another site never gains Haven's permissions.`,
       default: 'no',
       options: [
         { value: 'no', label: 'No — keep the embed sandboxed' },

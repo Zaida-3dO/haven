@@ -16,6 +16,7 @@ export {
   DEFAULT_SANDBOX,
   EmbedUrlError,
   OPTIONAL_SANDBOX_TOKENS,
+  SANDBOX_NOTICE,
   defeatsSandbox,
   isSafeEmbedUrl,
   parseEmbedUrl,

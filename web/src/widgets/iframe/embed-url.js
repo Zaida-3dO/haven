@@ -74,6 +74,21 @@ export const OPTIONAL_SANDBOX_TOKENS = Object.freeze({
   allowSameOrigin: 'allow-same-origin',
 });
 
+/**
+ * The sandbox disclosure, in ONE place.
+ *
+ * Lives here rather than beside either thing that shows it, because it is
+ * shown in two surfaces that must not drift apart: the badge on the tile
+ * (`element.js`) and the `allowSameOrigin` help text in the settings panel
+ * (`definition.js`). A notice that disagreed with itself between the tile and
+ * the panel would be worse than either one alone.
+ *
+ * `embed-url.js` is the right home specifically because it touches no DOM —
+ * `definition.js` documents that it must stay loadable under `node --test`,
+ * so it cannot import the element module to reach a constant.
+ */
+export const SANDBOX_NOTICE = 'Sandbox off: this embed runs with the dashboard permissions.';
+
 /** Thrown by `parseEmbedUrl`. A named type so callers can tell it apart. */
 export class EmbedUrlError extends Error {
   constructor(message) {

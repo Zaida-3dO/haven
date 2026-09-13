@@ -497,6 +497,10 @@ body {
 .haven-sidebar {
   display: flex;
   flex-direction: column;
+  /* The containing block for the absolutely-positioned width handle. Without
+     it the handle positions against the viewport and lands somewhere else
+     entirely. */
+  position: relative;
   gap: var(--haven-space-4);
   padding: var(--haven-space-6);
   border-left: 1px solid var(--haven-border);
@@ -562,6 +566,10 @@ body {
    * same radius. This is that rule's sidebar counterpart, and the two should
    * be changed together. */
   overflow: hidden;
+  /* The containing block for the per-card height grip, which sits on the
+     card's bottom edge. In flow the grip would add its own height to every
+     card, including the ones nobody resizes. */
+  position: relative;
 }
 
 /* Pinned to the bottom, matching the live dashboard's status card. `auto`
@@ -673,6 +681,112 @@ body {
   height: 200px;
 }
 
+/* ── Sidebar sizing: the width handle and the per-card height grips ──────
+ *
+ * Ope, 2026-09-13: the calendar card is too tall (measured at 893px inside an
+ * 865px scrollport — one card taller than the whole visible sidebar), and the
+ * sidebar itself should be draggable wider.
+ *
+ * ── Why a card's height lands on the BODY and never on the CARD ──────────
+ * This is the rule that keeps the feature from reopening the scrollport
+ * starvation bug. `.haven-sidebar__scroll` holds the unpinned cards and the
+ * pinned status card is its SIBLING, outside it. A card that can grow without
+ * bound competes with the pin for the column's height, and at three such cards
+ * the scrollport's `clientHeight` measured 0px with `overflow: hidden` making
+ * them unreachable.
+ *
+ * Setting the height on `.haven-sidebar__body` with `overflow-y: auto` BOUNDS
+ * a card's contribution instead: the body is exactly as tall as it was told
+ * and its surplus content scrolls inside itself. So a user-set height can only
+ * ever make a card SHORTER than its intrinsic content — the direction that
+ * relieves the scrollport, never the one that starves it. The inline height is
+ * written by `sidebar-size.js`; there is no height declaration here, because a
+ * per-card value cannot come from a stylesheet.
+ *
+ * The `--type-iframe` rule above is the same mechanism arriving by a different
+ * route: a fixed body height so an embed has something to size against. A
+ * user-set height on such a card simply overrides it inline, which is the
+ * behaviour wanted — the 200px is a sensible default, not a constraint. */
+
+/* The grab strip down the sidebar's leading edge.
+ *
+ * Absolutely positioned against the sidebar so it overlays the border rather
+ * than taking a column of its own — a handle that occupied layout space would
+ * shift every card 6px left the moment edit mode opened.
+ *
+ * `display: none` in view mode, not merely transparent: an invisible but
+ * present handle still swallows clicks aimed at the cards behind it. */
+.haven-sidebar__width-handle {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 6px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  /* The resize cursor IS the affordance — the strip is deliberately almost
+     invisible until hovered, so the dashboard does not grow a permanent
+     vertical rule down its side while editing. */
+  cursor: col-resize;
+}
+
+.haven-layout--edit-mode .haven-sidebar__width-handle {
+  display: block;
+}
+
+.haven-sidebar__width-handle:hover,
+.haven-sidebar__width-handle:focus-visible {
+  background: var(--haven-accent);
+}
+
+.haven-sidebar__width-handle:focus-visible {
+  outline: 2px solid var(--haven-focus);
+  outline-offset: -2px;
+}
+
+/* The per-card height grip: a short bar centred on the card's bottom edge,
+   mirroring a GridStack south grip. The card is `position: relative` (set with
+   the card's own rule above) so this can sit on the bottom edge without being
+   part of the card's flow. */
+.haven-sidebar__grip {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 32px;
+  height: 6px;
+  padding: 0;
+  transform: translateX(-50%);
+  border: none;
+  border-radius: 3px;
+  background: var(--haven-border);
+  cursor: ns-resize;
+}
+
+.haven-layout--edit-mode .haven-sidebar__grip {
+  display: block;
+}
+
+.haven-sidebar__grip:hover,
+.haven-sidebar__grip:focus-visible {
+  background: var(--haven-accent);
+}
+
+.haven-sidebar__grip:focus-visible {
+  outline: 2px solid var(--haven-focus);
+  outline-offset: 2px;
+}
+
+/* A card being resized must not also be selecting text under the cursor.
+   Applied to the whole layout because a drag legitimately travels outside the
+   sidebar, and the selection would otherwise start wherever it landed. */
+.haven-layout--resizing,
+.haven-layout--resizing * {
+  user-select: none;
+}
+
 /* Below 1024px the sidebar stops being a column and stacks under the grid,
    losing its left border — matching the live dashboard's own breakpoint. A
    320px fixed track on a tablet leaves the app grid too narrow to be useful. */
@@ -724,6 +838,28 @@ body {
   /* Nothing to pin to when the column is as tall as its contents. */
   .haven-sidebar__card--pinned {
     margin-top: 0;
+  }
+
+  /* Stacked, the sidebar is not a column and has no width to drag — the
+     `--haven-sidebar-width` track does not exist down here. A `col-resize`
+     strip that resized nothing would be a control that lies, so it goes.
+     The height grips go too: a card's height is absorbed by the scrollport
+     above 1024px, but the scrollport is `display: block; overflow: visible`
+     here and the DOCUMENT scrolls, so a fixed body height would crop content
+     with the page's own scroll unable to reach it. */
+  .haven-sidebar__width-handle,
+  .haven-sidebar__grip {
+    display: none;
+  }
+
+  /* An inline height written by a desktop edit must not survive down here,
+     for the same reason. `revert-layer` is not needed: the inline style is
+     beaten by `!important`, which is the one legitimate use for it — the
+     alternative is the shell tracking the breakpoint and rewriting inline
+     styles on every resize. */
+  .haven-sidebar__body {
+    height: auto !important;
+    overflow-y: visible !important;
   }
 }
 

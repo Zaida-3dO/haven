@@ -63,6 +63,12 @@ function toStoredInstance(instance) {
   if (instance.sortOrder !== undefined) stored.sortOrder = instance.sortOrder;
   if (instance.zone !== undefined) stored.zone = instance.zone;
 
+  // `height` is the sidebar card's pixel height, or `null` for content sizing.
+  // Tested for `undefined` specifically rather than truthiness: `null` is a
+  // MEANINGFUL value here (it clears a height) and must reach the server,
+  // whereas `undefined` means "say nothing and keep what is stored".
+  if (instance.height !== undefined) stored.height = instance.height;
+
   return stored;
 }
 

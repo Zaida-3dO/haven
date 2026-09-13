@@ -769,3 +769,93 @@ test('the 3D home URL is a public https host, never a private address', () => {
     'the embed URL must not be a private or internal address in a public repo'
   );
 });
+
+/* ── 5. Sidebar sizing (2026-09-13) ──────────────────────────────────────── */
+
+test('a resized card bounds its BODY, so a height cannot starve the scrollport', () => {
+  // The rule that keeps user-set heights from reopening the starvation bug.
+  // A height on the CARD lets it grow without bound and compete with the
+  // pinned card for the column; a height on the BODY with `overflow-y: auto`
+  // bounds the card's contribution, so a user-set height can only ever make a
+  // card SHORTER than its content.
+  //
+  // The per-card value is inline (it cannot come from a stylesheet), so what
+  // is asserted here is that the stylesheet does not fight it: no competing
+  // `height` on `.haven-sidebar__card`, which would have to be overridden.
+  const card = ruleFor('.haven-sidebar__card');
+
+  assert.ok(card, 'main.css has no `.haven-sidebar__card` rule');
+  assert.doesNotMatch(
+    card,
+    /(^|[;{\s])height\s*:/,
+    'the sidebar CARD must not declare a height — heights belong on the body, ' +
+      `which is what bounds a card's contribution to the scrollport. Found: ${card}`
+  );
+});
+
+test('the resize affordances are edit-mode only, and hidden means hidden', () => {
+  // The `.haven-toolbar[hidden]` trap, third time in this codebase: an author
+  // `display` declaration beats the UA stylesheet's `hidden`. These two are
+  // `display: none` by default and revealed by the edit-mode class, so the
+  // default must actually be in the cascade rather than assumed.
+  const handle = ruleFor('.haven-sidebar__width-handle');
+  const grip = ruleFor('.haven-sidebar__grip');
+
+  assert.ok(handle, 'main.css has no `.haven-sidebar__width-handle` rule');
+  assert.ok(grip, 'main.css has no `.haven-sidebar__grip` rule');
+  assert.match(
+    handle,
+    /display\s*:\s*none/,
+    `the width handle must be hidden in view mode: ${handle}`
+  );
+  assert.match(grip, /display\s*:\s*none/, `the grips must be hidden in view mode: ${grip}`);
+
+  // …and revealed by the layout's edit class, which is the only thing that
+  // turns them on. Without these the affordances never appear at all.
+  assert.ok(
+    ruleFor('.haven-layout--edit-mode .haven-sidebar__width-handle'),
+    'nothing reveals the width handle in edit mode'
+  );
+  assert.ok(
+    ruleFor('.haven-layout--edit-mode .haven-sidebar__grip'),
+    'nothing reveals the height grips in edit mode'
+  );
+});
+
+test('the width handle overlays the sidebar rather than taking layout space', () => {
+  // A handle in flow would shift every card sideways the moment edit mode
+  // opened — a visible jump on entering edit mode. It is absolutely
+  // positioned, which requires the sidebar to be a containing block.
+  const handle = ruleFor('.haven-sidebar__width-handle');
+  const sidebar = ruleFor('.haven-sidebar');
+
+  assert.match(handle, /position\s*:\s*absolute/, `the handle must not be in flow: ${handle}`);
+  assert.match(
+    sidebar,
+    /position\s*:\s*relative/,
+    'the sidebar must be a containing block, or the handle positions against ' +
+      `the viewport and lands somewhere else entirely. Found: ${sidebar}`
+  );
+});
+
+test('below the breakpoint the sizing affordances and inline heights are dropped', () => {
+  // Stacked, the sidebar is not a column: `--haven-sidebar-width` is not read
+  // and the scrollport stops scrolling (`display: block; overflow: visible`),
+  // so an inline body height would CROP content with the page's own scroll
+  // unable to reach it. A `col-resize` strip that resized nothing would also
+  // be a control that lies.
+  const block = mobileBlock();
+
+  assert.ok(block, 'expected to find the 1024px media block');
+  assert.match(
+    block,
+    /\.haven-sidebar__width-handle[^{]*\{[^}]*display\s*:\s*none|\.haven-sidebar__grip[^{]*\{[^}]*display\s*:\s*none/,
+    'the resize affordances must be hidden below the breakpoint'
+  );
+  assert.match(
+    block,
+    /\.haven-sidebar__body\s*\{[^}]*height\s*:\s*auto\s*!important/,
+    'an inline height set on desktop must be reverted below the breakpoint, ' +
+      'or a stacked card crops its content with no way to scroll it'
+  );
+});

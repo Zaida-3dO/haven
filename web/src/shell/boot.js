@@ -22,6 +22,9 @@ import { connectGrid } from './dashboard-grid.js';
 import { connectSettings } from './settings-panel.js';
 import { createLayoutClient } from './layout-client.js';
 import { createInstancesClient, secretKeysOf } from './instances-client.js';
+import { createPreferencesClient } from './preferences-client.js';
+import { createSidebarSizing } from './sidebar-size.js';
+import { installSidebarResize } from './sidebar-resize.js';
 import { reconcileRoster } from './roster.js';
 import { installDeepLinks, mountGrid } from './grid.js';
 import { SearchUI } from './search-ui.js';
@@ -123,6 +126,10 @@ export async function bootDashboard(
 
   const layoutClient = createLayoutClient();
   const instancesClient = instances ? null : createInstancesClient();
+  // Singleton dashboard preferences — today just the sidebar's width. Null in
+  // the injected-roster case for the same reason as `instancesClient`: there
+  // is no server to talk to, so persisting would be meaningless.
+  const preferencesClient = instances ? null : createPreferencesClient();
   const dashboard = new Dashboard({ registry, container: root });
   const gridHandle = mountGrid({ root });
 
@@ -307,6 +314,20 @@ export async function bootDashboard(
     },
   });
 
+  /**
+   * Declared up here, assigned once the sidebar exists further down.
+   *
+   * `const` at the assignment site would leave this in the temporal dead zone
+   * for everything above it — and `createEditToolbar` calls `sync()`
+   * SYNCHRONOUSLY while constructing, which reads `isDirty`, which reads this.
+   * That threw `ReferenceError: Cannot access 'sidebarSizing' before
+   * initialization` during boot: the grid rendered its six tiles and then the
+   * shell died before mounting the sidebar or the profile menu. A browser
+   * caught it in one page load; every unit test passed, because `boot.js`
+   * imports GridStack and cannot be loaded under `node --test` at all.
+   */
+  let sidebarSizing = null;
+
   const editMode = createEditMode({
     gridHandle,
     layoutClient,
@@ -330,6 +351,11 @@ export async function bootDashboard(
       const editing = mode === MODE.EDIT;
       sidebar?.setEditable(editing);
       layoutEl?.classList?.toggle('haven-layout--edit-mode', editing);
+      // Snapshot on the way IN so Discard has sizes to restore. Taken here
+      // rather than in `editMode.enter()` because the sizing controller is
+      // the sidebar's, and `edit-mode.js` deliberately knows nothing about
+      // the sidebar — it reaches it only through this callback.
+      if (editing) sidebarSizing?.snapshot();
     },
     onError: (error) => console.error('Haven: saving the layout failed.', error),
 
@@ -349,7 +375,26 @@ export async function bootDashboard(
     sidebarZone: () => sidebarZone,
   });
 
-  const toolbar = createEditToolbar({ editMode });
+  /**
+   * The toolbar's dirty check, widened to see SIDEBAR resizes.
+   *
+   * `editMode.isDirty` compares grid geometry (`layoutDiffers`) and knows
+   * nothing about the sidebar — by design, `edit-mode.js` owns the grid zone.
+   * So a sidebar-only resize left Save inert and the change unsaveable: the
+   * browser suite caught this as a click that waited forever on a button that
+   * never enabled.
+   *
+   * Wrapped here rather than by changing `edit-mode.js`, so the grid's own
+   * rule is untouched and the sidebar's is additive: dirty is "the grid moved
+   * OR a sidebar size changed".
+   */
+  const editModeView = Object.create(editMode, {
+    isDirty: {
+      get: () => editMode.isDirty || Boolean(sidebarSizing?.isDirty),
+    },
+  });
+
+  const toolbar = createEditToolbar({ editMode: editModeView });
 
   /**
    * The profile menu — where "Edit dashboard" lives now.
@@ -369,7 +414,13 @@ export async function bootDashboard(
         id: 'edit',
         label: 'Edit dashboard',
         onSelect: () => {
+          // `toggle()` DISCARDS on the way out, and this path does NOT go
+          // through `toolbar.toggle`, so the listener on that button never
+          // sees it. Without this, leaving edit mode from the menu would keep
+          // sidebar resizes that the grid half just threw away.
+          const leaving = editMode.isEditing;
           editMode.toggle();
+          if (leaving) sidebarSizing?.discard();
           toolbar.sync();
           syncProfileLabel();
         },
@@ -386,6 +437,27 @@ export async function bootDashboard(
   toolbar.toggle.addEventListener('click', () => syncProfileLabel());
   toolbar.save.addEventListener('click', () => syncProfileLabel());
   toolbar.discard.addEventListener('click', () => syncProfileLabel());
+
+  /**
+   * Sidebar sizes ride the SAME Save and Discard as the grid's geometry.
+   *
+   * Listeners rather than changes inside `edit-mode.js`: that module owns
+   * grid layout and deliberately has no sidebar reference, and adding one
+   * would couple it to a zone it was written to stay out of.
+   *
+   * `commit()` swallows and reports its own failures, so a refused width PUT
+   * cannot reject here and become an unhandled rejection on the click.
+   *
+   * ⚠️ `toolbar.toggle` is "Done editing" while editing, and `editMode.toggle()`
+   * DISCARDS on the way out — so the toggle has to revert sizes too, or a
+   * user leaving edit mode by that button would keep resizes the grid half
+   * just threw away.
+   */
+  toolbar.save.addEventListener('click', () => void sidebarSizing?.commit());
+  toolbar.discard.addEventListener('click', () => sidebarSizing?.discard());
+  toolbar.toggle.addEventListener('click', () => {
+    if (!editMode.isEditing) sidebarSizing?.discard();
+  });
 
   /**
    * Re-evaluate the toolbar whenever the layout moves.
@@ -595,6 +667,27 @@ export async function bootDashboard(
     : null;
   sidebarZone?.load(sidebarEntries);
 
+  /**
+   * Sidebar sizing: the column's width, and each card's height.
+   *
+   * Its rules live in `sidebar-size.js` for the same reason the zone's do —
+   * `boot.js` imports GridStack and cannot be loaded under `node --test`, so
+   * anything worth testing has to sit outside this file.
+   *
+   * Every change is DRAFTED: `snapshot()` on entering edit mode, `commit()`
+   * from Save, `discard()` from Discard. Nothing is written while dragging.
+   */
+  sidebarSizing = sidebar
+    ? createSidebarSizing({
+        sidebar,
+        layoutEl,
+        preferencesClient,
+        instancesClient,
+        entries: () => sidebarZone?.entries ?? [],
+        secretKeysFor: (type) => secretKeysOf(registry.get(type)),
+      })
+    : null;
+
   if (sidebar) {
     layoutEl.appendChild(sidebar.el);
     for (const entry of sidebarEntries) {
@@ -608,6 +701,31 @@ export async function bootDashboard(
       // is the whole distinction between the sidebar and the grid.
       dashboard.add({ id: entry.id, type: entry.type, config: entry.config ?? {} }, body);
     }
+
+    // After the cards exist, so a stored height has something to land on.
+    // The width is fetched separately: it is a dashboard preference rather
+    // than a property of any roster row.
+    sidebarSizing?.load({ entries: sidebarEntries });
+    if (preferencesClient) {
+      void preferencesClient
+        .load()
+        .then(({ sidebarWidth }) => sidebarSizing?.load({ sidebarWidth }))
+        // A failed preferences read leaves the stylesheet's own 320px in
+        // place, which is the correct fallback — never a blank or zero-width
+        // column.
+        .catch((error) => console.warn('Haven: could not load the sidebar width.', error));
+    }
+
+    installSidebarResize({
+      sidebar,
+      sidebarSizing,
+      dashboard,
+      layoutEl,
+      // Save is inert until something is dirty, so a resize has to re-run the
+      // toolbar's check — otherwise the button stays greyed out until an
+      // unrelated event happens to refresh it.
+      onChange: () => toolbar.sync(),
+    });
   }
 
   // Full-bleed: before the LAYOUT element, not inside the chrome's padded box,

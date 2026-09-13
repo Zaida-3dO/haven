@@ -11,6 +11,7 @@ import { registerHealthRoutes } from './routes/health.js';
 import { registerInstanceRoutes } from './routes/instances.js';
 import { registerLayoutRoutes } from './routes/layout.js';
 import { registerNoticeRoutes } from './routes/notices.js';
+import { registerPreferenceRoutes } from './routes/preferences.js';
 import { registerVersionRoutes } from './routes/versions.js';
 import { registerWidgetRoutes } from './routes/widgets.js';
 
@@ -96,6 +97,9 @@ export async function buildServer(opts = {}) {
 
   await registerHealthRoutes(app);
   await registerLayoutRoutes(app);
+  // Singleton dashboard preferences (the sidebar's width). Not layout: see
+  // migration 007 for why a width in `layout.nodes` would be silently dropped.
+  await registerPreferenceRoutes(app);
   // The roster: which widgets exist and how each is configured. Geometry is
   // the layout routes above; the two are joined by instance id in the shell.
   await registerInstanceRoutes(app, { db, credentials });

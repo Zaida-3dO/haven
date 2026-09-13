@@ -53,7 +53,8 @@ export const SECRET_SET = '__haven_secret_set__';
 /** Credential name for one instance's secret field. */
 export const secretName = (instanceId, key) => `widget:${instanceId}:${key}`;
 
-const COLUMNS = 'id, type, config, config_version, sort_order, zone, created_at, updated_at';
+const COLUMNS =
+  'id, type, config, config_version, sort_order, zone, height, created_at, updated_at';
 
 /**
  * The zones a widget can live in.
@@ -70,6 +71,18 @@ export const ZONES = Object.freeze(['grid', 'sidebar']);
 
 /** The zone a widget is in when nothing says otherwise. Matches 005's DEFAULT. */
 export const DEFAULT_ZONE = 'grid';
+
+/**
+ * The shortest a sidebar card may be set to, in pixels.
+ *
+ * A floor rather than a free-for-all because a card shorter than its own
+ * heading is a card whose content is unreachable: the title row alone is about
+ * 34px, so below roughly this the body has no room to scroll in and the card
+ * becomes a label with a scrollbar. Mirrored in `web/src/shell/sidebar-size.js`
+ * so the drag stops where the validator would refuse, rather than letting the
+ * user drag to a value the server rejects.
+ */
+export const MIN_CARD_HEIGHT = 80;
 
 const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -107,6 +120,10 @@ function toInstance(row) {
     configVersion: row.config_version ?? 1,
     sortOrder: row.sort_order ?? 0,
     zone: row.zone ?? DEFAULT_ZONE,
+    // NULL means "size to your content" — the sidebar's documented default
+    // (DESIGN §3.1). Passed through as null rather than defaulted to a number,
+    // because there is no pixel height that means "intrinsic".
+    height: row.height ?? null,
     createdAt: row.created_at ?? null,
     updatedAt: row.updated_at ?? null,
   };
@@ -185,6 +202,21 @@ export function validateInstance(payload, { requireId = true } = {}) {
     );
   }
 
+  // Height is a SIDEBAR dimension in pixels, or null for content sizing.
+  // Refused rather than coerced, for the same reason `zone` is: a silently
+  // dropped height is a card that stays the wrong size with nothing saying
+  // why. `null` is explicitly allowed — it is how a user clears a height and
+  // goes back to intrinsic sizing, which a bare `undefined` cannot express
+  // through a full-replace PUT.
+  const height = payload.height;
+  if (height !== undefined && height !== null) {
+    if (!Number.isInteger(height) || height < MIN_CARD_HEIGHT) {
+      throw new InstanceValidationError(
+        `height must be null or an integer >= ${MIN_CARD_HEIGHT} — received ${JSON.stringify(height)}.`
+      );
+    }
+  }
+
   const clean = {
     type: payload.type,
     config: payload.config ?? {},
@@ -193,6 +225,7 @@ export function validateInstance(payload, { requireId = true } = {}) {
   };
   if (sortOrder !== undefined) clean.sortOrder = sortOrder;
   if (zone !== undefined) clean.zone = zone;
+  if (height !== undefined) clean.height = height;
   if (typeof payload.id === 'string') clean.id = payload.id;
 
   return clean;
@@ -204,14 +237,15 @@ export function createInstanceStore(db, { credentials } = {}) {
   const credentialStore = credentials ?? createCredentialStore(db);
 
   const insert = db.prepare(`
-    INSERT INTO widgets (id, type, config, config_version, sort_order, zone)
-    VALUES (@id, @type, @config, @config_version, @sort_order, @zone)
+    INSERT INTO widgets (id, type, config, config_version, sort_order, zone, height)
+    VALUES (@id, @type, @config, @config_version, @sort_order, @zone, @height)
   `);
 
   const update = db.prepare(`
     UPDATE widgets SET
       type = @type, config = @config, config_version = @config_version,
-      sort_order = @sort_order, zone = @zone, updated_at = datetime('now')
+      sort_order = @sort_order, zone = @zone, height = @height,
+      updated_at = datetime('now')
     WHERE id = @id
   `);
 
@@ -352,6 +386,7 @@ export function createInstanceStore(db, { credentials } = {}) {
           config_version: validated.configVersion ?? 1,
           sort_order: sortOrder,
           zone,
+          height: validated.height ?? null,
         });
       });
 
@@ -389,6 +424,12 @@ export function createInstanceStore(db, { credentials } = {}) {
           // relocate it to the grid.
           sort_order: validated.sortOrder ?? previous.sortOrder,
           zone: validated.zone ?? previous.zone,
+          // `undefined` keeps the stored height; an explicit `null` clears it
+          // back to content sizing. The two are deliberately distinguished —
+          // `??` alone would make "clear this height" impossible to express,
+          // and the settings panel sends a full replace that says nothing
+          // about height at all.
+          height: validated.height === undefined ? (previous.height ?? null) : validated.height,
         });
       });
 

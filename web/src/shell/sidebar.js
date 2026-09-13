@@ -232,13 +232,49 @@ export function createSidebarCard({
   const body = doc.createElement('div');
   body.className = 'haven-sidebar__body';
 
+  /**
+   * The height grip — the sidebar's answer to a GridStack resize grip.
+   *
+   * Only on UNPINNED cards, and that is a correctness rule rather than a
+   * cosmetic one. The pinned card is the sidebar's own child rather than a
+   * child of the scrollport, so a fixed height on it competes with the
+   * scrollport for the column's space instead of being absorbed by it — which
+   * is the scrollport-starvation failure this whole structure exists to
+   * prevent. `applyCardHeight` refuses it too; this simply never offers it.
+   *
+   * A real `<button>`, not a bare div, so it is tab-reachable and operable
+   * from the keyboard: a drag is a mouse gesture, and a resize affordance that
+   * only exists for a mouse is one a keyboard user cannot reach at all. The
+   * arrow-key handling lives in `sidebar-size.js`'s wiring rather than here,
+   * because this function builds DOM and owns no behaviour.
+   *
+   * Built DISABLED with `tabIndex: -1`, exactly like the move/remove controls
+   * above — `setEditable` turns it on. Hiding it with CSS alone would leave it
+   * in the tab order for a keyboard user in view mode.
+   */
+  let grip = null;
+  if (controls && !pinned) {
+    grip = doc.createElement('button');
+    grip.type = 'button';
+    grip.className = 'haven-sidebar__grip';
+    grip.dataset.sidebarGrip = id ?? '';
+    grip.setAttribute('aria-label', `Resize ${title}`);
+    // A slider is the honest role: it has a value along one axis with a min
+    // and a max, which is what the arrow keys drive.
+    grip.setAttribute('role', 'slider');
+    grip.setAttribute('aria-orientation', 'vertical');
+    grip.disabled = true;
+    grip.tabIndex = -1;
+  }
+
   el.append(heading, body);
+  if (grip) el.appendChild(grip);
   // `pinned` is reported back, not just baked into the class string. The
   // reorder path has to SKIP the pinned card — it is the sidebar's own child
   // rather than a child of the scrollport — and re-deriving that by parsing
   // the className would be one string change away from silently pulling the
   // pinned card into the scrollport, where it can scroll out of view.
-  return { el, body, title: heading, pinned: Boolean(pinned), controls: controlsEl };
+  return { el, body, title: heading, pinned: Boolean(pinned), controls: controlsEl, grip };
 }
 
 /**
@@ -291,6 +327,29 @@ export function createSidebar({
   const scroll = doc.createElement('div');
   scroll.className = 'haven-sidebar__scroll';
   el.appendChild(scroll);
+
+  /**
+   * The width handle — a grab strip down the sidebar's leading edge.
+   *
+   * On the sidebar itself rather than on the layout, because it resizes the
+   * sidebar: putting it on the shared `.haven-layout` would make the element
+   * that owns the handle different from the element being sized, and the two
+   * would have to be kept in step for no benefit.
+   *
+   * A real `<button>` for the same reason as the card grips: dragging is a
+   * mouse gesture and the keyboard needs a way in. `role="separator"` with
+   * `aria-orientation="vertical"` is the standard shape for a draggable pane
+   * divider, and it is what a screen reader announces as resizable.
+   */
+  const widthHandle = doc.createElement('button');
+  widthHandle.type = 'button';
+  widthHandle.className = 'haven-sidebar__width-handle';
+  widthHandle.setAttribute('aria-label', 'Resize sidebar');
+  widthHandle.setAttribute('role', 'separator');
+  widthHandle.setAttribute('aria-orientation', 'vertical');
+  widthHandle.disabled = true;
+  widthHandle.tabIndex = -1;
+  el.appendChild(widthHandle);
 
   const bodies = new Map();
   const built = new Map();
@@ -361,10 +420,21 @@ export function createSidebar({
         control.disabled = !editing;
         control.tabIndex = editing ? 0 : -1;
       }
+      // The height grip is a sibling of the controls group, not a child of
+      // it, so the loop above cannot reach it. Missing this is exactly the
+      // "built disabled and stays disabled forever" failure the note at the
+      // top of this function describes — no error, no failing test, a dead
+      // affordance.
+      if (card.grip) {
+        card.grip.disabled = !editing;
+        card.grip.tabIndex = editing ? 0 : -1;
+      }
     }
+    widthHandle.disabled = !editing;
+    widthHandle.tabIndex = editing ? 0 : -1;
   }
 
-  return { el, scroll, bodies, cards: built, addCard, setEditable };
+  return { el, scroll, bodies, cards: built, addCard, setEditable, widthHandle };
 }
 
 export default { createSidebar, createSidebarCard, SIDEBAR_ICONS };

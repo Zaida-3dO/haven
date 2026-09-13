@@ -163,6 +163,50 @@ to their content" is a default with a named exception rather than an invariant, 
 that manages the card list has to hold that rule rather than assume the four cards that
 happen to ship today.
 
+**Sizing, added 2026-09-13 (Ope).** The model above said the only free variable in the
+sidebar is order. That is no longer true, and the exception is deliberate rather than
+drift. Ope, using the shipped sidebar: *"i would like to reduce the height of the calendar
+widget it's too tall id rather have an internal scroll bar on the widget we should be able
+to resize their height like we can on the main page"*, plus a sidebar he can drag wider.
+The calendar card measured 893px inside an 865px scrollport — one card taller than the
+whole visible column — so "as tall as its content" had stopped being a good default for
+every card.
+
+So there are now two user-set dimensions, stored in two different places because they are
+two different kinds of thing:
+
+| Dimension | Belongs to | Stored | Per-breakpoint? |
+|---|---|---|---|
+| A card's **height** | one widget instance | `widgets.height` (migration 007), nullable — `NULL` means "size to your content" | No |
+| The sidebar's **width** | the column itself | `preferences.sidebarWidth` (migration 007) | **No** — see below |
+
+**The width is NOT per-breakpoint, and this is the decision this section exists to record.**
+Width *is* geometry, and the rule above makes geometry per-breakpoint — so the exception
+needs a reason, and it is not "one value was easier". Below 1024px the sidebar stops being a
+column at all: `.haven-layout` becomes `grid-template-columns: 1fr`, the sidebar stacks
+under the grid at full width, and `--haven-sidebar-width` is not read by anything. A
+per-breakpoint width would therefore ship a control that is silently inert at one of its two
+breakpoints, and would make a user set a value twice to see it take effect once — the
+"bookkeeping, not design" this section already rejects for zone. The per-breakpoint rule
+exists because geometry "genuinely wants a different answer on a phone"; this dimension
+cannot have an answer on a phone.
+
+It is also not stored in `layout`, despite being geometry, for the reason migration 005 gave
+when it kept `zone` out: `validateNode` rebuilds each node from an `id/x/y/w/h` whitelist, so
+an unrecognised key is dropped **silently**. A width that vanished with no error is a worse
+failure than one that is refused.
+
+**A card's height cannot starve the scrollport, and that is a property of where it is
+applied.** The height goes on `.haven-sidebar__body` with `overflow-y: auto`, never on the
+card. The unpinned cards live inside `.haven-sidebar__scroll` and the pinned Server Status
+card is its sibling, outside it; a card that grows without bound competes with the pin for
+the column and at three such cards the scrollport measured `clientHeight: 0` with
+`overflow: hidden` making them unreachable. Bounding the *body* means a user-set height can
+only ever make a card shorter than its intrinsic content — the direction that relieves the
+scrollport. The pinned card is deliberately not resizable at all: it is the sidebar's own
+child, so a height on it would take space *from* the scrollport rather than be absorbed by
+it, and its being content-sized is the premise that makes a `min-height` floor unnecessary.
+
 **Zone is a property of the widget instance, not of the layout — and is therefore
 breakpoint-independent.** A widget is a sidebar widget everywhere, or a grid widget
 everywhere; there is no way to express "sidebar on desktop, grid on mobile", deliberately.

@@ -1,0 +1,77 @@
+-- Migration 007 — sidebar sizing: per-card height, and the sidebar's width.
+--
+-- Two user-settable dimensions, deliberately stored in two DIFFERENT places,
+-- because they are two different kinds of thing. Ope, 2026-09-13:
+--
+--   "i would like to reduce the height of the calendar widget it's too tall
+--    id rather have an internal scroll bar on the widget we should be able to
+--    resize their height like we can on the main page"
+--
+-- plus a sidebar he can drag wider.
+--
+-- ── `widgets.height` — a property of ONE CARD ────────────────────────────
+-- Height is per-instance: the calendar is the card that is too tall, not the
+-- sidebar. That is the same shape as `sort_order` (004) and `zone` (005) —
+-- placement and presentation of one roster row — so it goes on the same table
+-- for the same reason 005 gave: "placement belongs with identity, and
+-- everything the feature needs already exists on this table".
+--
+-- NULLABLE, and the null is meaningful rather than lazy. `NULL` means "size to
+-- your content", which is the sidebar's documented default (DESIGN §3.1: a
+-- card is "as tall as its content"). A NOT NULL column with a sentinel like 0
+-- would force every reader to know that 0 is magic; a nullable column says it
+-- in the schema. There is deliberately no backfill: every existing card keeps
+-- content sizing, which is exactly what it has today.
+--
+-- Stored as INTEGER PIXELS, not grid rows. The sidebar has no cell grid to
+-- count — it is a flex stack (DESIGN §3.1), so there is no row height to
+-- multiply by, and inventing one would be the "cell-height arithmetic bolted
+-- on" that §3.1 rejects. Pixels are what the CSS consumes and what the drag
+-- produces, so nothing has to round-trip through a unit that does not exist.
+ALTER TABLE widgets ADD COLUMN height INTEGER;
+
+-- ── `preferences` — the sidebar's WIDTH, which belongs to no widget ─────
+-- The width is a property of the COLUMN, not of any card in it, so there is no
+-- row on `widgets` it could honestly hang off. The three existing tables are
+-- all keyed by a thing (a breakpoint, an app, a widget instance) and a
+-- singleton dashboard preference is none of them, so it gets the table that
+-- was missing: a plain key/value store.
+--
+-- Named `preferences`, NOT `settings`, deliberately. `server/src/settings.js`
+-- already owns that word for an unrelated thing: `config/settings.json`, a
+-- human-edited file of weather units and coordinates that the app only ever
+-- READS. This table is user-set state written from the UI. Two concepts one
+-- word apart is how a reader ends up editing the wrong one.
+--
+-- ── Why NOT in `layout`, which is the obvious-looking home ───────────────
+-- Width IS geometry, and `layout` is where geometry lives — so this needs a
+-- reason, and migration 005 already wrote it while rejecting `layout` for
+-- `zone`:
+--
+--   "`layout.nodes` is validated down to a whitelist that BUILDS ITS OUTPUT
+--    FROM SCRATCH (`db/layout.js:57`), so an unknown `zone` key there is
+--    silently dropped rather than rejected. A placement that vanishes without
+--    an error is worse than one that is refused."
+--
+-- That argument transfers verbatim. `validateNode` requires `id/x/y/w/h` and
+-- rebuilds a clean object from exactly those keys, so a width smuggled into a
+-- layout payload would be discarded with no error anywhere — the failure mode
+-- that cost real time to find twice already.
+--
+-- ── Why it is NOT per-breakpoint, unlike the rest of geometry ────────────
+-- DESIGN §3.1 makes geometry per-breakpoint because geometry "genuinely wants
+-- a different answer on a phone than on a desktop". The sidebar's width cannot
+-- have an answer on a phone: below 1024px `.haven-layout` becomes
+-- `grid-template-columns: 1fr` and the sidebar stops being a column at all,
+-- stacking under the grid at full width (`web/src/styles/main.css`). A
+-- per-breakpoint width would ship a control that is silently inert at one of
+-- its two breakpoints, and would make the user set a value twice to see it
+-- work once — the "bookkeeping, not design" §3.1 warns against.
+--
+-- So: one width, one row, and DESIGN §3.1 records the reasoning so the next
+-- reader finds it in the document rather than rediscovering it.
+CREATE TABLE preferences (
+  key         TEXT    PRIMARY KEY,
+  value       TEXT    NOT NULL,
+  updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);

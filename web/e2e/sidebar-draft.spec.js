@@ -147,10 +147,24 @@ test.describe('sidebar changes are drafted until Save', () => {
     // save or discard."
     await expect(toggle).toHaveAttribute('aria-disabled', 'true');
 
-    // And it must genuinely not work, not merely look blocked — `aria-disabled`
-    // is advisory and the browser still fires the click.
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    // And it must genuinely not work, not merely look blocked.
+    //
+    // Dispatched directly rather than through `locator.click()`, and that is
+    // the stronger assertion rather than a workaround. Playwright's `click()`
+    // auto-waits for the element to be "enabled" and treats `aria-disabled`
+    // as not-enabled, so it never dispatches at all and merely times out —
+    // which would be testing Playwright's auto-wait, not this code.
+    //
+    // `aria-disabled` is ADVISORY: the browser really does fire a click on
+    // such a button, and assistive tech and scripted clicks both reach the
+    // handler. The JS swallow in `createEditToolbar` is the only thing that
+    // stops the exit, so this dispatches the event the way those callers do.
+    await toggle.dispatchEvent('click');
+    await expect(toggle, 'a blocked exit must not drop to view mode').toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    await expect(page.locator('.haven-toolbar__save')).toBeVisible();
   });
 
   test('a reorder is LOST on refresh when it was never saved', async ({ page }) => {

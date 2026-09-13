@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { migrate } from '../src/db/migrate.js';
+import { loadMigrations, migrate } from '../src/db/migrate.js';
 import {
   DEFAULT_INSTANCES,
   HOME_3D_PREVIEW_URL,
@@ -545,19 +545,47 @@ test('the seeded sidebar order is weather · calendar · 3D home · status', asy
   ]);
 });
 
-test('the seeded 3D home embed keeps its locked-down sandbox', async (t) => {
+test('the seeded 3D home embed keeps its sandbox as tight as the embed allows', async (t) => {
   // RELOCATED from the web contract test, and this one is SECURITY, not
-  // layout. The embed is a cross-origin third-party page; `allowSameOrigin`
-  // is what stops the framed document reaching `parent.document` — i.e. this
-  // dashboard. Moving the roster from a hardcoded array into the database is
-  // not an occasion to widen an iframe sandbox, so the flags are asserted
-  // against the row that is actually seeded.
+  // layout — so the flags are asserted against the row that is actually
+  // SEEDED rather than against the shell's source.
+  //
+  // This test used to assert `allowSameOrigin: 'no'` here. That was wrong for
+  // THIS embed and is exactly how the tile shipped blank: the shell had
+  // already been fixed to 'yes', the seed was written from the pre-fix value,
+  // and this assertion then pinned the broken value in place while passing.
+  //
+  // allow-scripts + allow-same-origin is "equivalent to no sandbox at all"
+  // only when the framed page is SAME-ORIGIN with the embedder. This URL is an
+  // absolute public host, so the frame is cross-origin and never holds Haven's
+  // origin — the grant returns the third-party page its own storage and
+  // credentialled fetches, nothing of Haven's. Without it the frame sends
+  // `Origin: null`, 3dhome cannot allow-list it, and every scene fetch is
+  // CORS-blocked.
+  //
+  // The widget DEFAULT must stay 'no' and is pinned separately in
+  // `web/test/sidebar-layout-contract.test.js`. These two are MEANT to differ;
+  // do not reconcile them.
   const { app } = await freshApp(t);
 
   const embed = (await list(app)).json().instances.find((i) => i.id === 'sidebar-home3d');
 
   assert.ok(embed, 'the sidebar 3D home instance was not seeded');
-  assert.equal(embed.config.allowSameOrigin, 'no', 'the embed must not get same-origin access');
+  assert.equal(
+    embed.config.allowSameOrigin,
+    'yes',
+    'the 3D embed needs a real origin so 3dhome can allow-list it by name; ' +
+      'see the comment above before changing this'
+  );
+  // What makes the grant safe is that the URL is cross-origin. If this ever
+  // becomes a relative path, the reasoning above collapses.
+  assert.match(
+    embed.config.url,
+    /^https:\/\//,
+    'the embed URL must stay absolute and cross-origin while it has ' +
+      'allow-same-origin: a relative path would be same-origin with the ' +
+      'dashboard, which IS the "no sandbox at all" case'
+  );
   assert.equal(embed.config.allowForms, 'no', 'the embed must not get forms');
   assert.equal(embed.config.allowPopups, 'no', 'the embed must not get popups');
 });
@@ -594,6 +622,150 @@ test('the server-side preview URL agrees with the web widget definition', () => 
     HOME_3D_PREVIEW_URL,
     `${base[1]}${preview[1]}`,
     'the server seed and the web widget definition disagree about the 3D home preview URL'
+  );
+});
+
+/**
+ * Seeds the sidebar the way v0.8.0 did — with the PRE-FIX `allowSameOrigin`.
+ *
+ * The bug this covers cannot be reproduced through `SIDEBAR_DEFAULTS`, because
+ * that constant is now fixed. The broken state only exists on a database that
+ * a shipped release already wrote, so the row is inserted directly, exactly as
+ * it appears on the deployed NAS instance.
+ */
+function seedSidebarTheOldWay(db) {
+  const brokenConfig = SIDEBAR_DEFAULTS.find((i) => i.id === 'sidebar-home3d').config;
+  db.prepare(
+    `INSERT INTO widgets (id, type, config, config_version, sort_order, zone)
+     VALUES ('sidebar-home3d', 'iframe', ?, 1, 2, 'sidebar')`
+  ).run(JSON.stringify({ ...brokenConfig, allowSameOrigin: 'no' }));
+}
+
+const storedConfig = (db, id = 'sidebar-home3d') =>
+  JSON.parse(db.prepare('SELECT config FROM widgets WHERE id = ?').get(id).config);
+
+test('migration 006 flips an already-seeded 3D embed to allow-same-origin', (t) => {
+  // THE DEPLOYED CASE, and the only one that fixes Ope's running instance.
+  // `seedInstances` is skip-if-the-zone-is-non-empty, so an install that has
+  // already booted v0.8.0 will NEVER re-seed and would keep the broken value
+  // forever. Fixing the seed constant alone reaches fresh installs only.
+  const db = new Database(':memory:');
+  t.after(() => db.close());
+
+  // Migrate to 005 only, then write the row as the broken release left it.
+  const upTo005 = loadMigrations().filter((m) => m.id <= 5);
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS schema_migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT (datetime('now')))"
+  );
+  for (const m of upTo005) {
+    db.exec(m.sql);
+    db.prepare('INSERT INTO schema_migrations (id, name, checksum) VALUES (?, ?, ?)').run(
+      m.id,
+      m.name,
+      m.checksum
+    );
+  }
+  seedSidebarTheOldWay(db);
+  assert.equal(storedConfig(db).allowSameOrigin, 'no', 'precondition: the row starts broken');
+
+  const applied = migrate(db);
+
+  assert.ok(applied.includes('006-home3d-same-origin.sql'), '006 should have been the one to run');
+  assert.equal(
+    storedConfig(db).allowSameOrigin,
+    'yes',
+    'the deployed row must be migrated, not just the seed constant'
+  );
+});
+
+test('migration 006 leaves the rest of the embed config untouched', (t) => {
+  // `json_set` on one key, not string surgery on the blob: url, title, scroll,
+  // allowForms and allowPopups must survive verbatim — including any edit the
+  // user has since made to them.
+  const db = new Database(':memory:');
+  t.after(() => db.close());
+  migrate(db);
+
+  db.prepare(
+    `INSERT INTO widgets (id, type, config, config_version, sort_order, zone)
+     VALUES ('sidebar-home3d', 'iframe', ?, 1, 2, 'sidebar')`
+  ).run(
+    JSON.stringify({
+      url: HOME_3D_PREVIEW_URL,
+      title: 'My renamed tile',
+      scroll: 'no',
+      allowForms: 'no',
+      allowPopups: 'no',
+      allowSameOrigin: 'no',
+    })
+  );
+
+  // Re-run 006 against the row directly: `migrate` is already past it.
+  db.exec(
+    readFileSync(
+      new URL('../src/db/migrations/006-home3d-same-origin.sql', import.meta.url),
+      'utf8'
+    )
+  );
+
+  assert.deepEqual(storedConfig(db), {
+    url: HOME_3D_PREVIEW_URL,
+    title: 'My renamed tile',
+    scroll: 'no',
+    allowForms: 'no',
+    allowPopups: 'no',
+    allowSameOrigin: 'yes',
+  });
+});
+
+test('migration 006 does not widen any other iframe instance', (t) => {
+  // The WHERE clause is a security boundary, not tidiness. The widget default
+  // is 'no' and must stay 'no' for every other embed — a relative-path iframe
+  // added by hand would be same-origin with Haven and could reach
+  // `parent.document`. Only this one absolute-public-host row is safe.
+  const db = new Database(':memory:');
+  t.after(() => db.close());
+  migrate(db);
+
+  db.prepare(
+    `INSERT INTO widgets (id, type, config, config_version, sort_order, zone)
+     VALUES ('some-other-frame', 'iframe', ?, 1, 0, 'grid')`
+  ).run(JSON.stringify({ url: '/internal/page', allowSameOrigin: 'no' }));
+
+  db.exec(
+    readFileSync(
+      new URL('../src/db/migrations/006-home3d-same-origin.sql', import.meta.url),
+      'utf8'
+    )
+  );
+
+  assert.equal(
+    storedConfig(db, 'some-other-frame').allowSameOrigin,
+    'no',
+    'a different iframe instance must NOT be granted same-origin'
+  );
+});
+
+test('a fresh install seeds allow-same-origin directly, with 006 a no-op', (t) => {
+  // The other half: a brand-new database must not depend on the migration at
+  // all. Migrations run before seeding, over an empty widgets table, so 006
+  // updates zero rows and the seed constant is what supplies the right value.
+  const db = new Database(':memory:');
+  t.after(() => db.close());
+
+  migrate(db);
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS n FROM widgets WHERE id = 'sidebar-home3d'").get().n,
+    0,
+    'migrations must run before any seeding, so 006 has nothing to update'
+  );
+
+  seedInstances(db, { path: null, zone: 'sidebar', defaults: SIDEBAR_DEFAULTS });
+
+  assert.equal(
+    storedConfig(db).allowSameOrigin,
+    'yes',
+    'a fresh install must seed the fixed value'
   );
 });
 

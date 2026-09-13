@@ -644,15 +644,37 @@ export const SIDEBAR_DEFAULTS = Object.freeze([
       title: '3D home',
       scroll: 'no',
       // ── SECURITY: these three flags are load-bearing ──────────────────
-      // A cross-origin embed of a third-party page. `allowSameOrigin: 'no'`
-      // is what stops the framed document reaching `parent.document` — i.e.
-      // this dashboard. A move from a hardcoded array into the database is
-      // emphatically not the place to widen an iframe sandbox, so the flags
-      // came across unchanged and `server/test/instances.test.js` asserts
-      // every one of them against the SEEDED ROW.
+      // Forms and popups stay off: nothing about a WebGL scene needs either.
+      //
+      // `allowSameOrigin: 'yes'` is deliberate and must match
+      // `web/src/shell/boot.js`, which is where it was fixed first. When this
+      // roster moved out of that hardcoded array and into the database, the
+      // seed was written carrying the PRE-FIX value — so the data silently
+      // overrode the fixed code and the tile went blank again in v0.8.0. The
+      // seed is the roster now; a value that is wrong here is wrong in
+      // production regardless of what the shell says.
+      //
+      // Why the grant is safe HERE and nowhere else: allow-scripts plus
+      // allow-same-origin is "equivalent to no sandbox at all" only when the
+      // framed page is SAME-ORIGIN with the embedder, where it would keep
+      // Haven's real origin and could reach `parent.document`. This URL is an
+      // absolute public host, so the frame is cross-origin and never holds
+      // Haven's origin whatever the sandbox says. The grant buys the
+      // third-party page back its OWN storage and credentialled fetches.
+      //
+      // And it is load-bearing: without a real origin the frame gets an opaque
+      // one and sends `Origin: null`, which 3dhome cannot allow-list (every
+      // sandboxed iframe on earth sends it, so trusting it is worse than `*`).
+      // Every scene fetch was CORS-blocked and the tile rendered nothing.
+      //
+      // The WIDGET DEFAULT stays 'no' (`web/src/widgets/iframe/definition.js`)
+      // because a relative-path embed added later WOULD be same-origin — that
+      // is the case the default has to keep covering. `instances.test.js`
+      // asserts every one of these flags against the SEEDED ROW, and the web
+      // contract test pins the default separately. They are meant to differ.
       allowForms: 'no',
       allowPopups: 'no',
-      allowSameOrigin: 'no',
+      allowSameOrigin: 'yes',
     },
   },
   { id: 'sidebar-status', type: 'status', config: {} },

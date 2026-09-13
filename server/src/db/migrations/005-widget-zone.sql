@@ -1,0 +1,45 @@
+-- Migration 005 — which ZONE a widget instance lives in.
+--
+-- Haven has two places a widget can be: the main GridStack board, and the
+-- sidebar column beside it. Until now that distinction was not data at all —
+-- the sidebar's four widgets lived in a hardcoded `SIDEBAR_INSTANCES` array in
+-- `web/src/shell/boot.js` and the grid's roster lived in the `widgets` table.
+-- So a sidebar widget could not be added, removed or reordered by the user,
+-- because there was nothing to write to.
+--
+-- ── Why this column is on `widgets` and not on `layout` ──────────────────
+-- `layout` is geometry, one row PER BREAKPOINT (`001-initial.sql:12-16`), and
+-- zone is not geometry:
+--
+--  * A sidebar widget has no x/y/w/h at all. The sidebar is a one-column
+--    intrinsically-sized stack whose only free variable is order — and order
+--    already has a home, `sort_order` from migration 004.
+--  * Zone is breakpoint-INDEPENDENT. Putting it in `layout` would permit the
+--    incoherent "in the sidebar on desktop, on the grid on mobile", and would
+--    force every zone change to be written twice.
+--  * `layout.nodes` is validated down to a whitelist that BUILDS ITS OUTPUT
+--    FROM SCRATCH (`db/layout.js:57`), so an unknown `zone` key there is
+--    silently dropped rather than rejected. A placement that vanishes without
+--    an error is worse than one that is refused.
+--  * A `(breakpoint, zone)` primary key would break `getAll()`'s flat
+--    `{desktop: [...], mobile: [...]}` contract, which three separate callers
+--    assume (`layout-client.js`, `boot.js`, `edit-mode.js`).
+--
+-- Whereas `widgets` is the ROSTER — identity, type, config, and since 004 the
+-- order. Placement belongs with identity, and everything the feature needs
+-- already exists on this table: full CRUD through `/api/instances`, a delete
+-- that cascades to layout nodes and credentials, and an ordering axis.
+--
+-- DEFAULT 'grid' is what makes this migration safe on an existing database:
+-- every row already in the table is on the main board, which is exactly what
+-- the default says. NOT NULL because "no zone" is not a state a widget can be
+-- in — it is rendered somewhere or it is not rendered, and an implicit third
+-- state is how a widget becomes invisible but undeletable.
+--
+-- Mirrors the shape of 004 deliberately: one additive column, defaulted, no
+-- backfill, no data migration.
+ALTER TABLE widgets ADD COLUMN zone TEXT NOT NULL DEFAULT 'grid';
+
+-- Queried on every boot: the shell asks for the grid roster and the sidebar
+-- roster as two separate filtered reads of the same table.
+CREATE INDEX idx_widgets_zone ON widgets (zone, sort_order);

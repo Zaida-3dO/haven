@@ -39,7 +39,14 @@
  * ─────────────────────────────────────────────────────────────────────────
  */
 
-import { test, expect, waitForDashboard, WIDGET_IDS, SIDEBAR_WIDGET_IDS } from './fixtures.js';
+import {
+  test,
+  expect,
+  waitForDashboard,
+  WIDGET_IDS,
+  sidebarWidgetIds,
+  allSidebarWidgetIds,
+} from './fixtures.js';
 
 /**
  * Measures every named widget by walking both shadow boundaries, in the page.
@@ -160,10 +167,11 @@ test.describe('render smoke', () => {
     // card's body is sized by CSS rather than by GridStack. The 3D home card
     // is the standing example: its iframe sizes to its container, so a lost
     // height rule collapses it to 0px while leaving the DOM entirely correct.
-    const measured = await page.evaluate(measureWidgets, SIDEBAR_WIDGET_IDS);
+    const sidebarIds = await sidebarWidgetIds(page);
+    const measured = await page.evaluate(measureWidgets, sidebarIds);
 
     expect(measured, 'every sidebar widget should have been measured').toHaveLength(
-      SIDEBAR_WIDGET_IDS.length
+      sidebarIds.length
     );
     for (const widget of measured) expectRendered(widget, 'sidebar widget');
   });
@@ -232,15 +240,42 @@ test.describe('render smoke', () => {
     // does not, all of those tests keep passing while quietly checking less
     // than they claim to. That is the vacuous-pass failure mode, so it gets an
     // explicit assertion rather than a comment asking people to remember.
+    //
+    // SCOPED BY ZONE. The endpoint serves the whole roster flat, both zones
+    // together, and the shell splits it itself — so comparing the entire
+    // response against `WIDGET_IDS` reads the four seeded sidebar rows as
+    // unexpected additions. The guard is about the GRID list drifting from the
+    // GRID seed; the sidebar gets its own assertion below.
     const served = await page.request.get('/api/instances');
     expect(served.ok(), 'the roster endpoint should answer').toBeTruthy();
 
     const body = await served.json();
-    const ids = (body.instances ?? body).map((entry) => entry.id);
+    const instances = body.instances ?? body;
+
+    const gridIds = instances.filter((entry) => entry.zone !== 'sidebar').map((entry) => entry.id);
 
     expect(
-      ids.sort(),
-      'WIDGET_IDS is out of step with the seeded roster — update it in fixtures.js'
+      gridIds.sort(),
+      'WIDGET_IDS is out of step with the seeded grid roster — update it in fixtures.js'
     ).toEqual([...WIDGET_IDS].sort());
+  });
+
+  test('every seeded sidebar widget is zoned, so the grid never receives one', async ({ page }) => {
+    // The other half of the same guard, and the one that actually protects the
+    // feature: a sidebar row whose `zone` went missing would be handed to
+    // `grid.load` and mounted a SECOND time as a GridStack tile — four extra
+    // tiles, and the 3D scene loaded twice. `zone` is what prevents that, so
+    // this asserts the seeded sidebar rows really carry it.
+    const ids = await allSidebarWidgetIds(page);
+
+    expect(ids, 'the server should seed a sidebar roster').not.toHaveLength(0);
+
+    // None of them may appear as a grid tile.
+    for (const id of ids) {
+      await expect(
+        page.locator(`.grid-stack-item[gs-id="${id}"]`),
+        `${id} is a sidebar widget and must not be on the grid`
+      ).toHaveCount(0);
+    }
   });
 });

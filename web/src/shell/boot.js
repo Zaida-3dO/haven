@@ -16,7 +16,8 @@ import { createAddPanel } from './add-panel.js';
 import { createHeader } from './header.js';
 import { createProfileMenu } from './profile-menu.js';
 import { createSidebar } from './sidebar.js';
-import { createEditMode, createEditToolbar } from './edit-mode.js';
+import { createSidebarZone } from './sidebar-zone.js';
+import { MODE, createEditMode, createEditToolbar } from './edit-mode.js';
 import { connectGrid } from './dashboard-grid.js';
 import { connectSettings } from './settings-panel.js';
 import { createLayoutClient } from './layout-client.js';
@@ -222,8 +223,26 @@ export async function bootDashboard(
     }
   }
 
+  // ── Split the roster by ZONE before anything is placed ────────────────
+  // The roster now carries every widget in the app, sidebar ones included
+  // (`widgets.zone`, migration 005). The grid must only ever see its own.
+  //
+  // Without this filter the four sidebar instances are ALSO handed to
+  // `grid.load`, which mounts each of them a second time as a GridStack tile:
+  // four unexpected tiles appear on the board, and the 3D home in particular
+  // loads its whole WebGL scene twice — once in the sidebar and once on the
+  // grid. Nothing throws; it just renders wrong and costs a second scene load.
+  //
+  // A widget with no zone at all is treated as a GRID widget, matching
+  // migration 005's `DEFAULT 'grid'` and the server's `DEFAULT_ZONE`. That
+  // matters for the FALLBACK_INSTANCES path: those entries carry no `zone`
+  // field, and they are all grid widgets.
+  const isSidebarZone = (entry) => entry?.zone === 'sidebar';
+  const gridInstances = loaded.filter((entry) => !isSidebarZone(entry));
+  const sidebarInstances = loaded.filter(isSidebarZone);
+
   const nodes = saved[gridHandle.breakpoint()] ?? [];
-  const { roster: entries, usable } = reconcileRoster(loaded, nodes);
+  const { roster: entries, usable } = reconcileRoster(gridInstances, nodes);
   for (const entry of entries) roster.set(entry.id, entry);
 
   grid.load(entries, usable);
@@ -267,6 +286,26 @@ export async function bootDashboard(
     gridHandle,
     layoutClient,
     addPanel,
+    /**
+     * Edit mode reaches the SIDEBAR through here, not through its own sweep.
+     *
+     * `edit-mode.js` enables per-widget controls with
+     * `gridHandle.root.querySelectorAll(...)`, scoped to the grid's root — and
+     * the sidebar is mounted as a SIBLING of the grid chrome, so that sweep
+     * can never see it. Sidebar controls left to it would be built disabled
+     * and stay disabled forever: no error, no failing test, three dead
+     * buttons. So the sidebar exposes `setEditable` and this drives it.
+     *
+     * The class on the layout element is what the stylesheet keys on
+     * (`.haven-layout--edit-mode .haven-sidebar__controls`). The grid's own
+     * edit class lives on the GRID root, which again the sidebar is not
+     * inside — so it needs its own, or the controls never become visible.
+     */
+    onModeChange: (mode) => {
+      const editing = mode === MODE.EDIT;
+      sidebar?.setEditable(editing);
+      layoutEl?.classList?.toggle('haven-layout--edit-mode', editing);
+    },
     onError: (error) => console.error('Haven: saving the layout failed.', error),
   });
 
@@ -366,16 +405,48 @@ export async function bootDashboard(
    * it is where the live dashboard puts it.
    */
   const layoutEl = layoutRoot ?? chrome?.parentElement ?? null;
-  const sidebar = layoutEl
-    ? createSidebar({
-        cards: [
-          { id: 'weather', title: 'Weather', icon: 'weather' },
-          { id: 'calendar', title: 'Calendar', icon: 'calendar' },
-          { id: 'home3d', title: '3D Home', icon: 'home3d' },
-          { id: 'status', title: 'Server Status', icon: 'status', pinned: true },
-        ],
-      })
-    : null;
+
+  /**
+   * How a sidebar widget PRESENTS: its heading and its icon.
+   *
+   * Keyed by widget type, not by instance id, because ids are minted once the
+   * roster is real data. Deliberately not taken from the registry's `name`:
+   * that is the add-panel's label for the widget KIND ("Embed", "Status"),
+   * whereas these are content headings naming what this card shows in this
+   * column ("3D Home", "Server Status"). The live dashboard makes the same
+   * distinction. A type with no entry here still renders — it falls back to
+   * the registry name and no icon — so an unknown widget dropped into the
+   * sidebar degrades to a plain titled card rather than vanishing.
+   */
+  const SIDEBAR_PRESENTATION = {
+    weather: { title: 'Weather', icon: 'weather' },
+    calendar: { title: 'Calendar', icon: 'calendar' },
+    iframe: { title: '3D Home', icon: 'home3d' },
+    status: { title: 'Server Status', icon: 'status' },
+  };
+
+  /**
+   * `status` holds the bottom of the column.
+   *
+   * Kept a CONSTANT of the type rather than a per-instance flag: the pin is a
+   * property of what the status card IS — the summary of everything above it,
+   * and the one card whose height does not depend on its content — not a
+   * preference a user sets per widget. Only one card can hold the bottom, so
+   * making it per-instance would immediately raise "what if two are pinned".
+   */
+  const PINNED_SIDEBAR_TYPE = 'status';
+
+  /** One `createSidebar` card spec per sidebar instance, in roster order. */
+  const cardSpecFor = (entry) => {
+    const presentation = SIDEBAR_PRESENTATION[entry.type] ?? {};
+    return {
+      id: entry.id,
+      type: entry.type,
+      title: presentation.title ?? registry.get(entry.type)?.name ?? entry.type,
+      icon: presentation.icon,
+      pinned: entry.type === PINNED_SIDEBAR_TYPE,
+    };
+  };
 
   /** Widget instances that live in the sidebar rather than on the grid. */
   const SIDEBAR_INSTANCES = [
@@ -427,15 +498,56 @@ export async function bootDashboard(
     { card: 'status', id: 'sidebar-status', type: 'status', config: {} },
   ];
 
+  // The seeded roster is the source. `SIDEBAR_INSTANCES` above is the fallback
+  // for when `GET /api/instances` FAILED — the same rule as the grid's
+  // `FALLBACK_INSTANCES`, and for the same reason: an empty sidebar is a
+  // legitimate state (the user removed every card) and must render empty,
+  // whereas a failed request is not a statement about the roster at all.
+  const sidebarEntries = loaded === FALLBACK_INSTANCES ? SIDEBAR_INSTANCES : sidebarInstances;
+
+  const sidebar = layoutEl
+    ? createSidebar({
+        cards: sidebarEntries.map(cardSpecFor),
+        controls: true,
+        // `sidebarZone` is constructed just below, so these read it lazily
+        // through the closure rather than capturing an undefined value now —
+        // the same pattern the header's `onSearch` uses for `searchUI`.
+        onMoveUp: (id) => sidebarZone?.move(id, -1),
+        onMoveDown: (id) => sidebarZone?.move(id, 1),
+        onRemove: (id) => sidebarZone?.remove(id),
+      })
+    : null;
+
+  /**
+   * The sidebar zone controller: add, reorder, remove.
+   *
+   * Its logic lives in its own module because `boot.js` imports GridStack and
+   * therefore cannot be loaded under `node --test` — so anything worth testing
+   * has to sit outside this file. See `sidebar-zone.js`.
+   */
+  const sidebarZone = sidebar
+    ? createSidebarZone({
+        sidebar,
+        dashboard,
+        instancesClient,
+        cardSpecFor,
+        secretKeysFor: (type) => secretKeysOf(registry.get(type)),
+      })
+    : null;
+  sidebarZone?.load(sidebarEntries);
+
   if (sidebar) {
     layoutEl.appendChild(sidebar.el);
-    for (const entry of SIDEBAR_INSTANCES) {
-      const body = sidebar.bodies.get(entry.card);
+    for (const entry of sidebarEntries) {
+      // Keyed by INSTANCE ID now, not by a hardcoded `card:` name — the card
+      // specs above are built from the same entries, so the two agree by
+      // construction rather than by a literal matching in two places.
+      const body = sidebar.bodies.get(entry.id);
       if (!body) continue;
       // `dashboard.add` and not `grid.place`: these get a host, a config, the
       // error boundary and a scheduled refresh, but no GridStack node — which
       // is the whole distinction between the sidebar and the grid.
-      dashboard.add({ id: entry.id, type: entry.type, config: entry.config }, body);
+      dashboard.add({ id: entry.id, type: entry.type, config: entry.config ?? {} }, body);
     }
   }
 
@@ -490,6 +602,7 @@ export async function bootDashboard(
     header,
     profile,
     sidebar,
+    sidebarZone,
     router,
     pages,
     destroy() {

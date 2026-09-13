@@ -90,3 +90,68 @@ test('every shell module with a default-ish entry point is reachable from boot',
     `these shell modules exist but nothing boots them: ${unwired.join(', ')}`
   );
 });
+
+/* -- the sidebar zone filter ---------------------------------------------- */
+
+const BOOT_SRC = readFileSync(new URL('../src/shell/boot.js', import.meta.url), 'utf8');
+const BOOT_NO_COMMENTS = BOOT_SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+
+test('the grid is loaded from the roster with sidebar widgets filtered OUT', () => {
+  // The roster carries every widget in the app now, both zones together
+  // (`widgets.zone`, migration 005). If the sidebar-zoned entries are not
+  // filtered out before `grid.load`, each one is ALSO mounted as a GridStack
+  // tile: four unexpected tiles on the board, and the 3D home loads its whole
+  // WebGL scene twice. Nothing throws — it just renders wrong.
+  //
+  // Comments are stripped first, so the prose above explaining the filter
+  // cannot be what satisfies this.
+  assert.match(
+    BOOT_NO_COMMENTS,
+    /zone\s*===\s*'sidebar'/,
+    'boot.js never tests for the sidebar zone, so the grid gets every widget'
+  );
+  assert.match(
+    BOOT_NO_COMMENTS,
+    /reconcileRoster\(\s*gridInstances/,
+    'the grid must be reconciled against the GRID-zoned subset, not the whole roster'
+  );
+});
+
+test('a widget with no zone is treated as a grid widget', () => {
+  // The fallback roster (`FALLBACK_INSTANCES`) carries no `zone` field at all,
+  // and every entry in it is a grid widget. A filter written as
+  // `zone !== 'grid'` would send all of them to the sidebar the moment
+  // `GET /api/instances` failed — turning a degraded state into a broken one.
+  assert.match(
+    BOOT_NO_COMMENTS,
+    /!isSidebarZone|zone\s*!==\s*'sidebar'/,
+    'the grid subset must be "not sidebar" rather than "equals grid", so an ' +
+      'entry with no zone still lands on the grid'
+  );
+});
+
+test('edit mode is wired to the SIDEBAR, not only to the grid', () => {
+  // `edit-mode.js` enables per-widget controls with
+  // `gridHandle.root.querySelectorAll(...)` — scoped to the GRID's root. The
+  // sidebar is mounted as a SIBLING of the grid chrome, so that sweep cannot
+  // reach it: sidebar controls left to it are built disabled and stay disabled
+  // forever. Nothing throws and no unit test of `sidebar.js` would notice,
+  // because the capability exists — it is the WIRING that is missing.
+  //
+  // Comments are stripped first, so this prose cannot satisfy the assertion.
+  assert.match(
+    BOOT_NO_COMMENTS,
+    /onModeChange:/,
+    'boot.js never passes onModeChange, so entering edit mode cannot reach the sidebar'
+  );
+  assert.match(
+    BOOT_NO_COMMENTS,
+    /sidebar\?\.setEditable\(/,
+    'edit mode must drive the sidebar own control sweep'
+  );
+  assert.match(
+    BOOT_NO_COMMENTS,
+    /haven-layout--edit-mode/,
+    'the layout needs its own edit class, or the sidebar controls never become visible'
+  );
+});

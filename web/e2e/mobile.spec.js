@@ -29,7 +29,7 @@ import {
   expect,
   waitForDashboard,
   WIDGET_IDS,
-  SIDEBAR_WIDGET_IDS,
+  sidebarWidgetIds,
   widgetText,
 } from './fixtures.js';
 
@@ -119,7 +119,7 @@ test.describe('mobile (390x844)', () => {
     // 320px column on desktop and has to become something else entirely at
     // 390px. That is exactly where a card can end up with zero height while
     // its widget is perfectly healthy.
-    const measured = await page.evaluate(measureAtViewport, SIDEBAR_WIDGET_IDS);
+    const measured = await page.evaluate(measureAtViewport, await sidebarWidgetIds(page));
 
     for (const widget of measured) {
       expect(widget.found, `${widget.id} should be mounted on mobile`).toBe(true);

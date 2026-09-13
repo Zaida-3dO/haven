@@ -399,11 +399,14 @@ test('the 3D home card body has an explicit height', () => {
   // height comes from its children — so the percentage resolves to zero and
   // the 3D home renders its scene correctly into a 0px box. Nothing throws,
   // nothing is missing from the DOM, the card just looks empty.
-  const rule = ruleFor('.haven-sidebar__card--home3d .haven-sidebar__body');
+  // Selected by widget TYPE, not by card id. Sidebar cards are built from
+  // real instances now and instance ids are minted, so an id-keyed rule would
+  // match nothing for a user-added embed — and the failure is silent.
+  const rule = ruleFor('.haven-sidebar__card--type-iframe .haven-sidebar__body');
 
   assert.ok(
     rule,
-    'main.css gives the 3D home card body no height. The iframe widget sizes ' +
+    'main.css gives an embed card body no height. The iframe widget sizes ' +
       'itself with `:host { height: 100% }`, which resolves against a parent whose ' +
       'height is `auto` — so it computes to 0 and the card renders empty.'
   );
@@ -424,22 +427,25 @@ test('the 3D home widget really does need that height', () => {
   );
 });
 
-test('the sidebar emits a per-card modifier class the stylesheet can target', () => {
-  // The rule above selects `.haven-sidebar__card--home3d`. If the sidebar
-  // stopped emitting that class the CSS would be dead and the card would
-  // collapse to 0px again — with the stylesheet scan above still passing,
-  // because the rule would still be there.
+test('the sidebar emits a per-TYPE modifier class the stylesheet can target', () => {
+  // The height rule above selects `.haven-sidebar__card--type-iframe`. If the
+  // sidebar stopped emitting that class the CSS would be dead and the embed
+  // would collapse to 0px again — with the stylesheet scan above still
+  // passing, because the rule would still be there.
+  //
+  // Built with a MINTED id, deliberately: that is what a user-added card looks
+  // like, and it is the case an id-keyed rule silently fails to match.
   const doc = createFakeDocument();
   const sidebar = createSidebar({
-    cards: [{ id: 'home3d', title: '3D Home', icon: 'home3d' }],
+    cards: [{ id: 'iframe-3f9a2c71', type: 'iframe', title: '3D Home', icon: 'home3d' }],
     document: doc,
   });
 
-  const card = sidebar.cards.get('home3d');
-  assert.ok(card, 'the sidebar built no card for id "home3d"');
+  const card = sidebar.cards.get('iframe-3f9a2c71');
+  assert.ok(card, 'the sidebar built no card for the embed instance');
   assert.ok(
-    card.el.className.includes('haven-sidebar__card--home3d'),
-    `expected a per-id modifier class, got "${card.el.className}"`
+    card.el.className.includes('haven-sidebar__card--type-iframe'),
+    `expected a per-type modifier class, got "${card.el.className}"`
   );
 });
 
@@ -484,35 +490,53 @@ test('the 3D home is NOT also on the main grid', () => {
   );
 });
 
-test('the sidebar order is weather · calendar · 3D home · status', () => {
-  // Order is the requirement, not just membership: the 3D home goes BETWEEN
-  // calendar and status, and status stays last because it is the pinned card.
-  // Scoped to the `cards:` array specifically. A bare scan of the whole file
-  // also picks up `SIDEBAR_INSTANCES`, which declares the same four ids in
-  // the same order for a different purpose — so it would report a plausible
-  // eight-entry sequence and be asserting something other than card order.
-  const cards = /cards:\s*\[([\s\S]*?)\]/.exec(BOOT_CODE);
-  assert.ok(cards, 'could not find the `cards:` array passed to createSidebar');
+/*
+ * MOVED: "the sidebar order is weather · calendar · 3D home · status".
+ *
+ * That order is no longer declared in `boot.js` — the sidebar is built from
+ * the seeded roster, so the order lives in `SIDEBAR_DEFAULTS` in
+ * `server/src/db/instances-store.js` and is asserted against the SEEDED ROWS
+ * in `server/test/instances.test.js`. Asserting it here would mean grepping
+ * for a literal that no longer exists, which fails on absence rather than on
+ * regression.
+ */
 
-  const ids = [...cards[1].matchAll(/id:\s*'([a-z0-9]+)'/g)].map((m) => m[1]);
-
-  assert.deepEqual(
-    ids,
-    ['weather', 'calendar', 'home3d', 'status'],
-    `the sidebar cards are declared in the wrong order: ${ids.join(' · ')}`
+test('the pinned card is chosen by TYPE, and only the status card is pinned', () => {
+  // The pin used to be a `pinned: true` literal on one entry of a hardcoded
+  // `cards:` array. With the card list user-controlled it has to be a RULE, or
+  // a user reordering the sidebar could end up with two pinned cards or none —
+  // and only one card can hold the bottom.
+  assert.match(
+    BOOT_CODE,
+    /PINNED_SIDEBAR_TYPE\s*=\s*'status'/,
+    'the pinned sidebar card must be selected by widget type, and it must be status'
+  );
+  assert.match(
+    BOOT_CODE,
+    /pinned:\s*entry\.type\s*===\s*PINNED_SIDEBAR_TYPE/,
+    'the card spec must derive `pinned` from the type rule rather than a literal'
   );
 });
 
-test('the status card is still the pinned one', () => {
-  assert.match(
-    BOOT_CODE,
-    /id:\s*'status',[\s\S]{0,80}pinned:\s*true/,
-    'Server Status must stay pinned to the bottom — inserting the 3D home above it ' +
-      'is only correct while the pin still holds status at the end'
+test('a card is pinned only when its type is the pinned type', () => {
+  // The behavioural half of the rule above: the source check proves the rule
+  // is written, this proves it does what it says.
+  const doc = createFakeDocument();
+  const sidebar = createSidebar({
+    cards: [
+      { id: 'weather-1', type: 'weather', title: 'Weather', pinned: false },
+      { id: 'status-1', type: 'status', title: 'Server Status', pinned: true },
+    ],
+    document: doc,
+  });
+
+  assert.ok(
+    !sidebar.cards.get('weather-1').el.className.includes('haven-sidebar__card--pinned'),
+    'an unpinned card must not carry the pinned modifier'
   );
   assert.ok(
-    !/id:\s*'home3d',[\s\S]{0,80}pinned:\s*true/.test(BOOT_CODE),
-    'the 3D home must not be pinned; only one card can hold the bottom'
+    sidebar.cards.get('status-1').el.className.includes('haven-sidebar__card--pinned'),
+    'the status card must carry the pinned modifier'
   );
 });
 

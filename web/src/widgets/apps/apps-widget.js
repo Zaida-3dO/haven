@@ -405,26 +405,40 @@ export class AppsWidget extends ElementBase {
     link.addEventListener('click', () => this.#recordVisit(card.id));
     titleWrap.appendChild(link);
 
+    // The description and the kebab share ONE row, which is what keeps the
+    // button from claiming a line of its own and pushing the card taller —
+    // the same pairing the dashboard this replaces gets from its
+    // `.app-card-menu-row`. The row exists even with no description, so a
+    // card with only a kebab still puts it on this line rather than below.
+    const subtitleRow = document.createElement('div');
+    subtitleRow.className = 'card__subtitle-row';
+
     if (card.description) {
       const desc = document.createElement('p');
       desc.className = 'card__description';
       desc.textContent = card.description;
-      titleWrap.appendChild(desc);
+      subtitleRow.appendChild(desc);
     }
+
+    // Nested inside the row rather than appended to the card. `#patchCard`
+    // finds it with `card.querySelector('.menu')`, which does not care how
+    // deep it sits.
+    subtitleRow.appendChild(this.#renderMenu(card));
+    titleWrap.appendChild(subtitleRow);
 
     head.appendChild(titleWrap);
     head.appendChild(this.#renderDot(card));
     el.appendChild(head);
 
-    // The version pair and the secondary URLs BOTH live in the kebab menu now
-    // — see `#renderMenu`. The card face is status dot, icon, name,
-    // description, menu button, and nothing else.
+    // The version pair and the secondary URLs BOTH live in the kebab menu —
+    // see `#renderMenu`. The card face is status dot, icon, name, description,
+    // menu button, and nothing else.
     //
-    // The menu container is always present, even when empty. A probe resolving
-    // to a different variant changes which URLs are secondary, so a card that
-    // has no menu now may need one a moment later — and `#patchCard` can only
-    // refill a container that exists.
-    el.appendChild(this.#renderMenu(card));
+    // The menu container is always present, even when empty (a probe resolving
+    // to a different variant changes which URLs are secondary, so a card with
+    // no menu now may need one a moment later, and `#patchCard` can only refill
+    // a container that exists). It is appended to `.card__subtitle-row` above,
+    // NOT here — it shares the description's line.
 
     return el;
   }

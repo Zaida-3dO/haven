@@ -99,6 +99,9 @@ export function layoutDiffers(snapshotNodes, currentNodes) {
  * @param {object} deps.gridHandle    the handle returned by `mountGrid`
  * @param {object} deps.layoutClient  the client from `layout-client.js`
  * @param {object} [deps.addPanel]    the add-widget panel (`add-panel.js`)
+ * @param {object} [deps.sidebarZone] the controller from `sidebar-zone.js`.
+ *   Optional: a dashboard mounted with no layout element has no sidebar, and
+ *   edit mode has to keep working for the grid alone.
  * @param {(mode: string) => void} [deps.onModeChange]
  * @param {(err: Error) => void} [deps.onError]
  */
@@ -106,11 +109,26 @@ export function createEditMode({
   gridHandle,
   layoutClient,
   addPanel = null,
+  sidebarZone = null,
   onModeChange = () => {},
   onError = () => {},
 } = {}) {
   if (!gridHandle) throw new Error('createEditMode: gridHandle is required');
   if (!layoutClient) throw new Error('createEditMode: layoutClient is required');
+
+  /**
+   * The sidebar zone, resolved on each use rather than captured.
+   *
+   * `boot.js` builds edit mode long before the sidebar zone exists (the zone
+   * needs the sidebar, which needs the loaded roster), so it passes a function
+   * that reads the binding later. Capturing the value there would either be
+   * `null` forever or throw a temporal-dead-zone `ReferenceError` at boot and
+   * take the whole dashboard down with it.
+   *
+   * A plain object is still accepted, so tests and any other caller can hand
+   * one straight in.
+   */
+  const zone = () => (typeof sidebarZone === 'function' ? sidebarZone() : sidebarZone);
 
   let mode = MODE.VIEW;
   let snapshot = null;
@@ -170,15 +188,22 @@ export function createEditMode({
      * **False outside edit mode**, where there is no snapshot to compare
      * against and Save is not reachable anyway.
      *
-     * **A removal needs no separate tracking**, which is worth stating
-     * because it used to have some. A removed widget is deleted server-side
-     * the moment it is clicked (`boot.js` → `instancesClient.remove` →
-     * `instances-store.delete`, which calls `pruneLayoutReferences` and drops
-     * the layout node across every breakpoint inside the same transaction).
-     * There is nothing about the removal itself left for a layout save to
-     * persist. What a save DOES still owe is the reflow it caused — the
-     * surviving tiles' geometry — and `layoutDiffers` sees that through the
-     * node count and the id comparison, with no help needed.
+     * **A removal from the GRID needs no separate tracking.** A removed grid
+     * widget is deleted server-side the moment it is clicked (`boot.js` →
+     * `instancesClient.remove` → `instances-store.delete`, which calls
+     * `pruneLayoutReferences` and drops the layout node across every
+     * breakpoint inside the same transaction). There is nothing about the
+     * removal itself left for a layout save to persist. What a save DOES
+     * still owe is the reflow it caused — the surviving tiles' geometry — and
+     * `layoutDiffers` sees that through the node count and the id comparison,
+     * with no help needed.
+     *
+     * **The SIDEBAR is the opposite case, and is asked separately.** Its
+     * reorders and removals are drafted in memory (`sidebar-zone.js`) rather
+     * than written on the click, precisely so a refresh without saving loses
+     * them. Nothing about a sidebar change reaches the grid's geometry, so
+     * `layoutDiffers` cannot see it: without this the sidebar could be
+     * reordered and emptied with Save still reading "No changes to save".
      *
      * **An addition counts too**, and that one is a judgement call worth
      * stating. A widget added during the session is persisted eagerly over the
@@ -190,16 +215,18 @@ export function createEditMode({
      */
     get isDirty() {
       if (mode !== MODE.EDIT || !snapshot) return false;
+      if (zone()?.isDirty) return true;
       return layoutDiffers(snapshot.nodes, gridHandle.extract(gridHandle.breakpoint()));
     },
 
     /**
      * Enters edit mode, snapshotting the current breakpoint so Discard can
-     * restore it.
+     * restore it — and opening the sidebar's draft for the same reason.
      */
     enter() {
       if (mode === MODE.EDIT) return;
       snapshot = snapshotLayout(gridHandle, gridHandle.breakpoint());
+      zone()?.beginDraft();
       setMode(MODE.EDIT);
     },
 
@@ -232,6 +259,11 @@ export function createEditMode({
 
       try {
         const result = await layoutClient.save({ [breakpoint]: nodes });
+        // Only once the layout PUT has succeeded: committing first would tear
+        // down the removed sidebar cards and then, on a failed save, leave the
+        // session in edit mode with those cards gone and no draft to restore
+        // them from — the exact irreversibility this draft exists to remove.
+        zone()?.commitDraft();
         snapshot = null;
         setMode(MODE.VIEW);
         return result;
@@ -246,24 +278,23 @@ export function createEditMode({
     /**
      * Discards every change made this session, restoring the layout as it was
      * on entry, and returns to view mode.
+     *
+     * This now really does restore EVERYTHING, including a sidebar card
+     * removed during the session — `cancelDraft` un-hides it. Nothing was
+     * destroyed or deleted while the draft was open, which is what makes that
+     * possible; see `sidebar-zone.js`.
      */
     discard() {
       if (mode !== MODE.EDIT) return;
 
       if (snapshot) gridHandle.applyLayout(snapshot.nodes);
+      zone()?.cancelDraft();
 
       snapshot = null;
       setMode(MODE.VIEW);
     },
 
-    /**
-     * Toggles between the two modes. Discards on exit — Save is explicit.
-     *
-     * Note what Discard does NOT undo: a widget removed this session is
-     * already gone server-side (see `isDirty`), so Discard restores the
-     * geometry of what remains and cannot bring it back. That asymmetry is
-     * why removals are not modelled as pending changes.
-     */
+    /** Toggles between the two modes. Discards on exit — Save is explicit. */
     toggle() {
       if (mode === MODE.EDIT) this.discard();
       else this.enter();
@@ -317,6 +348,10 @@ export function createEditToolbar({ editMode, document: doc = globalThis.documen
   discard.hidden = true;
 
   toggle.addEventListener('click', () => {
+    // While there are unsaved changes the only ways out are Save and Discard,
+    // so "Done editing" is inert — see `sync()`. `aria-disabled` is advisory
+    // and the browser still fires this, so the no-op is enforced here.
+    if (toggle.getAttribute('aria-disabled') === 'true') return;
     if (editMode.isEditing) editMode.discard();
     else editMode.enter();
     sync();
@@ -414,6 +449,34 @@ export function createEditToolbar({ editMode, document: doc = globalThis.documen
      */
     const dirty = editMode.isDirty;
     save.setAttribute('aria-disabled', String(!dirty));
+
+    /**
+     * "Done editing" is only available once there is nothing to save.
+     *
+     * Ope: *"the 'done editing' button should only be clickable after save
+     * (where there is nothing to save) otherwise your choice should only be
+     * save or discard."* So while the layout is dirty the exits are Save and
+     * Discard, and the toggle explains why it is inert rather than silently
+     * doing nothing.
+     *
+     * **`aria-disabled`, not the `disabled` property**, for exactly the
+     * reason Save uses it: a `disabled` button leaves the tab order, so the
+     * explanation is announced to nobody. The click is swallowed above.
+     *
+     * Only ever inert while EDITING — in view mode this is "Edit dashboard",
+     * which must always work. `isDirty` is already false outside edit mode,
+     * but stating it here keeps the button's one writer honest rather than
+     * depending on that from a distance.
+     */
+    const blockExit = editing && dirty;
+    toggle.setAttribute('aria-disabled', String(blockExit));
+    if (blockExit) {
+      toggle.setAttribute('title', 'Save or discard your changes first');
+      toggle.setAttribute('aria-label', 'Done editing — save or discard your changes first');
+    } else {
+      toggle.removeAttribute('title');
+      toggle.removeAttribute('aria-label');
+    }
 
     if (saveError) {
       save.setAttribute('title', `Could not save: ${saveError}`);

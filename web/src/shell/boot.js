@@ -332,6 +332,21 @@ export async function bootDashboard(
       layoutEl?.classList?.toggle('haven-layout--edit-mode', editing);
     },
     onError: (error) => console.error('Haven: saving the layout failed.', error),
+
+    /**
+     * The sidebar's draft is opened and closed with edit mode itself.
+     *
+     * A FUNCTION, not the value: `sidebarZone` is a `const` declared ~250
+     * lines below (it needs the sidebar, which needs the loaded roster), so
+     * reading it here would throw a temporal-dead-zone `ReferenceError` and
+     * take the whole boot down. Same lazy-closure pattern as the sidebar's own
+     * control callbacks and the header's `onSearch`.
+     *
+     * Without this the sidebar never enters a draft at all: reorders and
+     * removals would keep writing straight to the server, which is the defect
+     * this change exists to fix.
+     */
+    sidebarZone: () => sidebarZone,
   });
 
   const toolbar = createEditToolbar({ editMode });
@@ -537,9 +552,28 @@ export async function bootDashboard(
         // `sidebarZone` is constructed just below, so these read it lazily
         // through the closure rather than capturing an undefined value now —
         // the same pattern the header's `onSearch` uses for `searchUI`.
-        onMoveUp: (id) => sidebarZone?.move(id, -1),
-        onMoveDown: (id) => sidebarZone?.move(id, 1),
-        onRemove: (id) => sidebarZone?.remove(id),
+        // Each one re-syncs the toolbar, and that call is the whole of item 4:
+        // a sidebar change touches no grid geometry, so `onLayoutChange` never
+        // fires for it and Save would stay greyed out reading "No changes to
+        // save" while the sidebar had visibly been reordered or emptied.
+        //
+        // Optional-chained for the same reason as `onRemoved` above: `sidebar`
+        // is built before `toolbar` in source order, so the binding is in its
+        // temporal dead zone until then. Nothing can actually click a sidebar
+        // control that early — the controls are built disabled and only edit
+        // mode enables them, which needs a rendered toolbar.
+        onMoveUp: (id) => {
+          sidebarZone?.move(id, -1);
+          toolbar?.sync();
+        },
+        onMoveDown: (id) => {
+          sidebarZone?.move(id, 1);
+          toolbar?.sync();
+        },
+        onRemove: (id) => {
+          sidebarZone?.remove(id);
+          toolbar?.sync();
+        },
       })
     : null;
 

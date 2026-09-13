@@ -319,6 +319,185 @@ test('a null instances client is not an error — the injected-roster case', () 
   assert.equal(zone.remove('sidebar-calendar'), true);
 });
 
+/* ── drafting: nothing is written until the draft is committed ───────────── */
+
+test('a reorder inside a draft writes NOTHING to the server', () => {
+  // THE defect. Reorder used to persist `sortOrder` on the click, so
+  // refreshing without saving KEPT the change. Ope: "changes should be
+  // drafted if i don't click save and i refresh my changes should be lost".
+  const { zone, client } = setup();
+
+  zone.beginDraft();
+  zone.move('sidebar-calendar', -1);
+
+  assert.deepEqual(client.saves, [], 'a drafted reorder must not reach the server');
+});
+
+test('a drafted reorder still moves the cards on screen', () => {
+  // Buffering the WRITE must not buffer the feedback: the user has to see the
+  // card move immediately, or the arrows look broken.
+  const { zone, sidebar } = setup();
+
+  zone.beginDraft();
+  zone.move('sidebar-calendar', -1);
+
+  assert.deepEqual(scrollOrder(sidebar), ['sidebar-calendar', 'sidebar-weather', 'sidebar-home3d']);
+});
+
+test('committing a draft writes only the rows whose order actually changed', () => {
+  const { zone, client } = setup();
+
+  zone.beginDraft();
+  zone.move('sidebar-calendar', -1);
+  zone.commitDraft();
+
+  assert.deepEqual(
+    client.saves.map((s) => s.id).sort(),
+    ['sidebar-calendar', 'sidebar-weather'],
+    'only the two swapped rows should be written, and only on commit'
+  );
+});
+
+test('cancelling a draft puts the original order back', () => {
+  const { zone, sidebar, client } = setup();
+
+  zone.beginDraft();
+  zone.move('sidebar-calendar', -1);
+  zone.cancelDraft();
+
+  assert.deepEqual(
+    zone.entries.map((e) => e.id),
+    ['sidebar-weather', 'sidebar-calendar', 'sidebar-home3d', 'sidebar-status']
+  );
+  assert.deepEqual(scrollOrder(sidebar), ['sidebar-weather', 'sidebar-calendar', 'sidebar-home3d']);
+  assert.deepEqual(client.saves, [], 'a cancelled draft must never have written');
+});
+
+test('a removal inside a draft destroys NOTHING and deletes NOTHING', () => {
+  // The half that was impossible before: the row was deleted on the click, so
+  // Discard had nothing to put back. Nothing may be torn down until Save.
+  const { zone, dashboard, client, sidebar } = setup();
+
+  zone.beginDraft();
+  assert.equal(zone.remove('sidebar-calendar'), true);
+
+  assert.deepEqual(dashboard.destroyed, [], 'the host must survive until the draft is committed');
+  assert.deepEqual(client.removes, [], 'nothing may be deleted server-side during a draft');
+  assert.ok(sidebar.cards.has('sidebar-calendar'), 'the card must be kept, so Discard can show it');
+  assert.equal(sidebar.cards.get('sidebar-calendar').el.hidden, true, 'but hidden from view');
+});
+
+test('cancelling a draft brings a removed card BACK', () => {
+  // Ope's second requirement, and the one the old design could not meet.
+  const { zone, sidebar, dashboard, client } = setup();
+
+  zone.beginDraft();
+  zone.remove('sidebar-calendar');
+  zone.cancelDraft();
+
+  assert.equal(sidebar.cards.get('sidebar-calendar').el.hidden, false, 'the card must be visible');
+  assert.deepEqual(
+    zone.entries.map((e) => e.id),
+    ['sidebar-weather', 'sidebar-calendar', 'sidebar-home3d', 'sidebar-status'],
+    'the restored card must be back in its original place'
+  );
+  assert.deepEqual(dashboard.destroyed, [], 'and its widget must never have been torn down');
+  assert.deepEqual(client.removes, []);
+});
+
+test('committing a draft is what actually tears the removal down', () => {
+  const { zone, sidebar, dashboard, client } = setup();
+
+  zone.beginDraft();
+  zone.remove('sidebar-calendar');
+  zone.commitDraft();
+
+  assert.deepEqual(dashboard.destroyed, ['sidebar-calendar'], 'the host is destroyed on commit');
+  assert.deepEqual(client.removes, ['sidebar-calendar'], 'and the row deleted on commit');
+  assert.equal(sidebar.cards.has('sidebar-calendar'), false);
+});
+
+test('a draft holding a removal is dirty even when the ids left are in the same order', () => {
+  // The subtle one. Removing the LAST unpinned card leaves the survivors with
+  // the same ids in the same order and already dense, so an order-only
+  // comparison reports the draft clean and Save stays greyed out over a
+  // removal the user can see has happened.
+  const { zone } = setup();
+
+  zone.beginDraft();
+  assert.equal(zone.isDirty, false, 'a fresh draft is clean');
+
+  zone.remove('sidebar-home3d');
+
+  assert.equal(zone.isDirty, true, 'a pending removal must count as dirty');
+});
+
+test('isDirty tracks the draft and resets when it closes', () => {
+  const { zone } = setup();
+
+  assert.equal(zone.isDirty, false, 'no draft, nothing to save');
+
+  zone.beginDraft();
+  zone.move('sidebar-calendar', -1);
+  assert.equal(zone.isDirty, true);
+
+  zone.cancelDraft();
+  assert.equal(zone.isDirty, false, 'a cancelled draft leaves nothing to save');
+
+  zone.beginDraft();
+  zone.move('sidebar-calendar', -1);
+  zone.commitDraft();
+  assert.equal(zone.isDirty, false, 'a committed draft leaves nothing to save');
+});
+
+test('a no-op move inside a draft leaves it clean', () => {
+  // Pressing "up" on the top card must not arm Save over nothing.
+  const { zone } = setup();
+
+  zone.beginDraft();
+  zone.move('sidebar-weather', -1);
+
+  assert.equal(zone.isDirty, false);
+});
+
+test('beginDraft twice does not re-snapshot over the original order', () => {
+  // The same rule as the grid's snapshot: re-snapshotting mid-session would
+  // silently move the point Discard returns to.
+  const { zone, sidebar } = setup();
+
+  zone.beginDraft();
+  zone.move('sidebar-calendar', -1);
+  zone.beginDraft();
+  zone.cancelDraft();
+
+  assert.deepEqual(scrollOrder(sidebar), ['sidebar-weather', 'sidebar-calendar', 'sidebar-home3d']);
+});
+
+test('outside a draft, move and remove still persist immediately', () => {
+  // The programmatic/injected-roster callers never open a draft, and must keep
+  // working exactly as before.
+  const { zone, client, dashboard } = setup();
+
+  zone.move('sidebar-calendar', -1);
+  assert.ok(client.saves.length > 0, 'an undrafted move still writes');
+
+  zone.remove('sidebar-calendar');
+  assert.deepEqual(client.removes, ['sidebar-calendar'], 'an undrafted remove still deletes');
+  assert.deepEqual(dashboard.destroyed, ['sidebar-calendar']);
+});
+
+test('a draft with a null client restores without throwing', () => {
+  // `bootDashboard({instances})` has no server. Drafting must still work in
+  // the DOM rather than throwing on commit or cancel.
+  const { zone, sidebar } = setup({ client: null });
+
+  zone.beginDraft();
+  zone.remove('sidebar-calendar');
+  zone.cancelDraft();
+
+  assert.equal(sidebar.cards.get('sidebar-calendar').el.hidden, false);
+});
+
 test('createSidebarZone refuses to be built without its dependencies', () => {
   assert.throws(() => createSidebarZone({}), /sidebar is required/);
   assert.throws(() => createSidebarZone({ sidebar: {} }), /dashboard is required/);

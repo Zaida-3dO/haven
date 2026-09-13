@@ -494,6 +494,217 @@ describe('the edit toolbar', () => {
   });
 });
 
+describe('the sidebar draft', () => {
+  /**
+   * A sidebar-zone double exposing exactly the draft surface edit mode drives.
+   *
+   * Modelling it rather than importing the real one keeps this suite about the
+   * WIRING — that entering opens a draft, that Save commits and Discard
+   * cancels, that a dirty sidebar arms Save. The zone's own behaviour is
+   * asserted against the real implementation in `sidebar-zone.test.js`.
+   */
+  function fakeZone({ dirty = false } = {}) {
+    const calls = [];
+    return {
+      calls,
+      get isDirty() {
+        return dirty;
+      },
+      setDirty(next) {
+        dirty = next;
+      },
+      beginDraft: () => calls.push('begin'),
+      commitDraft: () => calls.push('commit'),
+      cancelDraft: () => calls.push('cancel'),
+    };
+  }
+
+  test('entering edit mode opens the draft', () => {
+    const sidebarZone = fakeZone();
+    const editMode = createEditMode({
+      gridHandle: fakeGridHandle(),
+      layoutClient: fakeLayoutClient(),
+      sidebarZone,
+    });
+
+    editMode.enter();
+
+    assert.deepEqual(sidebarZone.calls, ['begin']);
+  });
+
+  test('a dirty sidebar arms Save even though no grid geometry moved', () => {
+    // Item 4. `layoutDiffers` covers grid geometry only, so without the
+    // sidebar being asked the board can be reordered and emptied while Save
+    // still reads "No changes to save".
+    const sidebarZone = fakeZone({ dirty: true });
+    const editMode = createEditMode({
+      gridHandle: fakeGridHandle({ nodes: [{ id: 'a', x: 0, y: 0, w: 2, h: 2 }] }),
+      layoutClient: fakeLayoutClient(),
+      sidebarZone,
+    });
+
+    editMode.enter();
+
+    assert.equal(editMode.isDirty, true, 'a sidebar change must make the layout dirty');
+  });
+
+  test('saving commits the draft; discarding cancels it', async () => {
+    const sidebarZone = fakeZone({ dirty: true });
+    const editMode = createEditMode({
+      gridHandle: fakeGridHandle(),
+      layoutClient: fakeLayoutClient(),
+      sidebarZone,
+    });
+
+    editMode.enter();
+    await editMode.save();
+    assert.deepEqual(sidebarZone.calls, ['begin', 'commit']);
+
+    editMode.enter();
+    editMode.discard();
+    assert.deepEqual(sidebarZone.calls, ['begin', 'commit', 'begin', 'cancel']);
+  });
+
+  test('a FAILED save leaves the draft open rather than tearing the cards down', () => {
+    // Committing before the PUT resolves would destroy the removed cards and
+    // then strand the session in edit mode with no draft to restore them
+    // from — reintroducing the irreversibility this change removes.
+    const sidebarZone = fakeZone({ dirty: true });
+    const editMode = createEditMode({
+      gridHandle: fakeGridHandle({ nodes: [{ id: 'a', x: 0, y: 0, w: 2, h: 2 }] }),
+      layoutClient: fakeLayoutClient({ fail: true }),
+      sidebarZone,
+    });
+
+    editMode.enter();
+
+    return editMode.save().then(
+      () => assert.fail('the save should have rejected'),
+      () => {
+        assert.deepEqual(sidebarZone.calls, ['begin'], 'the draft must NOT have been committed');
+        assert.equal(editMode.isEditing, true, 'and the session stays in edit mode');
+      }
+    );
+  });
+
+  test('the zone may be passed as a function, for boot.js load order', () => {
+    // `boot.js` builds edit mode ~250 lines before the zone exists, so it
+    // passes a closure. Capturing the value there would throw a
+    // temporal-dead-zone ReferenceError and take the whole boot down.
+    let sidebarZone = null;
+    const editMode = createEditMode({
+      gridHandle: fakeGridHandle(),
+      layoutClient: fakeLayoutClient(),
+      sidebarZone: () => sidebarZone,
+    });
+
+    sidebarZone = fakeZone({ dirty: true });
+    editMode.enter();
+
+    assert.deepEqual(
+      sidebarZone.calls,
+      ['begin'],
+      'the zone must be resolved lazily, not captured'
+    );
+    assert.equal(editMode.isDirty, true);
+  });
+
+  test('edit mode still works with no sidebar at all', () => {
+    // A dashboard mounted with no layout element has no sidebar.
+    const editMode = createEditMode({
+      gridHandle: fakeGridHandle(),
+      layoutClient: fakeLayoutClient(),
+    });
+
+    editMode.enter();
+    assert.equal(editMode.isEditing, true);
+    editMode.discard();
+    assert.equal(editMode.isEditing, false);
+  });
+});
+
+describe('done editing is blocked while there is something to save', () => {
+  /** Fire the click listener the toolbar registered, as the browser would. */
+  const press = (button) => {
+    for (const fn of button.listeners.get('click') ?? []) fn();
+  };
+
+  function build({ dirty = false } = {}) {
+    const doc = createFakeDocument();
+    const gridHandle = fakeGridHandle({ nodes: [{ id: 'a', x: 0, y: 0, w: 2, h: 2 }] });
+    const editMode = createEditMode({
+      gridHandle,
+      layoutClient: fakeLayoutClient(),
+      sidebarZone: { isDirty: dirty, beginDraft() {}, commitDraft() {}, cancelDraft() {} },
+    });
+    const toolbar = createEditToolbar({ editMode, document: doc });
+    return { toolbar, editMode, gridHandle };
+  }
+
+  test('a dirty layout makes Done editing inert, and says why', () => {
+    // Ope: "the 'done editing' button should only be clickable after save
+    // (where there is nothing to save) otherwise your choice should only be
+    // save or discard."
+    const { toolbar, editMode } = build({ dirty: true });
+
+    editMode.enter();
+    toolbar.sync();
+
+    assert.equal(toolbar.toggle.getAttribute('aria-disabled'), 'true');
+    assert.match(toolbar.toggle.getAttribute('title') ?? '', /save or discard/i);
+  });
+
+  test('Done editing stays FOCUSABLE while inert, like Save', () => {
+    // A `disabled` button leaves the tab order, so the reason it cannot be
+    // used is announced to nobody.
+    const { toolbar, editMode } = build({ dirty: true });
+
+    editMode.enter();
+    toolbar.sync();
+
+    assert.notEqual(toolbar.toggle.disabled, true, 'the disabled property must stay off');
+    assert.match(toolbar.toggle.getAttribute('aria-label') ?? '', /save or discard/i);
+  });
+
+  test('clicking an inert Done editing does NOT leave edit mode', () => {
+    // `aria-disabled` is advisory and the browser still fires the click, so
+    // the no-op has to be enforced in JS. Without that swallow the exit is
+    // merely styled as blocked while still working.
+    const { toolbar, editMode } = build({ dirty: true });
+
+    editMode.enter();
+    toolbar.sync();
+    press(toolbar.toggle);
+
+    assert.equal(editMode.isEditing, true, 'a blocked exit must not drop to view mode');
+  });
+
+  test('a clean layout leaves Done editing live, and it exits', () => {
+    const { toolbar, editMode } = build({ dirty: false });
+
+    editMode.enter();
+    toolbar.sync();
+
+    assert.equal(toolbar.toggle.getAttribute('aria-disabled'), 'false');
+    assert.equal(toolbar.toggle.getAttribute('title'), null);
+
+    press(toolbar.toggle);
+    assert.equal(editMode.isEditing, false, 'a clean session may leave edit mode');
+  });
+
+  test('Edit dashboard is never blocked in view mode', () => {
+    // `isDirty` is false outside edit mode, but the toggle must be provably
+    // live in view mode or the dashboard becomes uneditable.
+    const { toolbar, editMode } = build({ dirty: true });
+
+    toolbar.sync();
+
+    assert.equal(toolbar.toggle.getAttribute('aria-disabled'), 'false');
+    press(toolbar.toggle);
+    assert.equal(editMode.isEditing, true, 'view mode must always be able to enter edit mode');
+  });
+});
+
 describe('construction', () => {
   test('refuses to build without the pieces it drives', () => {
     assert.throws(() => createEditMode({ layoutClient: fakeLayoutClient() }), /gridHandle/);

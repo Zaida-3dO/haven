@@ -18,6 +18,6 @@
     "ical.js": "^2.2.1"
   },
   "devDependencies": {
-    "eslint": "^10.0.0"
+    "eslint": "^10.10.0"
   }
 }

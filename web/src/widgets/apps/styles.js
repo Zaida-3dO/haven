@@ -168,11 +168,13 @@ export const STYLES = `
     display: flex;
     flex-direction: column;
     align-items: center;
-    /* A minimum height so a card with a menu and one without are the same
-       size. Without it the grid rows are ragged: a card whose app has no
-       secondary URLs and no known version renders no kebab (.menu:empty)
-       and comes out ~28px shorter than its neighbours. */
-    min-height: 10.5rem;
+    /* A minimum height so cards line up as a grid rather than tracking their
+       own content. The kebab no longer contributes to this: it is positioned
+       into the corner, so a card with a menu and one without are already the
+       same height and the ragged-rows problem this guarded against is gone.
+       Lower than the 10.5rem it was, because that value was sized around a
+       menu row that used to take up space in the column. */
+    min-height: 8.5rem;
     gap: var(--haven-space-2, 8px);
     padding: var(--haven-space-5, 20px) var(--haven-space-3, 12px);
     border: 1px solid var(--haven-border);
@@ -271,8 +273,31 @@ export const STYLES = `
     outline-offset: 2px;
   }
 
+  /* The description and the kebab on ONE line — the pairing the dashboard this
+     replaces gets from its ".app-card-menu-row". The button used to be a
+     full-width flex row of its own below this, with "margin-top: auto", which
+     claimed a whole line and pushed every card ~33px taller than its content
+     needed. Sharing the row is what removes that wasted vertical space.
+
+     The kebab is 28px and the description line is ~17px, so the row's height
+     comes from the button; "align-items: center" puts the text on its centre
+     line rather than letting it sit high. */
+  .card__subtitle-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--haven-space-1, 4px);
+    width: 100%;
+    min-height: 28px;
+  }
+
+  /* "flex: 1" so the text takes the row and the button is pushed to its end;
+     the left padding matches the button's width so the description stays
+     optically centred in the card rather than shunted left by it. */
   .card__description {
+    flex: 1;
     margin: 0;
+    padding-left: 28px;
     color: var(--haven-fg-secondary);
     font-size: 12px;
     line-height: 1.4;
@@ -408,13 +433,21 @@ export const STYLES = `
      "z-index: 1" puts it above the stretched card link
      (".card__name::after"), or the button cannot be clicked at all: the
      overlay covers the whole card including this button. */
+  /* Sits INSIDE ".card__subtitle-row", on the description's own line, at its
+     right-hand end. It is a flex item of that row rather than a row of its
+     own, which is what stops it claiming vertical space.
+
+     "position: relative" because ".menu__list" anchors to it, and because a
+     z-index only applies to a positioned element — "z-index: 1" puts the
+     button above ".card__name::after", the stretched link overlay covering the
+     whole card. Without it the button is underneath a transparent anchor and
+     clicking it navigates instead of opening the menu. */
   .menu {
     position: relative;
     z-index: 1;
     display: flex;
+    flex: 0 0 auto;
     justify-content: flex-end;
-    width: 100%;
-    margin-top: auto;
   }
 
   /* An empty menu container must occupy nothing. A card with no secondaries

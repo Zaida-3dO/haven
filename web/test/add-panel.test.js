@@ -276,6 +276,32 @@ describe('the destination chooser', () => {
   });
 });
 
+describe('the destination survives close/reopen', () => {
+  test('a non-default destination choice is still selected after closing and reopening', () => {
+    // Regression test: `createAddPanel` builds its element ONCE (the panel is
+    // created once and appended once in boot.js) and open()/close() only
+    // toggle `el.hidden` — refresh() rewrites the widget list but never
+    // touches the destination fieldset. So a choice made before closing
+    // should still be there on reopen. This is currently true by structure
+    // rather than by any explicit persistence code, which is exactly why it
+    // is worth pinning down: a natural-looking refactor that rebuilds the
+    // panel element on open() would silently reset it.
+    const panel = createAddPanel({ registry: registryWith(clock), document: fakeDocument() });
+    panel.open();
+
+    const radios = zoneRadios(panel);
+    radios.get('grid').checked = false;
+    radios.get('sidebar').checked = true;
+
+    panel.close();
+    panel.open();
+
+    assert.equal(panel.zone(), 'sidebar');
+    const reopenedRadios = zoneRadios(panel);
+    assert.equal(reopenedRadios.get('sidebar').checked, true);
+  });
+});
+
 describe('buildInsertion and zones', () => {
   test('a sidebar insertion carries NO geometry', () => {
     // The sidebar is a one-column stack of intrinsically-sized cards: there is

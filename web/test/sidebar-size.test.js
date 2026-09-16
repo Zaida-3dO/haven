@@ -183,6 +183,102 @@ test('a null height clears back to content sizing', () => {
   assert.equal(card.body.style.overflowY, '', 'the inline overflow must be removed');
 });
 
+/* ── 1b. the grip's slider role reports an actual value ──────────────────── */
+
+test('applyCardHeight sets aria-valuemin/valuemax/valuenow/valuetext on the grip', () => {
+  // role="slider" with no aria-valuenow announces a control whose value a
+  // screen reader can never report — min/max alone describe the RANGE, not
+  // where the handle currently sits.
+  const { sidebar } = setup();
+  const card = sidebar.cards.get('sidebar-calendar');
+
+  applyCardHeight(card, 320);
+
+  assert.equal(card.grip.getAttribute('aria-valuemin'), String(MIN_CARD_HEIGHT));
+  assert.equal(card.grip.getAttribute('aria-valuemax'), String(MAX_CARD_HEIGHT));
+  assert.equal(card.grip.getAttribute('aria-valuenow'), '320');
+  assert.equal(card.grip.getAttribute('aria-valuetext'), '320 pixels');
+});
+
+test('applyCardHeight updates aria-valuenow LIVE on every call, not just once', () => {
+  // The specific trap on this item: a value that renders once and never
+  // updates looks correct in source and is still broken for a screen reader
+  // mid-drag or mid-keypress. Calling applyCardHeight repeatedly, as a drag
+  // or a run of arrow-key presses does, must move the announced value each
+  // time.
+  const { sidebar } = setup();
+  const card = sidebar.cards.get('sidebar-calendar');
+
+  applyCardHeight(card, 200);
+  assert.equal(card.grip.getAttribute('aria-valuenow'), '200');
+
+  applyCardHeight(card, 260);
+  assert.equal(
+    card.grip.getAttribute('aria-valuenow'),
+    '260',
+    'the value did not move on a second call'
+  );
+
+  applyCardHeight(card, 500);
+  assert.equal(
+    card.grip.getAttribute('aria-valuenow'),
+    '500',
+    'the value did not move on a third call'
+  );
+});
+
+test('clearing a height back to content sizing clears the grip value too', () => {
+  // A stale aria-valuenow left over from before a clear would announce a
+  // number that no longer means anything — the card is content-sized again.
+  const { sidebar } = setup();
+  const card = sidebar.cards.get('sidebar-calendar');
+
+  applyCardHeight(card, 400);
+  applyCardHeight(card, null);
+
+  assert.equal(card.grip.hasAttribute('aria-valuenow'), false);
+  assert.equal(card.grip.hasAttribute('aria-valuetext'), false);
+  // The range is not card-state — it stays put even when the value is unset.
+  assert.equal(card.grip.getAttribute('aria-valuemin'), String(MIN_CARD_HEIGHT));
+  assert.equal(card.grip.getAttribute('aria-valuemax'), String(MAX_CARD_HEIGHT));
+});
+
+test('setHeight (the drag/keyboard path) updates the grip value, not just applyCardHeight directly', () => {
+  // Both the pointer drag and the arrow-key handler in `sidebar-resize.js`
+  // call `sizing.setHeight`, never `applyCardHeight` directly — asserting
+  // only the low-level helper would miss a regression on the path real
+  // interaction actually takes.
+  const { sizing, sidebar } = setup();
+  const grip = sidebar.cards.get('sidebar-calendar').grip;
+
+  sizing.setHeight('sidebar-calendar', 288);
+  assert.equal(grip.getAttribute('aria-valuenow'), '288');
+
+  sizing.setHeight('sidebar-calendar', 176);
+  assert.equal(
+    grip.getAttribute('aria-valuenow'),
+    '176',
+    'a second setHeight call did not move the value'
+  );
+});
+
+test('discard restores the grip value along with the height', () => {
+  const { sizing, sidebar } = setup();
+  const grip = sidebar.cards.get('sidebar-calendar').grip;
+
+  sizing.snapshot();
+  sizing.setHeight('sidebar-calendar', 350);
+  assert.equal(grip.getAttribute('aria-valuenow'), '350');
+
+  sizing.discard();
+
+  assert.notEqual(
+    grip.getAttribute('aria-valuenow'),
+    '350',
+    'the grip still announces the discarded value'
+  );
+});
+
 /* ── 2. the pinned card is not resizable ─────────────────────────────────── */
 
 test('the pinned card is REFUSED a height', () => {

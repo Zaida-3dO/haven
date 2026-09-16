@@ -173,6 +173,60 @@ test.describe('sidebar sizing', () => {
     );
   });
 
+  test('the grip announces its slider value, live, during a drag and a keypress', async ({
+    page,
+  }) => {
+    // The specific trap on this item: a value that renders once and never
+    // updates looks correct in source (role="slider" plus a one-time
+    // aria-valuenow) and is still broken for a screen reader, which announces
+    // whatever the attribute holds AT THE MOMENT it is queried — mid-drag,
+    // mid-keypress, not just on first render. Asserted here, not just in the
+    // unit suite, because only a real drag exercises the actual interaction
+    // path end to end.
+    await enterEditMode(page);
+
+    const card = page.locator(CARD).filter({ has: page.locator('#sidebar-calendar') });
+    const grip = card.locator('.haven-sidebar__grip');
+
+    await expect(grip).toHaveAttribute('role', 'slider');
+    await expect(grip).toHaveAttribute('aria-valuemin', '80');
+    await expect(grip).toHaveAttribute('aria-valuemax', '2000');
+
+    const initial = await grip.getAttribute('aria-valuenow');
+    expect(initial, 'the grip must report a value before any interaction').not.toBeNull();
+
+    // Drag it shorter and read the attribute WHILE the value should have
+    // moved — not after a reload, not from source, from the live DOM.
+    await dragBy(page, grip, { dy: -100 });
+
+    await expect
+      .poll(async () => grip.getAttribute('aria-valuenow'), {
+        message: 'aria-valuenow must move after a drag, not stay at its initial render',
+      })
+      .not.toBe(initial);
+
+    const afterDrag = await grip.getAttribute('aria-valuenow');
+    const valuetextAfterDrag = await grip.getAttribute('aria-valuetext');
+    expect(valuetextAfterDrag, 'aria-valuetext must match the number it accompanies').toBe(
+      `${afterDrag} pixels`
+    );
+
+    // And again via the keyboard path, which is a SEPARATE code path
+    // (`sidebar-resize.js`'s `keys()` vs `drag()`) — both must keep the grip
+    // in sync, not just the mouse one. ArrowDown INCREASES height (see
+    // `sidebar-resize.js`), moving away from the floor the drag above may
+    // already be close to, rather than ArrowUp which could clamp at
+    // MIN_CARD_HEIGHT and produce a false "did not move" failure.
+    await grip.focus();
+    await page.keyboard.press('ArrowDown');
+
+    await expect
+      .poll(async () => grip.getAttribute('aria-valuenow'), {
+        message: 'aria-valuenow must move again after an arrow-key press',
+      })
+      .not.toBe(afterDrag);
+  });
+
   test('a shortened card cannot starve the scrollport', async ({ page }) => {
     // The governing hazard. A card whose height grew without bound would
     // compete with the pinned card for the column; at three such cards the

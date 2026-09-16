@@ -245,22 +245,49 @@ test('the scrollport may be SHORTER than its content, or it never scrolls', () =
   // `min-height: auto` — "never smaller than my content" — so the box grows to
   // fit the cards, `overflow-y: auto` never has anything to scroll, and the
   // cards push the pinned card off the bottom again with no scrollbar ever
-  // appearing. `flex: 1 1 auto` is what lets it take the free space;
-  // `min-height: 0` is what lets it give space back.
+  // appearing. `flex: 1 1 auto` is what lets it take the free space; a
+  // fixed-pixel `min-height` (not the `auto` default) is what lets it give
+  // space back — the shrink-below-content property comes from `min-height`
+  // not being `auto`, not from its value being exactly zero, which is why
+  // this can now be a real, non-zero floor (see the CSS comment) without
+  // reopening the trap this test guards against.
   const rule = ruleFor('.haven-sidebar__scroll');
 
   assert.match(
     rule,
-    /min-height\s*:\s*0/,
-    'the scrollport needs `min-height: 0`. A flex item defaults to ' +
-      '`min-height: auto`, so it stretches to its content, the scrollbar never ' +
-      `appears, and the pinned card is pushed off the bottom. Found: ${rule}`
+    /min-height\s*:\s*(?!auto)\S/,
+    'the scrollport needs a fixed-pixel `min-height`, not the `auto` default. ' +
+      'A flex item defaults to `min-height: auto`, so it stretches to its ' +
+      'content, the scrollbar never appears, and the pinned card is pushed ' +
+      `off the bottom. Found: ${rule}`
   );
   assert.match(
     rule,
     /flex\s*:\s*1\s+1\s+auto/,
     `the scrollport must absorb the free space above the pin. Found: ${rule}`
   );
+});
+
+test('the scrollport has a real floor above zero, or growth beside it starves it silently', () => {
+  // `min-height: 0` bounded the WRONG thing. It stopped the scrollport from
+  // pushing the pin off the bottom, but a `0` floor also means legitimate
+  // growth in a sibling — the pinned card's own content getting taller, or a
+  // second pinned card appearing beside it (both possible without any
+  // user-set card height involved) — can squeeze this box all the way to
+  // 0px. `.haven-sidebar { overflow: hidden }` then makes every card in it
+  // disappear with no scrollbar, same failure as the one this whole structure
+  // exists to prevent, just from the other side.
+  const rule = ruleFor('.haven-sidebar__scroll');
+
+  assert.match(
+    rule,
+    /min-height\s*:\s*var\(--haven-sidebar-scroll-min-height,\s*(\d+)px\)/,
+    `expected a non-zero pixel floor on the scrollport. Found: ${rule}`
+  );
+  const [, floor] = rule.match(
+    /min-height\s*:\s*var\(--haven-sidebar-scroll-min-height,\s*(\d+)px\)/
+  );
+  assert.ok(Number(floor) > 0, `the scrollport floor must be greater than 0px, found ${floor}px`);
 });
 
 test('the pinned card is OUTSIDE the scrollport, or it scrolls away with the rest', () => {

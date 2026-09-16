@@ -22,6 +22,7 @@ import Database from 'better-sqlite3';
 import { test } from 'node:test';
 import { migrate } from '../src/db/migrate.js';
 import {
+  MAX_CARD_HEIGHT,
   MIN_CARD_HEIGHT,
   createInstanceStore,
   validateInstance,
@@ -47,7 +48,21 @@ test('a height below the floor is refused', () => {
   // title row alone is ~34px, so below the floor there is no body to scroll.
   assert.throws(
     () => validateInstance(instance({ height: 10 })),
-    new RegExp(`height must be null or an integer >= ${MIN_CARD_HEIGHT}`)
+    new RegExp(
+      `height must be null or an integer between ${MIN_CARD_HEIGHT} and ${MAX_CARD_HEIGHT}`
+    )
+  );
+});
+
+test('a height above the ceiling is refused', () => {
+  // The client-side drag clamp (`sidebar-size.js`'s MAX_CARD_HEIGHT) never
+  // reaches the API — a direct PUT/POST bypasses it entirely, so the
+  // validator needs its own ceiling rather than trusting the UI's.
+  assert.throws(
+    () => validateInstance(instance({ height: MAX_CARD_HEIGHT + 1 })),
+    new RegExp(
+      `height must be null or an integer between ${MIN_CARD_HEIGHT} and ${MAX_CARD_HEIGHT}`
+    )
   );
 });
 

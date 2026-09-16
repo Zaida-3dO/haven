@@ -527,10 +527,33 @@ body {
  *
  * So the unpinned cards scroll here and the pinned card stays outside as a
  * sibling. `flex: 1 1 auto` lets this box absorb the free space and, more
- * importantly, SHRINK below its content; `min-height: 0` is what actually
- * permits that shrink, because a flex item's default `min-height: auto` means
- * "never smaller than my content" and would push the pin off the bottom again
- * with the scrollbar never appearing — the same trap as the grid column above.
+ * importantly, SHRINK below its content; a fixed-pixel `min-height` (rather
+ * than the default `auto`) is what actually permits that shrink, because a
+ * flex item's default `min-height: auto` means "never smaller than my
+ * content" and would push the pin off the bottom again with the scrollbar
+ * never appearing — the same trap as the grid column above.
+ *
+ * ── The floor, and why 0 was not the end of the story ────────────────────
+ * This used to be `min-height: 0`, on a reviewer's argument that no floor was
+ * needed because the pinned card was content-sized (`margin-top: auto`, no
+ * fixed height) and a user-set card height is bounded on the card BODY, never
+ * on the sidebar (see `web/src/shell/sidebar-size.js`). Both of those bound
+ * ONE side of the equation — they stop a single unpinned card or a single
+ * pinned card's fixed height from starving the scrollport — but neither stops
+ * the PINNED card's own intrinsic content from growing (Server Status text
+ * wrapping to more lines) or a second pinned-eligible widget appearing beside
+ * it, both of which take space from this box exactly like the three-card case
+ * in the comment above, just without a user-set height involved. `0` let that
+ * take the scrollport all the way to nothing, silently — `overflow: hidden`
+ * on `.haven-sidebar` means a starved scrollport doesn't even get a
+ * degenerate scrollbar, it just disappears.
+ *
+ * `--haven-sidebar-scroll-min-height` is a real floor: enough for roughly one
+ * collapsed card (a heading plus a line of content) to stay visible and
+ * reachable no matter how much the pinned sibling(s) grow. It still shrinks
+ * BELOW its content — that property comes from `min-height` not being `auto`,
+ * not from its value being exactly zero — so the scrollbar still appears
+ * exactly as before once the cards exceed this floor.
  *
  * The negative margin + matching padding keep the scrollbar off the card
  * edges: without them the cards would sit flush against the scrollbar gutter
@@ -540,7 +563,7 @@ body {
   flex-direction: column;
   gap: var(--haven-space-4);
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: var(--haven-sidebar-scroll-min-height, 96px);
   overflow-y: auto;
   /* Room for the scrollbar without the cards shifting when it appears. */
   margin-right: calc(-1 * var(--haven-space-2));
@@ -574,7 +597,27 @@ body {
 
 /* Pinned to the bottom, matching the live dashboard's status card. `auto`
    margin in a flex column consumes all the free space above it — which is
-   what puts it against the bottom edge without a fixed position. */
+   what puts it against the bottom edge without a fixed position.
+ *
+ * ── Zero pinned cards ─────────────────────────────────────────────────────
+ * Nothing here assumes exactly one. With none, `.haven-sidebar__scroll` (the
+ * only other flex child, besides the width handle which is absolutely
+ * positioned and out of flow) is the sole consumer of `flex: 1 1 auto` and
+ * simply takes the whole column — the layout degrades to "the sidebar is
+ * only ever a scrollport", which is correct and needs no special case.
+ *
+ * ── Two or more pinned cards ──────────────────────────────────────────────
+ * DECIDED (this item, 2026-09-16): every `margin-top: auto` sibling in the
+ * same flex container splits the leading free space EQUALLY between them
+ * (CSS Flexbox §8.1) — they do not overlap and do not fight for the same
+ * pixels. So two pinned cards stack in DOM order, both still below the
+ * scrollport, with the free space above the first one rather than between
+ * them (only the FIRST auto-margin sibling absorbs space that would
+ * otherwise sit above it; the second is pushed down by the first's own
+ * height, not by a second helping of free space). Net effect: they behave as
+ * one combined pinned block for sizing purposes, which is why the scrollport
+ * still needs the hard floor above — two ordinary-content pinned cards give
+ * back exactly as little room as one unusually tall one. */
 .haven-sidebar__card--pinned {
   margin-top: auto;
 }

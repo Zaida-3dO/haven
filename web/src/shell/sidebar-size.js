@@ -73,6 +73,41 @@ export const clampCardHeight = (value) =>
   Math.min(MAX_CARD_HEIGHT, Math.max(MIN_CARD_HEIGHT, Math.round(value)));
 
 /**
+ * Sets the grip's ARIA value attributes to match a height, or clears them.
+ *
+ * `role="slider"` with no `aria-valuenow` announces a control whose value a
+ * screen reader can never report — the min/max on their own describe the
+ * range, not where the handle currently sits. This is called from
+ * `applyCardHeight`, the one function every height change (drag, arrow keys,
+ * load, discard) already funnels through, so the grip cannot go out of sync
+ * with the height it represents.
+ *
+ * `aria-valuemin`/`aria-valuemax` are set unconditionally to the clamp
+ * bounds — they do not change per card, so this is also what establishes them
+ * the first time a height is ever applied to a given card.
+ *
+ * @param {HTMLElement|null|undefined} grip
+ * @param {number|null} height pixels, or null for content sizing (no current
+ *   numeric value to report — the attributes are cleared rather than left
+ *   stale at whatever they last were)
+ */
+function updateGripValue(grip, height) {
+  if (!grip?.setAttribute) return;
+
+  grip.setAttribute('aria-valuemin', String(MIN_CARD_HEIGHT));
+  grip.setAttribute('aria-valuemax', String(MAX_CARD_HEIGHT));
+
+  if (height === null || height === undefined) {
+    grip.removeAttribute?.('aria-valuenow');
+    grip.removeAttribute?.('aria-valuetext');
+    return;
+  }
+
+  grip.setAttribute('aria-valuenow', String(height));
+  grip.setAttribute('aria-valuetext', `${height} pixels`);
+}
+
+/**
  * Applies a card height to the DOM, or clears it.
  *
  * `null` removes the inline height so the card falls back to content sizing —
@@ -84,7 +119,7 @@ export const clampCardHeight = (value) =>
  * file: bounding the body is what makes a user-set height incapable of
  * starving the scrollport.
  *
- * @param {{body: HTMLElement, pinned?: boolean}} card a card from `createSidebar`
+ * @param {{body: HTMLElement, pinned?: boolean, grip?: HTMLElement}} card a card from `createSidebar`
  * @param {number|null} height pixels, or null for content sizing
  * @returns {boolean} whether a height was applied
  */
@@ -100,6 +135,7 @@ export function applyCardHeight(card, height) {
   if (height === null || height === undefined) {
     body.style.height = '';
     body.style.overflowY = '';
+    updateGripValue(card.grip, null);
     return false;
   }
 
@@ -108,6 +144,7 @@ export function applyCardHeight(card, height) {
   // The whole point of the feature: content taller than the card scrolls
   // INSIDE it rather than being clipped. Without this the height is a crop.
   body.style.overflowY = 'auto';
+  updateGripValue(card.grip, clamped);
   return true;
 }
 
@@ -195,12 +232,47 @@ export function createSidebarSizing({
     load({ sidebarWidth, entries: loaded = [] } = {}) {
       if (sidebarWidth !== undefined) width = applySidebarWidth(layoutEl, sidebarWidth);
 
+      // Which cards this call leaves content-sized (no stored height), so the
+      // rendered-height fallback below applies to exactly those and does not
+      // re-run for a card `commit()`/`discard()` has already given a real
+      // drafted height.
+      const contentSized = [];
+
       for (const entry of loaded) {
         if (entry?.id === undefined) continue;
         const height = entry.height ?? null;
         heights.set(entry.id, height);
         const card = sidebar.cards.get(entry.id);
         if (card) applyCardHeight(card, height);
+        if (height === null) contentSized.push(entry.id);
+      }
+
+      // A content-sized card's grip would otherwise announce a slider with NO
+      // value at all until the user's first resize — `applyCardHeight(card,
+      // null)` above deliberately clears `aria-valuenow`, because `null` also
+      // means "just discarded/cleared" in every OTHER caller of this module.
+      // Only at initial load does "no stored height" have a real rendered
+      // number behind it worth reporting.
+      //
+      // Deferred a frame: at this point in `boot.js` the card is mounted but
+      // its widget content is still loading (`dashboard.add` kicks off an
+      // async data fetch), so `getBoundingClientRect()` here reads a
+      // near-empty box rather than the settled height — measured directly,
+      // this returned 0/null in a real browser despite `boot.js` awaiting
+      // nothing between mount and this call. One rAF is enough for the
+      // initial paint to reflect the mounted DOM; it does not wait for the
+      // data fetch itself, which is the same "content-sized" case a later
+      // resize would also start from mid-load.
+      if (contentSized.length > 0) {
+        const raf = globalThis.requestAnimationFrame ?? ((fn) => setTimeout(fn, 0));
+        raf(() => {
+          for (const id of contentSized) {
+            const card = sidebar.cards.get(id);
+            if (!card?.grip || heights.get(id) !== null) continue; // superseded meanwhile
+            const rendered = Math.round(card.body?.getBoundingClientRect?.().height ?? 0);
+            updateGripValue(card.grip, rendered || null);
+          }
+        });
       }
       return this;
     },

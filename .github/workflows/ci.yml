@@ -45,6 +45,15 @@ jobs:
               - 'web/package.json'
             server:
               - 'server/**'
+              # The refresher sidecar has no job of its own, and the root
+              # `npm test` this job runs already covers it via `test:refresher`
+              # — but without this path, a change touching ONLY
+              # `version-refresher/` matched no filter, every test job
+              # reported "skipping", and its required checks went green having
+              # run none of its tests. The sidecar merged that way. A required
+              # check that cannot fail for a directory is worse than no check,
+              # because it reads as coverage.
+              - 'version-refresher/**'
               - 'package.json'
               - 'package-lock.json'
             web:

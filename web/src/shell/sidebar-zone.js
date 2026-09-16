@@ -411,6 +411,35 @@ export function createSidebarZone({
       }
       return true;
     },
+
+    /**
+     * Records a widget's new CONFIG against this zone's own copy of the
+     * entry, without touching order or persisting anything itself.
+     *
+     * `entries` carries its own `config` per row, entirely separate from
+     * `boot.js`'s `roster` map — the settings panel's save updates the
+     * latter, and nothing kept the two in step. That gap was silent and real:
+     * saving a sidebar widget's settings DURING an open reorder draft (edit
+     * mode entered, a card moved, Save not yet clicked) appeared to work —
+     * the host updated, the dialog closed, the new value round-tripped to the
+     * server in that moment — and then `commitDraft()`'s own renumber pass
+     * persisted every entry whose `sortOrder` changed using ITS copy of the
+     * entry, which still carried the config from whenever the draft began.
+     * The config save was silently overwritten the instant the reorder was
+     * saved. Reproduced live: changed a sidebar calendar's `maxEvents` to 42
+     * during an open drag draft, saw it persist immediately, then clicked
+     * toolbar Save for the reorder and watched the database go back to 8.
+     *
+     * Called unconditionally, drafting or not: a config save is never
+     * drafted — only reorders and removals are — so there is no snapshot
+     * half of this to preserve for Discard, unlike `move`/`remove` above.
+     */
+    updateConfig(id, config) {
+      const index = entries.findIndex((entry) => entry.id === id);
+      if (index < 0) return false;
+      entries = entries.map((entry, i) => (i === index ? { ...entry, config } : entry));
+      return true;
+    },
   };
 }
 

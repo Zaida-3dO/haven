@@ -390,6 +390,66 @@ test('committing a draft writes only the rows whose order actually changed', () 
   );
 });
 
+/* ── updateConfig: keeping the zone's own copy in step with a settings save ── */
+
+test('updateConfig replaces the stored config for that entry only', () => {
+  const { zone } = setup();
+
+  const ok = zone.updateConfig('sidebar-calendar', { title: 'Renamed', maxEvents: 42 });
+
+  assert.equal(ok, true);
+  const updated = zone.entries.find((e) => e.id === 'sidebar-calendar');
+  assert.deepEqual(updated.config, { title: 'Renamed', maxEvents: 42 });
+
+  // Nobody else's config moved.
+  const weather = zone.entries.find((e) => e.id === 'sidebar-weather');
+  assert.deepEqual(weather.config, {});
+});
+
+test('updateConfig on an unknown id is false, not a throw', () => {
+  const { zone } = setup();
+  assert.equal(zone.updateConfig('not-a-real-id', { anything: true }), false);
+});
+
+test('updateConfig does not reorder or otherwise disturb the entries', () => {
+  const { zone } = setup();
+  const before = zone.entries.map((e) => e.id);
+
+  zone.updateConfig('sidebar-calendar', { maxEvents: 99 });
+
+  assert.deepEqual(
+    zone.entries.map((e) => e.id),
+    before
+  );
+});
+
+test('a settings save mid-draft is not clobbered when the reorder is later committed', () => {
+  // THE defect this closes, found by hand: `commitDraft()`'s own renumber
+  // pass persists every entry whose sortOrder changed using ITS copy of the
+  // entry — which is exactly what goes stale if a settings save updates
+  // `boot.js`'s `roster` but never touches `sidebarZone`'s own `entries`.
+  // Reproduced live: changing a sidebar calendar's `maxEvents` to 42 during
+  // an open drag draft appeared to save, and then clicking toolbar Save for
+  // the reorder silently reverted the database to the pre-draft config.
+  const { zone, client } = setup();
+
+  zone.beginDraft();
+  zone.move('sidebar-calendar', -1);
+  // The settings panel's save path is `boot.js`'s persist(), which (after
+  // this fix) calls updateConfig on the SAME zone instance mid-draft.
+  zone.updateConfig('sidebar-calendar', { title: 'Calendar', maxEvents: 42 });
+  zone.commitDraft();
+
+  const written = client.saves.find((s) => s.id === 'sidebar-calendar');
+  assert.ok(written, 'the reordered calendar row must still be written on commit');
+  assert.deepEqual(
+    written.config,
+    { title: 'Calendar', maxEvents: 42 },
+    "commitDraft's own persistence must use the UPDATED config, not the one " +
+      'the draft opened with'
+  );
+});
+
 test('cancelling a draft puts the original order back', () => {
   const { zone, sidebar, client } = setup();
 
@@ -579,6 +639,7 @@ const withControls = (doc, instances = SEEDED, handlers = {}) =>
     onMoveUp: handlers.onMoveUp ?? (() => {}),
     onMoveDown: handlers.onMoveDown ?? (() => {}),
     onRemove: handlers.onRemove ?? (() => {}),
+    onSettings: handlers.onSettings ?? (() => {}),
     document: doc,
   });
 
@@ -627,15 +688,21 @@ test('setEditable(true) actually ENABLES the controls', () => {
   }
 });
 
-test('the pinned card gets Remove but no move arrows', () => {
+test('the pinned card gets Settings and Remove but no move arrows', () => {
   // It is the sidebar's own child rather than a child of the scrollport, so it
   // holds the bottom edge and is not part of the order — but a user must still
-  // be able to get rid of it.
+  // be able to get rid of it, and its config stays reachable even though its
+  // position does not move.
   const doc = createFakeDocument();
   const sidebar = withControls(doc);
 
-  assert.deepEqual(kindsOf(sidebar.cards.get('sidebar-status')), ['remove']);
-  assert.deepEqual(kindsOf(sidebar.cards.get('sidebar-weather')), ['up', 'down', 'remove']);
+  assert.deepEqual(kindsOf(sidebar.cards.get('sidebar-status')), ['settings', 'remove']);
+  assert.deepEqual(kindsOf(sidebar.cards.get('sidebar-weather')), [
+    'up',
+    'down',
+    'settings',
+    'remove',
+  ]);
 });
 
 test('clicking a control calls through with the card id', () => {
@@ -645,6 +712,7 @@ test('clicking a control calls through with the card id', () => {
     onMoveUp: (id) => calls.push(['up', id]),
     onMoveDown: (id) => calls.push(['down', id]),
     onRemove: (id) => calls.push(['remove', id]),
+    onSettings: (id) => calls.push(['settings', id]),
   });
 
   for (const button of controlsOf(sidebar.cards.get('sidebar-calendar'))) {
@@ -654,6 +722,7 @@ test('clicking a control calls through with the card id', () => {
   assert.deepEqual(calls, [
     ['up', 'sidebar-calendar'],
     ['down', 'sidebar-calendar'],
+    ['settings', 'sidebar-calendar'],
     ['remove', 'sidebar-calendar'],
   ]);
 });
@@ -666,5 +735,5 @@ test('a card added later gets controls too', () => {
 
   const card = sidebar.addCard({ id: 'sidebar-extra', type: 'weather', title: 'Extra' });
 
-  assert.deepEqual(kindsOf(card), ['up', 'down', 'remove']);
+  assert.deepEqual(kindsOf(card), ['up', 'down', 'settings', 'remove']);
 });

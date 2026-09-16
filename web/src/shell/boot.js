@@ -151,8 +151,54 @@ export async function bootDashboard(
     const entry = roster.get(widgetId);
     if (!entry) return;
 
-    const next = { ...entry, config };
+    // `roster`'s own copy of a SIDEBAR entry goes stale the moment the card is
+    // reordered OUTSIDE a draft: `sidebarZone.move` renumbers through
+    // `renumber()`, which (deliberately, for Discard's sake — see its comment
+    // in `sidebar-zone.js`) returns a NEW entry object rather than mutating
+    // the one `roster` is holding. Without this lookup, opening a card's
+    // settings after moving it and saving would write the config through with
+    // the `sortOrder` from BEFORE the move, silently undoing the reorder the
+    // next time the layout loads. `sidebarZone` is read lazily — same reason
+    // as its other call sites in this file: it is declared further down, so a
+    // direct reference here would be a temporal-dead-zone `ReferenceError`
+    // during boot.
+    //
+    // Gated on `!sidebarZone.drafting`, and that gate is load-bearing rather
+    // than defensive: `move()` updates `sidebarZone.entries` IMMEDIATELY
+    // regardless of draft state — only the SERVER write is deferred while
+    // drafting (see `move()`'s `if (!drafting())` in `sidebar-zone.js`). A
+    // settings save while a reorder is still an uncommitted draft would
+    // therefore read the DRAFTED sortOrder here and persist it right away —
+    // ahead of Save, and even if the user goes on to Discard the reorder. That
+    // raced two sidebar cards to the same `sortOrder` in exactly this file's
+    // own manual verification: moving Calendar past 3D Home without clicking
+    // Save, then saving Calendar's settings, persisted Calendar at its
+    // drafted position 2 while 3D Home — also renumbered to 2 by the same
+    // drafted move — never got its own row rewritten, because THAT write is
+    // still waiting on a Save that hadn't happened. Two sidebar rows ended up
+    // sharing `sortOrder: 2` in the database. Outside a draft `move()` persists
+    // immediately, so `roster` is never stale there and this reconciliation
+    // both is not needed and would be redundant.
+    const live =
+      entry.zone === 'sidebar' && sidebarZone && !sidebarZone.drafting
+        ? sidebarZone.entries.find((e) => e.id === widgetId)
+        : null;
+
+    const next = { ...entry, ...live, config };
     roster.set(widgetId, next);
+
+    // `sidebarZone` keeps its OWN copy of each entry's config in `entries`,
+    // entirely separate from `roster` above — and until this call, nothing
+    // kept the two in step. That gap was silent and real: saving a sidebar
+    // widget's settings DURING an open reorder draft (edit mode entered, a
+    // card moved, Save not yet clicked) appeared to work — the new value
+    // round-tripped to the server right here — and then `commitDraft()`'s own
+    // renumber pass persisted every entry whose `sortOrder` changed using ITS
+    // stale copy of the config, silently overwriting the save the instant the
+    // reorder was saved. Reproduced live: changed a sidebar calendar's
+    // `maxEvents` to 42 mid-draft, watched it persist, then clicked toolbar
+    // Save for the reorder and watched the database go back to 8.
+    if (entry.zone === 'sidebar') sidebarZone?.updateConfig(widgetId, config);
 
     await instancesClient.save(widgetId, next, {
       secretKeys: secretKeysOf(registry.get(entry.type)),
@@ -646,6 +692,11 @@ export async function bootDashboard(
           sidebarZone?.remove(id);
           toolbar?.sync();
         },
+        // The SAME settings panel the grid opens, not a second one — see the
+        // module doc at the top of `settings-panel.js`. It already resolves
+        // and saves through `dashboard.host(widgetId)`, which knows nothing
+        // about zones, so no sidebar-specific wiring was needed on that side.
+        onSettings: (id) => settingsPanel.open(id),
       })
     : null;
 
@@ -703,11 +754,25 @@ export async function bootDashboard(
         { id: entry.id, type: entry.type, config: entry.config ?? {} },
         body
       );
+      if (!host) continue;
       // Mirrors the grid loop above: a clock's tick is a host-owned scheduler
       // task that boot must start explicitly for every zone it can land in,
       // sidebar included — otherwise a clock survives a reload only until its
       // first render and then never ticks again.
-      if (entry.type === 'clock' && host) startClock(host);
+      if (entry.type === 'clock') startClock(host);
+      // The settings panel's `onSaved` persists through `roster.get(widgetId)`
+      // (see `persist` above), and that map was only ever seeded from the
+      // GRID'S reconciled entries. Without this a sidebar widget's gear would
+      // open the same form, validate and update the host in place — but the
+      // save would silently no-op server-side, because `persist` finds no
+      // roster row and returns early. `zone: 'sidebar'` is carried through so
+      // the PUT lands with the same zone it already has, rather than falling
+      // back to the server's grid default and moving the widget.
+      roster.set(entry.id, {
+        ...entry,
+        config: host.config ?? entry.config ?? {},
+        zone: 'sidebar',
+      });
     }
 
     // After the cards exist, so a stored height has something to land on.

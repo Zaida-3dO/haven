@@ -158,6 +158,7 @@ export function createSidebarCard({
   onMoveUp = () => {},
   onMoveDown = () => {},
   onRemove = () => {},
+  onSettings = () => {},
   document: doc = globalThis.document,
 } = {}) {
   const el = doc.createElement('section');
@@ -202,8 +203,16 @@ export function createSidebarCard({
   //
   // The pinned card gets no MOVE controls: it is the sidebar's own child
   // rather than a child of the scrollport, so it holds the bottom edge and is
-  // not part of the order. It keeps Remove — a user must still be able to get
-  // rid of it.
+  // not part of the order. It keeps Remove and Settings — a user must still
+  // be able to get rid of it, and its config (e.g. refresh interval) is still
+  // editable even though its position is not.
+  //
+  // Settings reuses the SAME affordance the grid uses (`onSettings` opening
+  // `createSettingsPanel`), not a second one — see the module doc at the top
+  // of `settings-panel.js`. A sidebar widget's config has been DB-backed and
+  // editable since it moved onto the instances API; before this it was only
+  // reachable by removing and re-adding the card, which threw away its
+  // position. This is the one gap being closed, not new machinery.
   let controlsEl = null;
   if (controls) {
     controlsEl = doc.createElement('div');
@@ -215,7 +224,7 @@ export function createSidebarCard({
       btn.className = `haven-sidebar__control haven-sidebar__control--${kind}`;
       btn.setAttribute('aria-label', `${label} ${title}`);
       btn.dataset.sidebarControl = kind;
-      btn.textContent = { up: '↑', down: '↓', remove: '×' }[kind];
+      btn.textContent = { up: '↑', down: '↓', remove: '×', settings: '⚙' }[kind];
       btn.disabled = true;
       btn.tabIndex = -1;
       btn.addEventListener?.('click', () => handler(id));
@@ -225,7 +234,10 @@ export function createSidebarCard({
     if (!pinned) {
       controlsEl.append(button('up', 'Move up', onMoveUp), button('down', 'Move down', onMoveDown));
     }
-    controlsEl.appendChild(button('remove', 'Remove', onRemove));
+    controlsEl.append(
+      button('settings', 'Settings for', onSettings),
+      button('remove', 'Remove', onRemove)
+    );
     heading.appendChild(controlsEl);
   }
 
@@ -313,6 +325,7 @@ export function createSidebar({
   onMoveUp = () => {},
   onMoveDown = () => {},
   onRemove = () => {},
+  onSettings = () => {},
   document: doc = globalThis.document,
 } = {}) {
   const el = doc.createElement('aside');
@@ -384,6 +397,7 @@ export function createSidebar({
       onMoveUp,
       onMoveDown,
       onRemove,
+      onSettings,
       document: doc,
     });
 

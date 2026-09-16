@@ -222,20 +222,25 @@ would be doing bookkeeping, not design.
 Within the sidebar, order is `sort_order` on the widget instance — the ordering column the
 roster already carries — rather than a y-coordinate. The grid ignores it.
 
-**Status as of 2026-09-10: the model above is what the code is being built toward, and only
-the grid half of it ships today.** The sidebar renders from a hardcoded card list, its
-contents cannot be changed from the UI, and no `zone` field exists in the schema yet. The
-requirement that it become user-arrangeable is Ope's, 2026-09-09:
+**Status as of 2026-09-13: the model above is what shipped, except cross-zone dragging.**
+`zone` is a real column on `widgets` (migration 005, `TEXT NOT NULL DEFAULT 'grid'`,
+breakpoint-independent as this section requires), and the sidebar is fully user-arrangeable:
+the "Add widget" panel offers an explicit destination — main grid or sidebar
+(`add-panel.js`, defaulting to the grid) — and `sidebar-zone.js` (wired into `boot.js`,
+integrated with edit mode's draft/Save/Discard cycle) provides reorder and remove within the
+sidebar. This was Ope's requirement, 2026-09-09:
 
 > "i should be able to add widgets to the main body or to the sidebar and move widgets
 > around on the sidebar, (and bonus points if we can drag widgets from the main body to the
 > sidebar but that's not the hard requirement if i can maybe remove it from the main body
 > and then re-add directly to the sidebar, that works too)"
 
-So: choosing the destination zone when adding, reordering within the sidebar, and removing
-from the sidebar are the requirement. Dragging a tile from the grid into the sidebar is a
-nice-to-have on top, and may not be built — it is the one part that would need a second
-GridStack instance and cross-grid drop targets.
+Choosing the destination zone when adding, reordering within the sidebar, and removing from
+the sidebar all shipped (PR #64 phases 1-2, plus the drafting fix in #68 and sizing in #69).
+The one piece explicitly called a nice-to-have — dragging a tile directly from the grid into
+the sidebar — remains unbuilt; moving a widget between zones today means removing it from
+one and re-adding it in the other, which is the fallback Ope named above. It would need a
+second GridStack instance and cross-grid drop targets.
 
 > **A note on where this section came from.** Until 2026-09-10 the sidebar appeared nowhere
 > in these docs, and its rationale existed only as a comment in `web/src/shell/sidebar.js`
@@ -469,13 +474,14 @@ grid.
   panel opens, and each widget gets a settings gear + remove button.
 - Layout saves on exit, with an explicit Save/Discard. Mobile and desktop layouts are edited
   separately, each in its own breakpoint.
-- **Planned, not yet built (see §3.1):** edit mode currently covers the grid zone only —
-  every selector it uses is rooted at the grid, so sidebar cards never dim and never gain
-  controls. The sidebar zone is to get its own controls: reorder a card within the column
-  and remove it. Reordering is a one-dimensional move rather than a drag on a canvas, so it
-  wants explicit per-card controls (which are keyboard-accessible by construction) rather
-  than GridStack drag handles. The "Add widget" panel gains a destination choice — main
-  grid or sidebar.
+- **Built (see §3.1):** edit mode covers the sidebar zone as well as the grid. The sidebar
+  gets its own per-card controls — move up, move down, remove — rather than GridStack drag
+  handles, because reordering a one-column stack is a one-dimensional move and explicit
+  controls are keyboard-accessible by construction (`sidebar-zone.js`, wired into
+  `edit-mode.js`). Sidebar changes are drafted in memory the same way the grid's are, and
+  only committed on Save or discarded on Discard. The "Add widget" panel has the destination
+  choice — main grid or sidebar (`add-panel.js`), defaulting to the grid. The one piece not
+  built is dragging a tile directly from the grid into the sidebar; see §3.1's status note.
 
 ---
 

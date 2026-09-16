@@ -551,9 +551,12 @@ export function seedInstances(
   // ── Scoped to the ZONE, and this is load-bearing ──────────────────────
   // This guard used to be `store.count() > 0` — the whole table. Once there
   // is more than one zone to seed, a whole-table guard means the FIRST seed to
-  // run suppresses every later one: migration 006 inserts the four sidebar
-  // rows, `count()` is then 4, and the grid seed is skipped entirely, so a
-  // fresh install boots with a sidebar and a completely empty main board.
+  // run suppresses every later one: this same function, called once per zone,
+  // seeds the four sidebar rows before the grid runs; an unscoped `count()`
+  // would then read 4 and skip the grid seed entirely, so a fresh install
+  // boots with a sidebar and a completely empty main board. (Migration 006 is
+  // unrelated — it patches `allowSameOrigin` on the seeded 3D-home iframe row,
+  // not the seeding itself.)
   //
   // The asymmetry the unscoped version was protecting is preserved exactly,
   // just per zone: the file is the SEED and the database is the source of

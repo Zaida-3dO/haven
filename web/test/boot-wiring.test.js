@@ -210,3 +210,52 @@ test('an add destined for the SIDEBAR never goes through the grid', () => {
       'the grid as well as the sidebar'
   );
 });
+
+test('the sidebar boot loop starts the clock for a clock entry, same as the grid loop', () => {
+  // The grid boot loop calls `startClock(host)` for every `type === 'clock'`
+  // entry after `dashboard.add`/`grid.load` — the clock's tick is a
+  // host-owned scheduler task (see `startClockTicks` in `clock-source.js`)
+  // that never runs unless something explicitly starts it. The sidebar boot
+  // loop mounts its entries through `dashboard.add` too, but historically
+  // never made the same call: a clock added live via the add panel ticks
+  // (that call site does `startClock`), but the SAME clock stops ticking
+  // after a reload, because the boot-time sidebar loop skipped it.
+  //
+  // Sliced to the sidebar boot loop specifically (`for (const entry of
+  // sidebarEntries)`), so a `startClock` call anywhere else in the file —
+  // e.g. the grid loop just above it — cannot satisfy this.
+  const loopAt = BOOT_NO_COMMENTS.indexOf('for (const entry of sidebarEntries)');
+  assert.ok(loopAt >= 0, 'could not locate the sidebar boot loop');
+
+  // The loop's own closing brace: found by scanning forward and tracking
+  // brace depth from the loop's opening `{`, so this does not depend on
+  // guessing how many statements are inside it.
+  const openAt = BOOT_NO_COMMENTS.indexOf('{', loopAt);
+  let depth = 0;
+  let closeAt = -1;
+  for (let i = openAt; i < BOOT_NO_COMMENTS.length; i++) {
+    if (BOOT_NO_COMMENTS[i] === '{') depth++;
+    else if (BOOT_NO_COMMENTS[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        closeAt = i;
+        break;
+      }
+    }
+  }
+  assert.ok(closeAt > openAt, 'could not find the end of the sidebar boot loop');
+
+  const loopBody = BOOT_NO_COMMENTS.slice(openAt, closeAt);
+  assert.match(
+    loopBody,
+    /entry\.type === 'clock'/,
+    "the sidebar boot loop never checks for type === 'clock', so a reloaded " +
+      'sidebar clock is never started'
+  );
+  assert.match(
+    loopBody,
+    /startClock\(/,
+    'the sidebar boot loop must call startClock, mirroring the grid loop, or a ' +
+      'sidebar clock stops ticking after every reload'
+  );
+});

@@ -699,7 +699,15 @@ export async function bootDashboard(
       // `dashboard.add` and not `grid.place`: these get a host, a config, the
       // error boundary and a scheduled refresh, but no GridStack node — which
       // is the whole distinction between the sidebar and the grid.
-      dashboard.add({ id: entry.id, type: entry.type, config: entry.config ?? {} }, body);
+      const host = dashboard.add(
+        { id: entry.id, type: entry.type, config: entry.config ?? {} },
+        body
+      );
+      // Mirrors the grid loop above: a clock's tick is a host-owned scheduler
+      // task that boot must start explicitly for every zone it can land in,
+      // sidebar included — otherwise a clock survives a reload only until its
+      // first render and then never ticks again.
+      if (entry.type === 'clock' && host) startClock(host);
     }
 
     // After the cards exist, so a stored height has something to land on.

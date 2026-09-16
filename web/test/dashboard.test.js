@@ -170,6 +170,72 @@ test('removing a widget also removes its scheduled task', async () => {
   });
 });
 
+// ── suspend/resume: a drafted sidebar removal that must stay restorable ──
+//
+// `sidebar-zone.js` cannot call `dashboard.remove(id)` for a removal made
+// inside a draft — that destroys the host, and Discard needs it back. But
+// leaving the card merely hidden left it polling its endpoint and turning up
+// in search until Save/Discard. `suspend`/`resume` are the two effects of
+// remove/add that matter here (scheduler task, search entry) WITHOUT the
+// host teardown or rebuild.
+
+test('suspend stops polling and search without destroying the host', async () => {
+  const registry = feedRegistry((config) => ({ url: config.url }));
+  const fetcher = new Fetcher({ transport: async () => ({ items: [{ title: 'x' }] }) });
+
+  await withFakeDom(async ({ container }) => {
+    const scheduler = new Scheduler({ setIntervalFn: () => 1, clearIntervalFn: () => {} });
+    const dashboard = new Dashboard({ registry, fetcher, scheduler, container });
+
+    dashboard.add({ id: 'a', type: 'feed', config: { url: 'https://example.invalid/feed' } });
+    await settle();
+    assert.equal(scheduler.has('a'), true);
+
+    dashboard.suspend('a');
+
+    assert.equal(scheduler.has('a'), false, 'polling must stop');
+    assert.equal(dashboard.host('a') !== null, true, 'the host itself must survive');
+    dashboard.destroy();
+  });
+});
+
+test('resume re-registers the scheduler task and search entry for a suspended host', async () => {
+  const registry = feedRegistry((config) => ({ url: config.url }));
+  const fetcher = new Fetcher({ transport: async () => ({ items: [] }) });
+
+  await withFakeDom(async ({ container }) => {
+    const scheduler = new Scheduler({ setIntervalFn: () => 1, clearIntervalFn: () => {} });
+    const dashboard = new Dashboard({ registry, fetcher, scheduler, container });
+
+    dashboard.add({ id: 'a', type: 'feed', config: { url: 'https://example.invalid/feed' } });
+    await settle();
+
+    dashboard.suspend('a');
+    assert.equal(scheduler.has('a'), false);
+
+    const resumed = dashboard.resume('a');
+
+    assert.equal(resumed, true);
+    assert.equal(scheduler.has('a'), true, 'polling must come back');
+    dashboard.destroy();
+  });
+});
+
+test('resume on a host that was never suspended, or was actually removed, is a no-op', async () => {
+  const registry = feedRegistry(null);
+  await withFakeDom(async ({ container }) => {
+    const scheduler = new Scheduler({ setIntervalFn: () => 1, clearIntervalFn: () => {} });
+    const dashboard = new Dashboard({ registry, scheduler, container });
+
+    dashboard.add({ id: 'a', type: 'feed', config: {} });
+    assert.equal(dashboard.resume('a'), false, 'already scheduled — nothing to do');
+
+    dashboard.remove('a');
+    assert.equal(dashboard.resume('a'), false, 'gone for real — no host to resume');
+    dashboard.destroy();
+  });
+});
+
 // ── host-owned side tasks (the clock tick) ───────────────────────────────
 //
 // `startClockTicks` registers as `clock-tick:<id>` — namespaced deliberately,

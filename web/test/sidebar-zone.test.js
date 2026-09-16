@@ -45,9 +45,13 @@ const cardSpecFor = (e) => ({
  */
 function fakeDashboard(doc) {
   const destroyed = [];
+  const suspended = [];
+  const resumed = [];
   const mounted = new Map();
   return {
     destroyed,
+    suspended,
+    resumed,
     mounted,
     add({ id, type }, container) {
       if (type === 'unknown') return null;
@@ -61,6 +65,15 @@ function fakeDashboard(doc) {
     remove(id) {
       destroyed.push(id);
       mounted.delete(id);
+    },
+    // Mirrors the real Dashboard: stops polling/search WITHOUT destroying the
+    // host, so the fake can assert the same "suspend, don't destroy" contract
+    // `sidebar-zone.js`'s drafted `remove` depends on.
+    suspend(id) {
+      suspended.push(id);
+    },
+    resume(id) {
+      resumed.push(id);
     },
   };
 }
@@ -170,6 +183,25 @@ test('renumber returns ONLY the entries whose number changed', () => {
     changed.map((e) => e.id),
     ['c', 'b']
   );
+});
+
+test('renumber never mutates its input entries, live or snapshotted', () => {
+  // Load-bearing, not incidental: `cancelDraft` restores by pointing `entries`
+  // straight at the `draftEntries` snapshot taken in `beginDraft`. If
+  // `renumber` mutated an entry object in place rather than returning a copy,
+  // that same object is the one sitting in the snapshot too, and Discard
+  // would restore something already changed instead of the original.
+  const list = [entry('a', 0), entry('c', 3), entry('b', 1)];
+  // A second reference to the same objects, standing in for `draftEntries` —
+  // a snapshot that shares objects with the live list is exactly the
+  // situation `cancelDraft` relies on being safe.
+  const snapshot = [...list];
+
+  const before = list.map((e) => ({ ...e }));
+  renumber(list);
+
+  assert.deepEqual(list, before, 'the input array entries must be untouched');
+  assert.deepEqual(snapshot, before, 'a snapshot sharing the same objects must also see no change');
 });
 
 /* ── the controller ──────────────────────────────────────────────────────── */
@@ -387,6 +419,26 @@ test('a removal inside a draft destroys NOTHING and deletes NOTHING', () => {
   assert.equal(sidebar.cards.get('sidebar-calendar').el.hidden, true, 'but hidden from view');
 });
 
+test('a removal inside a draft suspends the host: no more polling, no more search', () => {
+  // The bug this item exists to close: hiding a card is not enough on its
+  // own — `dashboard.remove` is the only caller of `scheduler.remove` and
+  // `searchIndex.remove`, so a merely-hidden card kept hitting its endpoint
+  // and kept turning up in Ctrl+K until Save or Discard. The fix suspends the
+  // host (stop polling, drop from search) while stopping short of destroying
+  // it, so Discard can still bring it back.
+  const { zone, dashboard } = setup();
+
+  zone.beginDraft();
+  assert.equal(zone.remove('sidebar-calendar'), true);
+
+  assert.deepEqual(
+    dashboard.suspended,
+    ['sidebar-calendar'],
+    'the host must be suspended on removal'
+  );
+  assert.deepEqual(dashboard.destroyed, [], 'suspending is not destroying — the host must survive');
+});
+
 test('cancelling a draft brings a removed card BACK', () => {
   // Ope's second requirement, and the one the old design could not meet.
   const { zone, sidebar, dashboard, client } = setup();
@@ -403,6 +455,20 @@ test('cancelling a draft brings a removed card BACK', () => {
   );
   assert.deepEqual(dashboard.destroyed, [], 'and its widget must never have been torn down');
   assert.deepEqual(client.removes, []);
+});
+
+test('cancelling a draft resumes the suspended host: polling and search come back', () => {
+  const { zone, dashboard } = setup();
+
+  zone.beginDraft();
+  zone.remove('sidebar-calendar');
+  zone.cancelDraft();
+
+  assert.deepEqual(
+    dashboard.resumed,
+    ['sidebar-calendar'],
+    'Discard must undo the suspend, not just the hidden flag'
+  );
 });
 
 test('committing a draft is what actually tears the removal down', () => {

@@ -143,6 +143,38 @@ export class Dashboard {
   }
 
   /**
+   * Stops a widget polling and searching, WITHOUT destroying its host.
+   *
+   * This is `remove(id)` minus the teardown and `host.destroy()` — for a
+   * sidebar card removed inside a draft, where the host must survive in case
+   * Discard brings the card back (see `sidebar-zone.js`). Dropping the
+   * scheduler task stops the endpoint hits; dropping the search entry stops
+   * it turning up in Ctrl+K. `resume(id)` is the exact inverse.
+   */
+  suspend(id) {
+    this.#scheduler.remove(id);
+    this.#searchIndex.remove(id);
+  }
+
+  /**
+   * Re-registers a widget suspended by `suspend(id)`. A no-op if the host is
+   * gone (never suspended, or actually removed) or already scheduled.
+   */
+  resume(id) {
+    const host = this.#hosts.get(id);
+    if (!host) return false;
+    if (this.#scheduler.has(id)) return false;
+
+    const definition = this.#registry.get(host.type);
+    this.#scheduler.add(id, {
+      intervalMs: definition?.dataSource ? definition.refreshMs : null,
+      update: () => this.refresh(id),
+    });
+    this.#indexHost(host);
+    return true;
+  }
+
+  /**
    * Fetch for one widget and push the result in.
    *
    * Throws on failure — deliberately. The scheduler catches it and applies

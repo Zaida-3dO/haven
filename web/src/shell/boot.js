@@ -152,20 +152,53 @@ export async function bootDashboard(
     if (!entry) return;
 
     // `roster`'s own copy of a SIDEBAR entry goes stale the moment the card is
-    // reordered: `sidebarZone.move` renumbers through `renumber()`, which
-    // (deliberately, for Discard's sake — see its comment in `sidebar-zone.js`)
-    // returns a NEW entry object rather than mutating the one `roster` is
-    // holding. Without this lookup, opening a card's settings after moving it
-    // and saving would write the config through with the `sortOrder` from
-    // BEFORE the move, silently undoing the reorder the next time the layout
-    // loads. `sidebarZone` is read lazily — same reason as its other call
-    // sites in this file: it is declared further down, so a direct reference
-    // here would be a temporal-dead-zone `ReferenceError` during boot.
+    // reordered OUTSIDE a draft: `sidebarZone.move` renumbers through
+    // `renumber()`, which (deliberately, for Discard's sake — see its comment
+    // in `sidebar-zone.js`) returns a NEW entry object rather than mutating
+    // the one `roster` is holding. Without this lookup, opening a card's
+    // settings after moving it and saving would write the config through with
+    // the `sortOrder` from BEFORE the move, silently undoing the reorder the
+    // next time the layout loads. `sidebarZone` is read lazily — same reason
+    // as its other call sites in this file: it is declared further down, so a
+    // direct reference here would be a temporal-dead-zone `ReferenceError`
+    // during boot.
+    //
+    // Gated on `!sidebarZone.drafting`, and that gate is load-bearing rather
+    // than defensive: `move()` updates `sidebarZone.entries` IMMEDIATELY
+    // regardless of draft state — only the SERVER write is deferred while
+    // drafting (see `move()`'s `if (!drafting())` in `sidebar-zone.js`). A
+    // settings save while a reorder is still an uncommitted draft would
+    // therefore read the DRAFTED sortOrder here and persist it right away —
+    // ahead of Save, and even if the user goes on to Discard the reorder. That
+    // raced two sidebar cards to the same `sortOrder` in exactly this file's
+    // own manual verification: moving Calendar past 3D Home without clicking
+    // Save, then saving Calendar's settings, persisted Calendar at its
+    // drafted position 2 while 3D Home — also renumbered to 2 by the same
+    // drafted move — never got its own row rewritten, because THAT write is
+    // still waiting on a Save that hadn't happened. Two sidebar rows ended up
+    // sharing `sortOrder: 2` in the database. Outside a draft `move()` persists
+    // immediately, so `roster` is never stale there and this reconciliation
+    // both is not needed and would be redundant.
     const live =
-      entry.zone === 'sidebar' ? sidebarZone?.entries?.find((e) => e.id === widgetId) : null;
+      entry.zone === 'sidebar' && sidebarZone && !sidebarZone.drafting
+        ? sidebarZone.entries.find((e) => e.id === widgetId)
+        : null;
 
     const next = { ...entry, ...live, config };
     roster.set(widgetId, next);
+
+    // `sidebarZone` keeps its OWN copy of each entry's config in `entries`,
+    // entirely separate from `roster` above — and until this call, nothing
+    // kept the two in step. That gap was silent and real: saving a sidebar
+    // widget's settings DURING an open reorder draft (edit mode entered, a
+    // card moved, Save not yet clicked) appeared to work — the new value
+    // round-tripped to the server right here — and then `commitDraft()`'s own
+    // renumber pass persisted every entry whose `sortOrder` changed using ITS
+    // stale copy of the config, silently overwriting the save the instant the
+    // reorder was saved. Reproduced live: changed a sidebar calendar's
+    // `maxEvents` to 42 mid-draft, watched it persist, then clicked toolbar
+    // Save for the reorder and watched the database go back to 8.
+    if (entry.zone === 'sidebar') sidebarZone?.updateConfig(widgetId, config);
 
     await instancesClient.save(widgetId, next, {
       secretKeys: secretKeysOf(registry.get(entry.type)),

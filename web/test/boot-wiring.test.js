@@ -322,10 +322,97 @@ test('persist() reconciles a sidebar entry against the live sortOrder before sav
   const fnBody = BOOT_NO_COMMENTS.slice(openAt, closeAt);
   assert.match(
     fnBody,
-    /sidebarZone\?\.\s*entries/,
+    /sidebarZone\s*&&\s*!sidebarZone\.drafting[\s\S]*?sidebarZone\.entries\.find/,
     'persist() must read the live sidebarZone entries rather than trusting its ' +
       "own roster copy — otherwise a reorder's sortOrder can be overwritten by " +
       'a stale settings save'
+  );
+});
+
+test("persist()'s sortOrder reconciliation is gated on the sidebar zone NOT drafting", () => {
+  // Caught by manual browser verification, not by the test above: `move()` in
+  // sidebar-zone.js updates `sidebarZone.entries` IMMEDIATELY regardless of
+  // draft state — only the SERVER write is deferred while drafting (its own
+  // `if (!drafting())` guard). Reading `sidebarZone.entries` unconditionally
+  // means a settings save made DURING an open draft (edit mode entered, a
+  // card dragged/reordered, Save never clicked) reads the DRAFTED sortOrder
+  // and persists it immediately — ahead of Save, and even if the draft is
+  // later discarded.
+  //
+  // Reproduced live: entering edit mode, moving the Calendar sidebar card
+  // past 3D Home (drafted, not saved), then opening Calendar's settings and
+  // saving, persisted Calendar at its drafted sortOrder 2 while 3D Home —
+  // also renumbered to 2 by that same drafted move — kept its old row,
+  // because ITS write was still waiting on a Save that never came. Two
+  // sidebar instances ended up sharing `sortOrder: 2` in the database.
+  const fnAt = BOOT_NO_COMMENTS.indexOf('async function persist(');
+  assert.ok(fnAt >= 0, 'could not locate persist()');
+
+  const openAt = BOOT_NO_COMMENTS.indexOf('{', fnAt);
+  let depth = 0;
+  let closeAt = -1;
+  for (let i = openAt; i < BOOT_NO_COMMENTS.length; i++) {
+    if (BOOT_NO_COMMENTS[i] === '{') depth++;
+    else if (BOOT_NO_COMMENTS[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        closeAt = i;
+        break;
+      }
+    }
+  }
+  assert.ok(closeAt > openAt, 'could not find the end of persist()');
+
+  const fnBody = BOOT_NO_COMMENTS.slice(openAt, closeAt);
+  assert.match(
+    fnBody,
+    /!sidebarZone\.drafting/,
+    'persist() reads sidebarZone.entries unconditionally, so a settings save ' +
+      'made during an open (unsaved) sidebar reorder draft persists the DRAFTED ' +
+      'sortOrder immediately — this can leave two sidebar rows sharing one ' +
+      'sortOrder if the draft is never committed the same way'
+  );
+});
+
+test("persist() keeps sidebarZone's own config copy in step, or a later Save reverts it", () => {
+  // `sidebarZone` holds its OWN copy of each entry's config in `entries`,
+  // entirely separate from `roster` — and until this call existed, a settings
+  // save never touched it. That gap was silent and real: saving a sidebar
+  // widget's settings DURING an open reorder draft (edit mode entered, a card
+  // moved, Save not yet clicked) appeared to work — the value round-tripped
+  // to the server right there — and then `commitDraft()`'s own renumber pass
+  // persisted every entry whose sortOrder changed using ITS stale copy of the
+  // config, silently reverting the settings save the instant the reorder was
+  // saved.
+  //
+  // Reproduced live: changed a sidebar calendar's `maxEvents` to 42 mid-draft
+  // and watched it persist, then clicked toolbar Save for the reorder and
+  // watched the database go back to the old value.
+  const fnAt = BOOT_NO_COMMENTS.indexOf('async function persist(');
+  assert.ok(fnAt >= 0, 'could not locate persist()');
+
+  const openAt = BOOT_NO_COMMENTS.indexOf('{', fnAt);
+  let depth = 0;
+  let closeAt = -1;
+  for (let i = openAt; i < BOOT_NO_COMMENTS.length; i++) {
+    if (BOOT_NO_COMMENTS[i] === '{') depth++;
+    else if (BOOT_NO_COMMENTS[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        closeAt = i;
+        break;
+      }
+    }
+  }
+  assert.ok(closeAt > openAt, 'could not find the end of persist()');
+
+  const fnBody = BOOT_NO_COMMENTS.slice(openAt, closeAt);
+  assert.match(
+    fnBody,
+    /sidebarZone\?\.\s*updateConfig\(\s*widgetId,\s*config\s*\)/,
+    'persist() must call sidebarZone.updateConfig(widgetId, config) for a ' +
+      "sidebar-zoned widget, or the zone's own copy of its config goes stale " +
+      'and a later reorder Save silently reverts the settings save'
   );
 });
 

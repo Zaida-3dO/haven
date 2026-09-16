@@ -390,6 +390,66 @@ test('committing a draft writes only the rows whose order actually changed', () 
   );
 });
 
+/* ── updateConfig: keeping the zone's own copy in step with a settings save ── */
+
+test('updateConfig replaces the stored config for that entry only', () => {
+  const { zone } = setup();
+
+  const ok = zone.updateConfig('sidebar-calendar', { title: 'Renamed', maxEvents: 42 });
+
+  assert.equal(ok, true);
+  const updated = zone.entries.find((e) => e.id === 'sidebar-calendar');
+  assert.deepEqual(updated.config, { title: 'Renamed', maxEvents: 42 });
+
+  // Nobody else's config moved.
+  const weather = zone.entries.find((e) => e.id === 'sidebar-weather');
+  assert.deepEqual(weather.config, {});
+});
+
+test('updateConfig on an unknown id is false, not a throw', () => {
+  const { zone } = setup();
+  assert.equal(zone.updateConfig('not-a-real-id', { anything: true }), false);
+});
+
+test('updateConfig does not reorder or otherwise disturb the entries', () => {
+  const { zone } = setup();
+  const before = zone.entries.map((e) => e.id);
+
+  zone.updateConfig('sidebar-calendar', { maxEvents: 99 });
+
+  assert.deepEqual(
+    zone.entries.map((e) => e.id),
+    before
+  );
+});
+
+test('a settings save mid-draft is not clobbered when the reorder is later committed', () => {
+  // THE defect this closes, found by hand: `commitDraft()`'s own renumber
+  // pass persists every entry whose sortOrder changed using ITS copy of the
+  // entry — which is exactly what goes stale if a settings save updates
+  // `boot.js`'s `roster` but never touches `sidebarZone`'s own `entries`.
+  // Reproduced live: changing a sidebar calendar's `maxEvents` to 42 during
+  // an open drag draft appeared to save, and then clicking toolbar Save for
+  // the reorder silently reverted the database to the pre-draft config.
+  const { zone, client } = setup();
+
+  zone.beginDraft();
+  zone.move('sidebar-calendar', -1);
+  // The settings panel's save path is `boot.js`'s persist(), which (after
+  // this fix) calls updateConfig on the SAME zone instance mid-draft.
+  zone.updateConfig('sidebar-calendar', { title: 'Calendar', maxEvents: 42 });
+  zone.commitDraft();
+
+  const written = client.saves.find((s) => s.id === 'sidebar-calendar');
+  assert.ok(written, 'the reordered calendar row must still be written on commit');
+  assert.deepEqual(
+    written.config,
+    { title: 'Calendar', maxEvents: 42 },
+    "commitDraft's own persistence must use the UPDATED config, not the one " +
+      'the draft opened with'
+  );
+});
+
 test('cancelling a draft puts the original order back', () => {
   const { zone, sidebar, client } = setup();
 

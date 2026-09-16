@@ -34,7 +34,7 @@ globalThis.HTMLElement = class extends FakeElement {
  */
 globalThis.location = { origin: 'https://haven.invalid' };
 
-const { HavenIframe } = await import('../src/widgets/iframe/element.js');
+const { HavenIframe, STYLES } = await import('../src/widgets/iframe/element.js');
 const { HOME_3D_URL, iframeWidget } = await import('../src/widgets/iframe/definition.js');
 const { EmbedUrlError, SANDBOX_NOTICE } = await import('../src/widgets/iframe/embed-url.js');
 const { RESIZE_MESSAGE_TYPE } = await import('../src/widgets/iframe/geometry.js');
@@ -243,6 +243,140 @@ test('the warning stays hidden with the default sandbox', () => {
   const el = makeEmbed();
   assert.equal(el.shadowRoot.querySelector('.embed__warning').hidden, true);
 });
+
+// ── dfdf5e42: the disclosure must be reachable without a mouse ───────────
+
+/**
+ * The badge used to be a `<span role="note">` with no `tabindex` anywhere —
+ * unreachable by Tab, so a keyboard-only user could never even land on it,
+ * let alone read `title`. It is now a real `<button>`, which is focusable by
+ * default with no `tabindex` hack needed at all.
+ */
+test('the badge is a real button, not a span pretending to be one', () => {
+  const el = makeEmbed({ config: { ...CONFIG, allowSameOrigin: 'yes' } });
+  const warning = el.shadowRoot.querySelector('.embed__warning');
+
+  assert.equal(warning.tagName, 'BUTTON');
+  // The fake DOM models `.type` as a plain property (as the real `.type` IDL
+  // attribute behaves) rather than a content attribute — `getAttribute`
+  // would not see it even on a real button unless `setAttribute` was used.
+  assert.equal(warning.type, 'button');
+});
+
+/**
+ * Tabbing to the badge must make the sentence readable without a mouse —
+ * not just leave it sitting in `title`, which a keyboard user has no way to
+ * trigger. This is the acceptance criterion's literal keyboard-only check:
+ * focus lands on the badge, and the text sibling becomes visible.
+ */
+test('focusing the badge reveals the disclosure text, not just hover', () => {
+  const el = makeEmbed({ config: { ...CONFIG, allowSameOrigin: 'yes' } });
+  const warning = el.shadowRoot.querySelector('.embed__warning');
+  const text = el.shadowRoot.querySelector('.embed__warning-text');
+
+  assert.equal(text.hidden, true, 'starts hidden before focus');
+  warning.dispatchEvent({ type: 'focus' });
+  assert.equal(text.hidden, false, 'the sentence becomes visible on focus');
+  assert.equal(warning.getAttribute('aria-expanded'), 'true');
+  assert.equal(text.textContent, SANDBOX_NOTICE);
+
+  warning.dispatchEvent({ type: 'blur' });
+  assert.equal(text.hidden, true, 'hides again once focus moves on');
+  assert.equal(warning.getAttribute('aria-expanded'), 'false');
+});
+
+/**
+ * Click-to-reveal, chosen over hover/focus-only, because it is the one
+ * mechanism a touch user also has: a `title` tooltip and CSS `:hover` never
+ * fire on a touchscreen, so without this the disclosure would still be
+ * unreachable for exactly the audience `tabindex` alone does not help.
+ */
+test('clicking the badge toggles the disclosure text for touch and mouse', () => {
+  const el = makeEmbed({ config: { ...CONFIG, allowSameOrigin: 'yes' } });
+  const warning = el.shadowRoot.querySelector('.embed__warning');
+  const text = el.shadowRoot.querySelector('.embed__warning-text');
+
+  assert.equal(text.hidden, true);
+  warning.dispatchEvent({ type: 'click' });
+  assert.equal(text.hidden, false);
+  assert.equal(warning.getAttribute('aria-expanded'), 'true');
+
+  warning.dispatchEvent({ type: 'click' });
+  assert.equal(text.hidden, true, 'a second click hides it again');
+  assert.equal(warning.getAttribute('aria-expanded'), 'false');
+});
+
+/**
+ * `role="note"`/aria labelling must not regress per the acceptance criteria.
+ * There is no longer a `role="note"` (a `<button>` has its own implicit
+ * role, which is more correct for an interactive control), but the
+ * accessible NAME — the thing a screen reader actually announces — is
+ * asserted unchanged: still the full sentence via `title` and `aria-label`,
+ * never the bare glyph, exactly as pinned by the pre-existing
+ * "carries the full disclosure" test above.
+ */
+test('the accessible name survives becoming a button', () => {
+  const el = makeEmbed({ config: { ...CONFIG, allowSameOrigin: 'yes' } });
+  const warning = el.shadowRoot.querySelector('.embed__warning');
+
+  assert.equal(warning.getAttribute('aria-label'), SANDBOX_NOTICE);
+  assert.equal(warning.getAttribute('title'), SANDBOX_NOTICE);
+});
+
+/**
+ * 06839d96 — ".embed { position: relative }" has nothing in the DOM tying it
+ * to the badge that depends on it, so a future tidy-up can drop it without
+ * anything visibly breaking in the diff. The badge is absolutely positioned
+ * and would silently fall back to the initial containing block, which lands
+ * it outside ".haven-sidebar__card"'s "overflow: hidden" clip.
+ *
+ * There is no layout engine in this test workspace (no jsdom, see
+ * `fake-dom.js`), so this cannot read a real `offsetParent`. It instead
+ * parses the extracted stylesheet text with the same rule the CSS spec uses
+ * to pick an offset parent: the nearest ANCESTOR-in-markup with a `position`
+ * other than `static`. The badge is a child of `.embed` in the DOM
+ * (`#ensureScaffold`), so `.embed` must be the nearest such ancestor — which
+ * only holds while `.embed` keeps `position: relative`.
+ *
+ * Verified by removing the declaration locally and re-running: this test
+ * failed with `.embed` reporting position "static" instead of "relative",
+ * exactly the regression it exists to catch. Restored before committing.
+ */
+test("the badge's offset parent is the embed container, not the initial containing block", () => {
+  const rules = parseCssPositions(STYLES);
+
+  assert.equal(rules.get('.embed'), 'relative');
+  // `.embed__warning` must be the positioned element being anchored...
+  assert.equal(rules.get('.embed__warning'), 'absolute');
+  // ...and `.embed` must be its nearest positioned ancestor in the DOM the
+  // widget actually builds (see `#ensureScaffold`: warning is appended
+  // directly to `embed`, with nothing positioned in between).
+  const el = makeEmbed();
+  const warning = el.shadowRoot.querySelector('.embed__warning');
+  assert.equal(warning.parentNode.className, 'embed');
+});
+
+/** Extracts `{ selector: positionValue }` from a stylesheet string. */
+function parseCssPositions(css) {
+  // Strip /* ... */ comments first — a selector preceded by a doc comment
+  // otherwise pulls the comment's last line in as part of the selector text.
+  const stripped = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const found = new Map();
+  const ruleRe = /([^{}]+)\{([^}]*)\}/g;
+  let match;
+  while ((match = ruleRe.exec(stripped))) {
+    // A selector list block is split on the last newline/whitespace run so
+    // only the actual selector (not stray preceding text) is captured.
+    const selector = match[1]
+      .trim()
+      .split(/\s*\n\s*/)
+      .pop()
+      .trim();
+    const posMatch = match[2].match(/position:\s*([a-z]+)/);
+    if (posMatch) found.set(selector, posMatch[1]);
+  }
+  return found;
+}
 
 /**
  * The other half of the relocation: the settings panel.

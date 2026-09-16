@@ -12,6 +12,7 @@ import {
   readPayload,
   applyLinkTarget,
 } from '../src/widgets/apps/apps-widget.js';
+import { STYLES } from '../src/widgets/apps/styles.js';
 
 /**
  * These tests cover the widget's *definition* and its data contract — the
@@ -274,5 +275,27 @@ describe('where an app link opens', () => {
   test('a blank or missing url falls back to opening in a new tab', () => {
     assert.equal(applyLinkTarget(anchor(), undefined).attrs.target, '_blank');
     assert.equal(applyLinkTarget(anchor(), '   ').attrs.target, '_blank');
+  });
+});
+
+/**
+ * The kebab/description row alignment (eef15ff5). There is no layout engine
+ * in this workspace's tests, so this cannot assert pixels — but it pins the
+ * two rules the fix depends on so neither regresses silently back to
+ * "center", which is what caused the button to drift onto the block centroid
+ * of a 2+ line description instead of sitting beside its first line.
+ */
+describe('apps card subtitle row alignment', () => {
+  test('the subtitle row aligns to flex-start, not center', () => {
+    const rule = STYLES.match(/\.card__subtitle-row\s*\{[^}]*\}/)?.[0];
+    assert.ok(rule, 'expected a .card__subtitle-row rule in STYLES');
+    assert.match(rule, /align-items:\s*flex-start/);
+    assert.doesNotMatch(rule, /align-items:\s*center/);
+  });
+
+  test('the menu re-centres against the first line via a top offset', () => {
+    const rule = STYLES.match(/(?<!__toggle[^{]*)\.menu\s*\{[^}]*\}/)?.[0];
+    assert.ok(rule, 'expected a .menu rule in STYLES');
+    assert.match(rule, /margin-top:\s*[\d.]+px/);
   });
 });

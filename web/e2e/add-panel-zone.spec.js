@@ -117,6 +117,14 @@ test.describe('adding a widget to the sidebar', () => {
     const addedType = await addButton.getAttribute('data-widget-type');
     await addButton.click();
 
+    // Track whatever the server now holds for cleanup BEFORE any assertion
+    // that can throw. `rosterIds` itself awaits, but nothing between here and
+    // the `afterEach` running is allowed to leave `created` unset if the add
+    // actually landed — otherwise a failing expectation below leaks the row
+    // into the shared database for every later spec to trip over.
+    const afterClick = await rosterIds(page);
+    created = afterClick.all.filter((id) => !before.all.includes(id));
+
     // Wait on the sidebar actually growing rather than on a timer.
     await expect(page.locator('.haven-sidebar__card')).toHaveCount(cardsBefore + 1);
 
@@ -165,6 +173,13 @@ test.describe('adding a widget to the sidebar', () => {
     await enterEditMode(page);
     await page.locator('.haven-add-panel input[data-zone="sidebar"]').check();
     await page.locator('.haven-add-panel__add').first().click();
+
+    // Same ordering fix as the spec above: capture what was created before
+    // the first assertion that can throw, so a failure here still lets
+    // `afterEach` clean the row up instead of leaking it.
+    const afterClick = await rosterIds(page);
+    created = afterClick.all.filter((id) => !before.all.includes(id));
+
     await expect(page.locator('.haven-sidebar__card')).toHaveCount(cardsBefore + 1);
 
     const after = await rosterIds(page);
@@ -197,6 +212,12 @@ test.describe('adding a widget to the sidebar', () => {
     await enterEditMode(page);
     await expect(page.locator('.haven-add-panel input[data-zone="grid"]')).toBeChecked();
     await page.locator('.haven-add-panel__add').first().click();
+
+    // Same ordering fix as the two specs above: capture what was created
+    // before the first assertion that can throw, so a failure here still
+    // lets `afterEach` clean the row up instead of leaking it.
+    const afterClick = await rosterIds(page);
+    created = afterClick.all.filter((id) => !before.all.includes(id));
 
     await expect(page.locator('.grid-stack-item')).toHaveCount(tilesBefore + 1);
 

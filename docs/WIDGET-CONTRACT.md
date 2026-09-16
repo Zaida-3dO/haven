@@ -180,6 +180,38 @@ draws its data and the host marks it stale. Only an unusable failure is
   for 2s and call `customElements.whenDefined(tag)`, then rebuild — so a lazily
   loaded widget never flashes.
 
+### Worked example: `authRequired` / `authFailed`
+
+The torrents widget (`GET /api/widgets/torrents`) is the worked example of a
+soft-notice payload that also needs to say *why* it's degraded. The rule from
+the route's own header comment:
+
+```
+service up          -> 200, fresh list, no notice
+service down + cache -> 200, the last good list + a `stale` notice
+service down, no cache -> 200, `unreachable: true` and an empty list
+not configured       -> 200, `configured: false` and a hint
+auth wanted, none set -> 200, `authRequired: true` and a hint naming the vars
+```
+
+Two boolean flags carry *why*, because the fix for each is different:
+
+- **`authFailed: true`** — credentials were offered to qBittorrent and it
+  refused them (a wrong password, or a rejected API key). The fix is to
+  correct a credential.
+- **`authRequired: true`** — qBittorrent wants credentials and none were ever
+  supplied. The fix is to *set* a credential, not correct one. Because no
+  mechanism actually ran, the accompanying `notices[].hint` names which
+  environment variables (or widget setting) to set.
+
+**Both flags ride alongside a `stale` response, not just the no-cache
+`unreachable` one.** Auth can break while a cached list is still fresh enough
+to serve — the widget must still show the user their credentials need
+attention even though it's rendering (stale) data rather than an empty,
+unreachable tile. In every case exactly one of `authFailed`/`authRequired` is
+`true` when auth is the problem; both are `false` when it is not (e.g. a plain
+network outage).
+
 ## Rendering rules
 
 - **Shadow DOM per widget**, so broken markup can't corrupt the host layout.

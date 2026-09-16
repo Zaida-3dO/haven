@@ -188,7 +188,17 @@ export async function registerTorrentRoutes(
         torrents: cached.torrents,
         fetchedAt: cached.at,
         stale: true,
-        notices: [{ message: result.message, stale: true }],
+        // Auth can break while the cache is still fresh enough to serve, and
+        // the user needs to know their credentials need attention even though
+        // the tile is showing (stale) data rather than the unreachable state.
+        // Same split as the no-cache branch below, for the same reason: the
+        // fix for a rejected credential is different from the fix for one
+        // that was never supplied.
+        authFailed: result.status === RESULT.AUTH_FAILED,
+        authRequired: result.status === RESULT.AUTH_REQUIRED,
+        notices: [
+          { message: result.message, stale: true, ...(result.hint ? { hint: result.hint } : {}) },
+        ],
       };
     }
 

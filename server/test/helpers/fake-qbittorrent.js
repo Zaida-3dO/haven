@@ -39,6 +39,20 @@ export function createFakeQbittorrent({
     calls: { login: 0, info: 0 },
   };
 
+  /**
+   * Case-insensitive header lookup, matching how a real HTTP client/server
+   * treats header names (RFC 7230 §3.2 — header field names are
+   * case-insensitive). A fake that matched by exact case would silently stop
+   * matching the moment the connector ever renamed or lowercased the header
+   * it sends, and the auth tests would keep passing while testing nothing.
+   */
+  function lookupHeader(headers, name) {
+    if (!headers) return undefined;
+    const target = name.toLowerCase();
+    const key = Object.keys(headers).find((k) => k.toLowerCase() === target);
+    return key === undefined ? undefined : headers[key];
+  }
+
   function response(status, body, headers = {}) {
     const map = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
     return {
@@ -77,9 +91,14 @@ export function createFakeQbittorrent({
     if (path === '/api/v2/torrents/info') {
       state.calls.info += 1;
 
-      // A Bearer key short-circuits the session check entirely — that is the
-      // whole point of it.
-      const bearer = /^Bearer (.+)$/.exec(options.headers?.Authorization ?? '')?.[1];
+      // Header keys are matched case-insensitively, the way a real HTTP
+      // client and server treat them (RFC 7230 §3.2). Reading `Authorization`
+      // by exact case would still pass today, since that's what the connector
+      // currently sends — but it would then silently stop matching, and this
+      // test would silently stop testing anything, the moment that header key
+      // is ever renamed or lowercased.
+      const authHeader = lookupHeader(options.headers, 'authorization');
+      const bearer = /^Bearer (.+)$/.exec(authHeader ?? '')?.[1];
       if (bearer !== undefined) {
         if (bearer !== apiKey) return response(403, 'Forbidden');
         return response(200, state.torrents);

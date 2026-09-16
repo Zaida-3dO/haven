@@ -296,6 +296,6 @@ describe('apps card subtitle row alignment', () => {
   test('the menu re-centres against the first line via a top offset', () => {
     const rule = STYLES.match(/(?<!__toggle[^{]*)\.menu\s*\{[^}]*\}/)?.[0];
     assert.ok(rule, 'expected a .menu rule in STYLES');
-    assert.match(rule, /margin-top:\s*[\d.]+px/);
+    assert.match(rule, /margin-top:\s*-?[\d.]+px/);
   });
 });

@@ -418,6 +418,9 @@ test('a malformed instance is rejected before it is stored', async (t) => {
     ['configVersion is zero', { id: 'x', type: 'clock', configVersion: 0 }],
     ['configVersion is fractional', { id: 'x', type: 'clock', configVersion: 1.5 }],
     ['secretKeys is not an array', { id: 'x', type: 'clock', secretKeys: 'password' }],
+    // Case matters: a typo'd zone like this must be refused as loudly as a
+    // wholly invented one, not partially matched against the real 'sidebar'.
+    ['bad zone (case-wrong)', { id: 'x', type: 'clock', zone: 'sideBAR' }],
   ]) {
     const res = await post(app, body);
     assert.equal(res.statusCode, 400, `${label} should be a 400`);
@@ -426,6 +429,38 @@ test('a malformed instance is rejected before it is stored', async (t) => {
 
   // Nothing above reached the database.
   assert.equal((await getOne(app, 'x')).statusCode, 404);
+});
+
+test('a PUT that omits zone keeps the instance in its existing zone', async (t) => {
+  const { app } = await freshApp(t);
+
+  await post(app, { id: 'card', type: 'calendar', config: {}, zone: 'sidebar' });
+
+  // The settings panel sends a full replace of the mutable fields and says
+  // nothing about zone at all — a `?? DEFAULT_ZONE` fallback here would
+  // silently relocate every saved sidebar card back to the grid.
+  const res = await put(app, 'card', { type: 'calendar', config: { label: 'Changed' } });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal((await getOne(app, 'card')).json().zone, 'sidebar');
+});
+
+test('a PUT with an oversized height is refused, not clamped', async (t) => {
+  const { app } = await freshApp(t);
+
+  await post(app, { id: 'card', type: 'calendar', config: {}, zone: 'sidebar' });
+
+  // A direct PUT bypasses the drag UI's own clamp entirely, so this is the
+  // only thing standing between an API caller and an unbounded stored height.
+  const res = await put(app, 'card', {
+    type: 'calendar',
+    config: {},
+    zone: 'sidebar',
+    height: 99999999,
+  });
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.json().error, 'INVALID_INSTANCE');
 });
 
 test('PUT on an unknown instance is a 404 rather than an implicit create', async (t) => {

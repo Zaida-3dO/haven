@@ -84,6 +84,20 @@ export const DEFAULT_ZONE = 'grid';
  */
 export const MIN_CARD_HEIGHT = 80;
 
+/**
+ * The tallest a sidebar card may be set to, in pixels.
+ *
+ * Mirrors `MIN_CARD_HEIGHT` immediately above: refused rather than clamped,
+ * for the same reason a bad `zone` is refused rather than coerced (see the
+ * comment on `zone` validation below) — a silently clamped height is a card
+ * that stays the wrong size with nothing saying why. Without this bound, a
+ * direct `PUT`/`POST` bypassing the drag UI's own clamp
+ * (`web/src/shell/sidebar-size.js`'s `MAX_CARD_HEIGHT`, which this matches)
+ * could store an arbitrarily large height, since that client-side clamp never
+ * reaches the API.
+ */
+export const MAX_CARD_HEIGHT = 2000;
+
 const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 export class InstanceValidationError extends Error {
@@ -210,9 +224,9 @@ export function validateInstance(payload, { requireId = true } = {}) {
   // through a full-replace PUT.
   const height = payload.height;
   if (height !== undefined && height !== null) {
-    if (!Number.isInteger(height) || height < MIN_CARD_HEIGHT) {
+    if (!Number.isInteger(height) || height < MIN_CARD_HEIGHT || height > MAX_CARD_HEIGHT) {
       throw new InstanceValidationError(
-        `height must be null or an integer >= ${MIN_CARD_HEIGHT} — received ${JSON.stringify(height)}.`
+        `height must be null or an integer between ${MIN_CARD_HEIGHT} and ${MAX_CARD_HEIGHT} — received ${JSON.stringify(height)}.`
       );
     }
   }

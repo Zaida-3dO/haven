@@ -107,6 +107,9 @@ export function readQbittorrentConfig(env = process.env) {
     // login-response changes that have broken this flow between releases.
     apiKey,
     configured: url !== '',
+    // Where this configuration came from — read by the hints below so they
+    // point at the place the user can actually fix, rather than assuming.
+    source: 'env',
   };
 }
 
@@ -152,6 +155,10 @@ export function resolveQbittorrentSettings(widgetConfig = {}, secret = null, env
     password: '',
     apiKey,
     configured: true,
+    // Configured in the widget's own settings panel, not the environment —
+    // see the hints in `getTorrents()`, which point the user here rather
+    // than at env vars they may never have touched.
+    source: 'widget',
   };
 }
 
@@ -433,13 +440,19 @@ export function createQbittorrentConnector({
           return { status: RESULT.AUTH_FAILED, message: error.message };
         }
         if (error instanceof AuthRequiredError) {
-          // The hint names the variables, matching the not-configured tile —
-          // the fix here is the same action, just prompted by the service
-          // rather than by an empty URL.
+          // The fix here is the same action as the not-configured tile, just
+          // prompted by the service rather than by an empty URL — but WHERE
+          // to make that fix depends on where this instance's settings came
+          // from. A widget configured in its own settings panel has no env
+          // vars to set, and telling it to "restart Haven" is unactionable
+          // (and wrong) advice for that user.
           return {
             status: RESULT.AUTH_REQUIRED,
             message: 'qBittorrent requires credentials, but none are configured.',
-            hint: 'Set HAVEN_QBITTORRENT_API_KEY, or _USER and _PASS, then restart Haven.',
+            hint:
+              settings.source === 'widget'
+                ? 'Set the API key in this widget’s settings.'
+                : 'Set HAVEN_QBITTORRENT_API_KEY, or _USER and _PASS, then restart Haven.',
           };
         }
         if (error instanceof SessionExpiredError) {

@@ -6,6 +6,7 @@ import {
   normaliseState,
   normaliseTorrent,
   readQbittorrentConfig,
+  resolveQbittorrentSettings,
   loginBackoff,
 } from '../src/connectors/qbittorrent.js';
 import { createFakeQbittorrent, rawTorrent, FAKE_URL } from './helpers/fake-qbittorrent.js';
@@ -388,6 +389,54 @@ test('no credentials at all reports the truth, not a session that never existed'
   // And exactly one data call: retrying a request that was refused for having
   // no credentials would be refused identically every tick.
   assert.equal(fake.state.calls.info, 1, 'no pointless retry');
+});
+
+// ── the AUTH_REQUIRED hint names the right place to fix it ────────────────
+//
+// resolveQbittorrentSettings() is the only place that knows whether an
+// instance's settings came from a widget's own panel or from the
+// environment (`settings.source`), so these drive the connector off it
+// rather than off readQbittorrentConfig() directly — the same wiring
+// getTorrents() actually uses in production.
+
+test('env-configured instance with no credentials: hint names the env vars', async () => {
+  // A URL from the environment, no key: the pre-existing, still-correct case.
+  const fake = createFakeQbittorrent({ torrents: [rawTorrent()] });
+  const settings = resolveQbittorrentSettings({}, null, { HAVEN_QBITTORRENT_URL: FAKE_URL });
+  assert.equal(settings.source, 'env');
+
+  const qbt = createQbittorrentConnector({ settings, fetchImpl: fake.fetchImpl });
+  const result = await qbt.getTorrents();
+
+  assert.equal(result.status, RESULT.AUTH_REQUIRED);
+  assert.match(result.hint, /HAVEN_QBITTORRENT_API_KEY/);
+  assert.doesNotMatch(
+    result.hint,
+    /widget.?s settings/i,
+    'an env-configured instance must not be told to use a settings panel it has no way to reach'
+  );
+});
+
+test('UI-configured instance with a blank key: hint names the widget settings panel, not env vars', async () => {
+  // Configured via the widget settings panel (a per-widget url), with no API
+  // key set — this is exactly item 186a11e5: telling this user to set an env
+  // var and restart Haven is unactionable, because they never touched the
+  // environment and the widget UI has no such control.
+  const fake = createFakeQbittorrent({ torrents: [rawTorrent()] });
+  const settings = resolveQbittorrentSettings({ url: FAKE_URL }, null, {});
+  assert.equal(settings.source, 'widget');
+  assert.equal(settings.configured, true);
+
+  const qbt = createQbittorrentConnector({ settings, fetchImpl: fake.fetchImpl });
+  const result = await qbt.getTorrents();
+
+  assert.equal(result.status, RESULT.AUTH_REQUIRED);
+  assert.match(result.hint, /widget.?s settings/i);
+  assert.doesNotMatch(
+    result.hint,
+    /HAVEN_QBITTORRENT|restart Haven/i,
+    'a UI-configured widget must not be told to edit env vars and restart Haven'
+  );
 });
 
 test('a genuine session expiry is still reported as one', async () => {

@@ -387,6 +387,16 @@ test('a widget with no url of its own falls back to the environment', () => {
   assert.equal(settings.configured, true);
 });
 
+test('settings report which source they came from, for hints that must name the right one', () => {
+  const env = { HAVEN_QBITTORRENT_URL: 'https://from-env.invalid:8080' };
+
+  assert.equal(resolveQbittorrentSettings({}, null, env).source, 'env');
+  assert.equal(
+    resolveQbittorrentSettings({ url: 'https://from-widget.invalid:9090' }, null, env).source,
+    'widget'
+  );
+});
+
 test("a widget's own url wins over the environment", () => {
   const env = {
     HAVEN_QBITTORRENT_URL: 'https://from-env.invalid:8080',

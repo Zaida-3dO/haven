@@ -214,6 +214,16 @@ the server booting. A malformed file is logged once, not once per request.
 **Never commit this file** — `config/*.json` is gitignored because a real one
 names the containers running on the host.
 
+### Who writes it
+
+`version-refresher/` — a small sidecar shipped in this repo, deployed
+alongside `haven` in `docker-compose.yml`. It holds the Docker socket
+**read-only** (deliberately kept out of the `haven` service, per the "will
+not mount the Docker socket" line above) and writes this file on a timer.
+See `version-refresher/README.md` for how it works, and the "It was run BY
+HAND" history this replaces — the old dashboard's equivalent script was never
+actually scheduled.
+
 ## `config/settings.json`
 
 Non-secret preferences. Secrets belong in `.env`, never here.

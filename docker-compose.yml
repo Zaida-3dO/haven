@@ -20,5 +20,29 @@ services:
       HAVEN_HOST: 0.0.0.0
     restart: unless-stopped
 
+  # Writes config/container-versions.json, which `haven` reads read-only
+  # above. Deliberately a separate container: it needs the Docker socket to
+  # inspect running containers, and the web-facing `haven` container must
+  # never hold that access. See version-refresher/run.mjs's module doc.
+  version-refresher:
+    image: ghcr.io/zaida-3do/haven-version-refresher:latest
+    build:
+      context: .
+      dockerfile: version-refresher/Dockerfile
+      args:
+        APP_VERSION: ${HAVEN_VERSION:-dev}
+    container_name: haven-version-refresher
+    volumes:
+      # Read-only: this container can inspect containers, never control them.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Same host directory as `haven`'s ./config mount above, but writable
+      # here — `haven` mounts it :ro, so the writer needs its own mount.
+      - ./config:/app/config
+    env_file:
+      - .env
+    environment:
+      VERSION_REFRESHER_OUTPUT: /app/config/container-versions.json
+    restart: unless-stopped
+
 volumes:
   haven-data:

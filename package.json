@@ -20,9 +20,10 @@
     "dev": "npm run dev --workspace=server",
     "build": "npm run build --workspace=web",
     "start": "npm run start --workspace=server",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present && npm run test:refresher",
     "test:e2e": "npm run build --workspace=web && playwright test",
-    "lint": "npm run lint --workspaces --if-present",
+    "test:refresher": "node --test \"version-refresher/test/**/*.test.js\"",
+    "lint": "npm run lint --workspaces --if-present && eslint version-refresher",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

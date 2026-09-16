@@ -56,6 +56,21 @@ export default [
   },
 
   {
+    // The container-version refresher — a standalone Node program (not an
+    // npm workspace) that lives at the repo top level. Same Node ruleset as
+    // server/ and scripts/.
+    files: ['version-refresher/**/*.mjs', 'version-refresher/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'module',
+      globals: { ...globals.node },
+    },
+    rules: {
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
+    },
+  },
+
+  {
     // Browser tests. They sit under `web/`, so the block above has already
     // given them browser globals — which they do need, because the bodies of
     // `page.evaluate` callbacks are real browser code. But the files

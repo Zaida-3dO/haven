@@ -579,6 +579,7 @@ const withControls = (doc, instances = SEEDED, handlers = {}) =>
     onMoveUp: handlers.onMoveUp ?? (() => {}),
     onMoveDown: handlers.onMoveDown ?? (() => {}),
     onRemove: handlers.onRemove ?? (() => {}),
+    onSettings: handlers.onSettings ?? (() => {}),
     document: doc,
   });
 
@@ -627,15 +628,21 @@ test('setEditable(true) actually ENABLES the controls', () => {
   }
 });
 
-test('the pinned card gets Remove but no move arrows', () => {
+test('the pinned card gets Settings and Remove but no move arrows', () => {
   // It is the sidebar's own child rather than a child of the scrollport, so it
   // holds the bottom edge and is not part of the order — but a user must still
-  // be able to get rid of it.
+  // be able to get rid of it, and its config stays reachable even though its
+  // position does not move.
   const doc = createFakeDocument();
   const sidebar = withControls(doc);
 
-  assert.deepEqual(kindsOf(sidebar.cards.get('sidebar-status')), ['remove']);
-  assert.deepEqual(kindsOf(sidebar.cards.get('sidebar-weather')), ['up', 'down', 'remove']);
+  assert.deepEqual(kindsOf(sidebar.cards.get('sidebar-status')), ['settings', 'remove']);
+  assert.deepEqual(kindsOf(sidebar.cards.get('sidebar-weather')), [
+    'up',
+    'down',
+    'settings',
+    'remove',
+  ]);
 });
 
 test('clicking a control calls through with the card id', () => {
@@ -645,6 +652,7 @@ test('clicking a control calls through with the card id', () => {
     onMoveUp: (id) => calls.push(['up', id]),
     onMoveDown: (id) => calls.push(['down', id]),
     onRemove: (id) => calls.push(['remove', id]),
+    onSettings: (id) => calls.push(['settings', id]),
   });
 
   for (const button of controlsOf(sidebar.cards.get('sidebar-calendar'))) {
@@ -654,6 +662,7 @@ test('clicking a control calls through with the card id', () => {
   assert.deepEqual(calls, [
     ['up', 'sidebar-calendar'],
     ['down', 'sidebar-calendar'],
+    ['settings', 'sidebar-calendar'],
     ['remove', 'sidebar-calendar'],
   ]);
 });
@@ -666,5 +675,5 @@ test('a card added later gets controls too', () => {
 
   const card = sidebar.addCard({ id: 'sidebar-extra', type: 'weather', title: 'Extra' });
 
-  assert.deepEqual(kindsOf(card), ['up', 'down', 'remove']);
+  assert.deepEqual(kindsOf(card), ['up', 'down', 'settings', 'remove']);
 });

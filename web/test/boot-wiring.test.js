@@ -211,6 +211,124 @@ test('an add destined for the SIDEBAR never goes through the grid', () => {
   );
 });
 
+/* -- the sidebar settings gear ------------------------------------------- */
+
+test('the sidebar is given the SAME settings panel the grid opens', () => {
+  // The acceptance criterion this task exists for: reuse the grid's settings
+  // panel rather than build a second one. `settingsPanel` is constructed once
+  // (`connectSettings`), well before `createSidebar` is called, so this checks
+  // the sidebar's own `onSettings` calls THAT instance's `.open`, not a new
+  // `createSettingsPanel()` or `connectSettings()` call of its own.
+  const createSidebarCalls = (BOOT_NO_COMMENTS.match(/createSidebar\(\{/g) ?? []).length;
+  assert.equal(createSidebarCalls, 1, 'expected exactly one createSidebar call');
+
+  const connectSettingsCalls = (BOOT_NO_COMMENTS.match(/connectSettings\(/g) ?? []).length;
+  assert.equal(
+    connectSettingsCalls,
+    1,
+    'a second connectSettings() call would mean a second settings UI — exactly ' +
+      'what the configSchema rule exists to prevent'
+  );
+
+  const sidebarAt = BOOT_NO_COMMENTS.indexOf('createSidebar({');
+  assert.ok(sidebarAt >= 0, 'could not locate the createSidebar call');
+
+  // The call's own closing, found by brace depth so this does not depend on
+  // guessing how many options are passed.
+  const openAt = BOOT_NO_COMMENTS.indexOf('{', sidebarAt);
+  let depth = 0;
+  let closeAt = -1;
+  for (let i = openAt; i < BOOT_NO_COMMENTS.length; i++) {
+    if (BOOT_NO_COMMENTS[i] === '{') depth++;
+    else if (BOOT_NO_COMMENTS[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        closeAt = i;
+        break;
+      }
+    }
+  }
+  assert.ok(closeAt > openAt, 'could not find the end of the createSidebar call');
+
+  const callBody = BOOT_NO_COMMENTS.slice(openAt, closeAt);
+  assert.match(
+    callBody,
+    /onSettings:\s*\(id\)\s*=>\s*settingsPanel\.open\(id\)/,
+    'createSidebar must be given an onSettings that opens the EXISTING settingsPanel'
+  );
+});
+
+test('a sidebar instance is added to the shared roster, or its settings save silently no-ops', () => {
+  // `connectSettings`'s onSaved persists through `persist(widgetId, config)`,
+  // which looks the widget up in the shared `roster` Map and returns early —
+  // with nothing thrown and nothing logged — if it is not there. That map was
+  // only ever seeded from the GRID's reconciled entries before this change, so
+  // a sidebar widget's gear would open the form, validate it and update the
+  // host in place, and then the save would vanish: the database row would
+  // never change, and a reload would show the old config back.
+  const loopAt = BOOT_NO_COMMENTS.indexOf('for (const entry of sidebarEntries)');
+  assert.ok(loopAt >= 0, 'could not locate the sidebar boot loop');
+
+  const openAt = BOOT_NO_COMMENTS.indexOf('{', loopAt);
+  let depth = 0;
+  let closeAt = -1;
+  for (let i = openAt; i < BOOT_NO_COMMENTS.length; i++) {
+    if (BOOT_NO_COMMENTS[i] === '{') depth++;
+    else if (BOOT_NO_COMMENTS[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        closeAt = i;
+        break;
+      }
+    }
+  }
+  assert.ok(closeAt > openAt, 'could not find the end of the sidebar boot loop');
+
+  const loopBody = BOOT_NO_COMMENTS.slice(openAt, closeAt);
+  assert.match(
+    loopBody,
+    /roster\.set\(\s*entry\.id/,
+    'the sidebar boot loop must add its mounted entries to the shared roster, ' +
+      'or persist() finds nothing and a sidebar settings save is silently dropped'
+  );
+});
+
+test('persist() reconciles a sidebar entry against the live sortOrder before saving', () => {
+  // `sidebarZone.move` renumbers through `renumber()` in sidebar-zone.js,
+  // which deliberately returns a NEW entry object (so Discard's snapshot is
+  // never mutated out from under it) rather than updating the one `roster`
+  // holds. Left alone, `roster`'s copy of a moved sidebar card goes stale:
+  // opening its settings and saving would write the config through with
+  // whatever `sortOrder` it had BEFORE the move, undoing the reorder the next
+  // time the layout loads.
+  const fnAt = BOOT_NO_COMMENTS.indexOf('async function persist(');
+  assert.ok(fnAt >= 0, 'could not locate persist()');
+
+  const openAt = BOOT_NO_COMMENTS.indexOf('{', fnAt);
+  let depth = 0;
+  let closeAt = -1;
+  for (let i = openAt; i < BOOT_NO_COMMENTS.length; i++) {
+    if (BOOT_NO_COMMENTS[i] === '{') depth++;
+    else if (BOOT_NO_COMMENTS[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        closeAt = i;
+        break;
+      }
+    }
+  }
+  assert.ok(closeAt > openAt, 'could not find the end of persist()');
+
+  const fnBody = BOOT_NO_COMMENTS.slice(openAt, closeAt);
+  assert.match(
+    fnBody,
+    /sidebarZone\?\.\s*entries/,
+    'persist() must read the live sidebarZone entries rather than trusting its ' +
+      "own roster copy — otherwise a reorder's sortOrder can be overwritten by " +
+      'a stale settings save'
+  );
+});
+
 test('the sidebar boot loop starts the clock for a clock entry, same as the grid loop', () => {
   // The grid boot loop calls `startClock(host)` for every `type === 'clock'`
   // entry after `dashboard.add`/`grid.load` — the clock's tick is a

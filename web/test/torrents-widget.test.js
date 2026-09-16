@@ -423,16 +423,35 @@ test('two widgets get two distinct requests, which is what makes them independen
 });
 
 test('the request carries an id, never an address or a credential', () => {
-  // The id names a row the SERVER reads the config from. If a url or a key
-  // ever appeared here, the credential would be in the browser — the one
-  // thing docs/SECURITY.md exists to prevent.
-  const request = torrentsWidgetDefinition.dataSource(
-    { url: 'https://qbittorrent.invalid:8080', apiKey: 'qbt_must_not_travel', maxRows: 6 },
-    { instanceId: 'torrents-a' }
+  // The id names a row the SERVER reads the config from. If a url or any
+  // secret-typed config value ever appeared here, the credential would be in
+  // the browser — the one thing docs/SECURITY.md exists to prevent.
+  //
+  // The set of values checked is driven off `configSchema` itself, not a
+  // hand-kept literal list: every field typed `secret` gets a canary value
+  // planted into the config, and the assertion fails if ANY of them (present
+  // or future) leaks into the serialised request. A hardcoded two-string
+  // denylist would silently stop covering a widget once a new secret field
+  // was added to the schema; this does not.
+  const secretFields = torrentsWidgetDefinition.configSchema.filter(
+    (field) => field.type === 'secret'
   );
+  assert.ok(secretFields.length > 0, 'expected at least one secret-typed config field to exist');
+
+  const canaries = {};
+  const config = { maxRows: 6, url: 'https://qbittorrent.invalid:8080' };
+  for (const field of secretFields) {
+    const canary = `canary_must_not_travel_${field.key}`;
+    canaries[field.key] = canary;
+    config[field.key] = canary;
+  }
+
+  const request = torrentsWidgetDefinition.dataSource(config, { instanceId: 'torrents-a' });
 
   const serialised = JSON.stringify(request);
-  assert.equal(serialised.includes('qbt_must_not_travel'), false, 'the key reached the request');
+  for (const [key, canary] of Object.entries(canaries)) {
+    assert.equal(serialised.includes(canary), false, `the ${key} secret reached the request`);
+  }
   assert.equal(
     serialised.includes('qbittorrent.invalid'),
     false,

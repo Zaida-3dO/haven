@@ -279,12 +279,18 @@ export const STYLES = `
      claimed a whole line and pushed every card ~33px taller than its content
      needed. Sharing the row is what removes that wasted vertical space.
 
-     The kebab is 28px and the description line is ~17px, so the row's height
-     comes from the button; "align-items: center" puts the text on its centre
-     line rather than letting it sit high. */
+     "align-items: flex-start", not "center". A single-line description is
+     ~17px against a 28px button, and centring the row was fine there — but a
+     2+ line description turns this into a multi-line flex item, and "center"
+     then centres the BUTTON on the whole text block's centroid, dragging it
+     down and away from the text it belongs beside (measured ~16.8px off at
+     1440px, worse on narrow cards where wrapping is more aggressive). Aligning
+     both to flex-start pins the kebab to the description's first line
+     regardless of how many lines follow. The button gets a small top offset
+     below to re-centre it against that first line specifically. */
   .card__subtitle-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
     gap: var(--haven-space-1, 4px);
     width: 100%;
@@ -441,13 +447,21 @@ export const STYLES = `
      z-index only applies to a positioned element — "z-index: 1" puts the
      button above ".card__name::after", the stretched link overlay covering the
      whole card. Without it the button is underneath a transparent anchor and
-     clicking it navigates instead of opening the menu. */
+     clicking it navigates instead of opening the menu.
+
+     "margin-top" re-centres the 28px button against the description's FIRST
+     line now that the row aligns to "flex-start" rather than "center" (see
+     ".card__subtitle-row" above). The description's line box is ~16.8px
+     (12px font, 1.4 line-height); half the remaining (28 - 16.8) / 2 ≈ 5.6px
+     nudges the button down to match that line's vertical centre instead of
+     sitting flush with the top of a block that may run to several lines. */
   .menu {
     position: relative;
     z-index: 1;
     display: flex;
     flex: 0 0 auto;
     justify-content: flex-end;
+    margin-top: 5.6px;
   }
 
   /* An empty menu container must occupy nothing. A card with no secondaries

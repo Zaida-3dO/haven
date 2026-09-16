@@ -48,6 +48,15 @@ const ElementBase = globalThis.HTMLElement ?? class {};
 
 const STYLES = `
   :host { display: block; height: 100%; }
+  /* "position: relative" here is load-bearing for ".embed__warning" below:
+   * that badge is "position: absolute", so it needs SOME positioned ancestor
+   * to anchor to, and this is the only candidate in the shadow tree. Drop this
+   * declaration while tidying and the badge falls back to the initial
+   * containing block and clips silently under the host card's
+   * "overflow: hidden" instead of sitting on the tile. See
+   * "iframe-element.test.js" — "the badge's offset parent is the embed
+   * container, not the initial containing block" pins this and is asserted to
+   * fail if this rule is removed. */
   .embed { position: relative; height: 100%; display: flex; flex-direction: column; }
   .embed__frame { flex: 1 1 auto; width: 100%; height: 100%; border: 0; display: block; }
   .embed__frame[hidden] { display: none; }
@@ -70,15 +79,53 @@ const STYLES = `
     justify-content: center;
     width: 1.15rem;
     height: 1.15rem;
+    padding: 0;
+    border: 0;
     border-radius: 50%;
     background: rgba(0, 0, 0, 0.55);
     color: #fff;
+    font: inherit;
     font-size: 0.7rem;
     font-weight: 700;
     line-height: 1;
-    cursor: help;
+    cursor: pointer;
   }
+  /* The button itself is the positioned ancestor for ".embed__warning-text"
+   * below (its own "position: absolute" sits relative to this, the same
+   * dependency ".embed" has on ".embed__warning" — see the comment on
+   * ".embed" above). */
   .embed__warning[hidden] { display: none; }
+  /* dfdf5e42 — the sentence was "title"-only, so it existed only on hover,
+   * which is unreachable by keyboard and by touch. It is now a real
+   * <button>, reachable by Tab like any other control, and its text is a
+   * sibling revealed on hover OR focus, not just hover — and toggled by
+   * click, which is what actually gets a touch user to it (a title tooltip
+   * never fires on a touchscreen at all). "title"/"aria-label" stay as the
+   * accessible name so nothing regresses for a screen reader. */
+  .embed__warning:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+  }
+  .embed__warning-glyph {
+    pointer-events: none;
+  }
+  .embed__warning-text {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 0.35rem;
+    z-index: 1;
+    max-width: 14rem;
+    padding: 0.4rem 0.55rem;
+    border-radius: 0.35rem;
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    font-size: 0.7rem;
+    line-height: 1.35;
+    white-space: normal;
+    pointer-events: none;
+  }
+  .embed__warning-text[hidden] { display: none; }
   .embed__error { padding: 0.5rem; font-size: 0.8rem; }
   .embed__error pre { overflow: auto; font-size: 0.7rem; opacity: 0.8; }
 `;
@@ -96,6 +143,8 @@ export class HavenIframe extends ElementBase {
   #cells = { w: 4, h: 4 };
   #visible = false;
   #observer = null;
+  /** Whether the sandbox disclosure's text sibling is currently shown. */
+  #warningRevealed = false;
 
   constructor() {
     super();
@@ -248,21 +297,37 @@ export class HavenIframe extends ElementBase {
     // What changed is WHERE, not WHETHER. It was a paragraph of body text
     // inside the card, which put a security notice on the dashboard as though
     // it were content and cost 24.8px of a 200px card body. It is now a badge
-    // in the tile's corner whose `title` carries the full sentence, and the
-    // same disclosure is repeated as help text on the `allowSameOrigin` field
-    // in the widget's settings panel — next to the control that grants it,
-    // which is where someone deciding about the grant is actually looking.
+    // in the tile's corner whose accessible name carries the full sentence,
+    // and the same disclosure is repeated as help text on the
+    // `allowSameOrigin` field in the widget's settings panel — next to the
+    // control that grants it, which is where someone deciding about the grant
+    // is actually looking.
     //
     // The accessible name is the full sentence, not the glyph: a screen
     // reader must get the disclosure, not the word "exclamation mark".
+    //
+    // dfdf5e42: it used to be `title`-only, which is hover-only — unreachable
+    // by keyboard and by touch (a title tooltip never fires on a
+    // touchscreen). It is now a real `<button>`, so Tab reaches it like any
+    // other control, and clicking or pressing it toggles a visible text
+    // sibling rather than relying on a tooltip. Click-to-reveal was chosen
+    // over hover/focus-only reveal because it is the one mechanism that also
+    // works for a touch user, who has no hover and no keyboard.
     const unsandboxed = defeatsSandbox(this.#config);
     nodes.warning.hidden = !unsandboxed;
+    if (!unsandboxed) {
+      this.#warningRevealed = false;
+      nodes.warningText.hidden = true;
+    }
     if (unsandboxed) {
-      setText(nodes.warning, '!');
+      setText(nodes.warningGlyph, '!');
       if (nodes.warning.getAttribute('title') !== SANDBOX_NOTICE) {
         nodes.warning.setAttribute('title', SANDBOX_NOTICE);
         nodes.warning.setAttribute('aria-label', SANDBOX_NOTICE);
       }
+      setText(nodes.warningText, SANDBOX_NOTICE);
+      nodes.warningText.hidden = !this.#warningRevealed;
+      nodes.warning.setAttribute('aria-expanded', String(this.#warningRevealed));
     }
 
     // Lazy: the frame exists but carries no `src` until the widget is visible,
@@ -301,6 +366,23 @@ export class HavenIframe extends ElementBase {
     if (nodes.frame.getAttribute('title') !== title) nodes.frame.setAttribute('title', title);
   }
 
+  /** Click handler: flips the revealed text sibling, for touch and mouse alike. */
+  #toggleWarning() {
+    this.#setWarningRevealed(!this.#warningRevealed);
+  }
+
+  /**
+   * Shows or hides the sandbox disclosure's text sibling and keeps
+   * `aria-expanded` in sync. Called on click (toggle) and on focus/blur
+   * (always-reveal-while-focused), so a keyboard user tabbing to the badge
+   * sees the same sentence a mouse user gets by clicking.
+   */
+  #setWarningRevealed(revealed) {
+    this.#warningRevealed = revealed;
+    if (this.#nodes?.warningText) this.#nodes.warningText.hidden = !revealed;
+    this.#nodes?.warning?.setAttribute('aria-expanded', String(revealed));
+  }
+
   /**
    * Builds the DOM once. Every later render patches it.
    *
@@ -316,13 +398,38 @@ export class HavenIframe extends ElementBase {
     const embed = document.createElement('div');
     embed.className = 'embed';
 
-    // A `<span>`, not a `<p>`: this is no longer a paragraph of body text, and
-    // it is positioned out of the flow. `role="note"` keeps it announced as a
-    // standalone remark rather than read as part of the embed's content.
-    const warning = document.createElement('span');
+    // A real `<button>`, not a `<span role="note">`: the badge must be
+    // reachable by Tab and activatable by Enter/Space, which only a
+    // genuinely focusable, genuinely interactive element gets for free. The
+    // accessible name is still the full sentence (via `title`/`aria-label`
+    // below), so a screen reader gets the disclosure whether or not it is
+    // visually revealed — `aria-expanded` additionally tells it whether the
+    // visible-text sibling is currently shown.
+    const warning = document.createElement('button');
+    warning.type = 'button';
     warning.className = 'embed__warning';
-    warning.setAttribute('role', 'note');
+    warning.setAttribute('aria-expanded', 'false');
     warning.hidden = true;
+    warning.addEventListener('click', () => this.#toggleWarning());
+    // Keyboard reveal without a click: focusing the badge (Tab) reveals the
+    // text too, so a keyboard user does not additionally have to press
+    // Enter just to read a sentence that is already the accessible name —
+    // this only affects the VISIBLE text sibling, not activation.
+    warning.addEventListener('focus', () => this.#setWarningRevealed(true));
+    warning.addEventListener('blur', () => this.#setWarningRevealed(false));
+
+    const warningGlyph = document.createElement('span');
+    warningGlyph.className = 'embed__warning-glyph';
+    warningGlyph.setAttribute('aria-hidden', 'true');
+    warning.appendChild(warningGlyph);
+
+    // The revealed sentence. A sibling rather than the button's own text
+    // content so the glyph can stay the compact corner badge while this
+    // renders as a full-width tooltip-like panel beneath it when shown.
+    const warningText = document.createElement('span');
+    warningText.className = 'embed__warning-text';
+    warningText.hidden = true;
+    warning.appendChild(warningText);
 
     const placeholder = document.createElement('div');
     placeholder.className = 'embed__placeholder';
@@ -345,7 +452,7 @@ export class HavenIframe extends ElementBase {
     embed.append(warning, placeholder, frame);
     this.#shadow.replaceChildren(style, embed);
 
-    this.#nodes = { embed, warning, placeholder, frame };
+    this.#nodes = { embed, warning, warningGlyph, warningText, placeholder, frame };
     return this.#nodes;
   }
 
@@ -374,6 +481,7 @@ export class HavenIframe extends ElementBase {
     this.#nodes = null;
     this.#currentSrc = null;
     this.#currentSandbox = null;
+    this.#warningRevealed = false;
   }
 
   /** The embed's title, so an embedded page is findable by name. */
@@ -413,4 +521,4 @@ export function defineIframeWidget(tag = 'haven-widget-iframe') {
   return tag;
 }
 
-export { EmbedUrlError };
+export { EmbedUrlError, STYLES };

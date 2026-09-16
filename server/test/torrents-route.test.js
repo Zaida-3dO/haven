@@ -158,6 +158,61 @@ test('cached data stops being served once it is too old to believe', async (t) =
   assert.deepEqual(expired.torrents, []);
 });
 
+test('a stale response with a healthy auth history carries no auth flags', async (t) => {
+  const connector = scriptedConnector({ status: RESULT.OK, torrents: [rawTorrent()] });
+  const app = await serverWith(connector);
+  t.after(() => app.close());
+
+  await app.inject({ method: 'GET', url: '/api/widgets/torrents' });
+  connector.setNext({ status: RESULT.UNREACHABLE, message: 'qBittorrent is not reachable.' });
+  const body = (await app.inject({ method: 'GET', url: '/api/widgets/torrents' })).json();
+
+  assert.equal(body.stale, true);
+  assert.equal(body.torrents.length, 1);
+  assert.equal(body.authFailed, false);
+  assert.equal(body.authRequired, false);
+});
+
+test('a stale response still surfaces a broken auth hint, without losing the cached data', async (t) => {
+  const connector = scriptedConnector({ status: RESULT.OK, torrents: [rawTorrent()] });
+  const app = await serverWith(connector);
+  t.after(() => app.close());
+
+  await app.inject({ method: 'GET', url: '/api/widgets/torrents' });
+  connector.setNext({
+    status: RESULT.AUTH_FAILED,
+    message: 'qBittorrent rejected the session after re-authenticating.',
+  });
+  const body = (await app.inject({ method: 'GET', url: '/api/widgets/torrents' })).json();
+
+  // Stale, but not silently stale: the credentials need attention even though
+  // the tile still has good data to show.
+  assert.equal(body.stale, true);
+  assert.equal(body.torrents.length, 1);
+  assert.equal(body.authFailed, true);
+  assert.equal(body.authRequired, false);
+});
+
+test('a stale response surfaces a never-configured auth hint alongside cached data', async (t) => {
+  const connector = scriptedConnector({ status: RESULT.OK, torrents: [rawTorrent()] });
+  const app = await serverWith(connector);
+  t.after(() => app.close());
+
+  await app.inject({ method: 'GET', url: '/api/widgets/torrents' });
+  connector.setNext({
+    status: RESULT.AUTH_REQUIRED,
+    message: 'qBittorrent requires credentials, but none are configured.',
+    hint: 'Set HAVEN_QBITTORRENT_API_KEY, or _USER and _PASS, then restart Haven.',
+  });
+  const body = (await app.inject({ method: 'GET', url: '/api/widgets/torrents' })).json();
+
+  assert.equal(body.stale, true);
+  assert.equal(body.torrents.length, 1);
+  assert.equal(body.authRequired, true);
+  assert.equal(body.authFailed, false);
+  assert.match(body.notices[0].hint, /HAVEN_QBITTORRENT_API_KEY/);
+});
+
 test('a recovered service replaces the stale cache with fresh data', async (t) => {
   const connector = scriptedConnector({ status: RESULT.OK, torrents: [rawTorrent()] });
   const app = await serverWith(connector);

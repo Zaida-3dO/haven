@@ -451,17 +451,24 @@ export const STYLES = `
 
      "margin-top" re-centres the 28px button against the description's FIRST
      line now that the row aligns to "flex-start" rather than "center" (see
-     ".card__subtitle-row" above). The description's line box is ~16.8px
-     (12px font, 1.4 line-height); half the remaining (28 - 16.8) / 2 ≈ 5.6px
-     nudges the button down to match that line's vertical centre instead of
-     sitting flush with the top of a block that may run to several lines. */
+     ".card__subtitle-row" above). With "flex-start" the button's top is flush
+     with the description's top, so the 28px button already extends BELOW the
+     ~16.8px first line (12px font, 1.4 line-height). It must be raised, not
+     lowered: -(28 - 16.8) / 2 = -5.6px puts the two centres on the same axis.
+
+     The sign here is load-bearing and was wrong once. Shipped as +5.6px, it
+     measured 11.2px low in a real browser at both 1440px and 390px, on 1-line
+     and 2-line descriptions alike — it pushed the button further from the line
+     it was meant to meet, and newly broke the 1-line case that had been exact.
+     If you change this, measure it in a browser; the unit suite has no layout
+     engine and cannot see a sign error here. */
   .menu {
     position: relative;
     z-index: 1;
     display: flex;
     flex: 0 0 auto;
     justify-content: flex-end;
-    margin-top: 5.6px;
+    margin-top: -5.6px;
   }
 
   /* An empty menu container must occupy nothing. A card with no secondaries

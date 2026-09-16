@@ -81,6 +81,14 @@ export function reorder(entries, id, delta) {
  * CHANGED, because each one costs a PUT: moving the last card up in a
  * four-card sidebar should write two rows, not four.
  *
+ * **Never mutates an input entry — this is load-bearing, not incidental.**
+ * `cancelDraft`'s restore assigns `entries = draftEntries` straight from the
+ * snapshot taken in `beginDraft`; if a later `renumber` call mutated an entry
+ * object in place, that same object would still be sitting in `draftEntries`
+ * and Discard would restore something already changed rather than the
+ * original. Every entry that needs a new `sortOrder` is copied with `{
+ * ...entry, sortOrder: index }` for exactly this reason.
+ *
  * @returns {{ entries: Array<object>, changed: Array<object> }}
  */
 export function renumber(entries) {
@@ -292,12 +300,17 @@ export function createSidebarZone({
      * This is the half that was impossible before: a removal used to delete
      * the row server-side on the click, so there was nothing for a Discard to
      * put back. Nothing has been destroyed or deleted here, so restoring is
-     * un-hiding the cards and re-applying the snapshotted order.
+     * un-hiding the cards, un-suspending their hosts (scheduler task + search
+     * entry, the exact inverse of `remove`'s `dashboard.suspend`) and
+     * re-applying the snapshotted order.
      */
     cancelDraft() {
       if (!drafting()) return this.entries;
 
-      for (const id of pendingRemovals) setCardHidden(id, false);
+      for (const id of pendingRemovals) {
+        setCardHidden(id, false);
+        dashboard.resume(id);
+      }
       pendingRemovals = [];
 
       entries = draftEntries;
@@ -364,7 +377,12 @@ export function createSidebarZone({
      *
      * **Inside a draft nothing is destroyed and nothing is deleted.** The card
      * is hidden and the id is buffered, so Discard can bring it back — see
-     * `pendingRemovals` for why a destroyed host could not be restored.
+     * `pendingRemovals` for why a destroyed host could not be restored. The
+     * host itself survives too, but it is SUSPENDED: `dashboard.suspend(id)`
+     * drops its scheduler task and its search-index entry, the same two
+     * things `dashboard.remove(id)` drops, without the `host.destroy()` that
+     * would make it unrestorable. Otherwise a card hidden in a draft kept
+     * polling its endpoint and kept turning up in Ctrl+K until Save/Discard.
      *
      * Outside a draft this is immediate and irreversible, as it always was.
      */
@@ -375,6 +393,7 @@ export function createSidebarZone({
       if (drafting()) {
         pendingRemovals.push(id);
         setCardHidden(id, true);
+        dashboard.suspend(id);
       } else {
         destroyCard(id);
       }

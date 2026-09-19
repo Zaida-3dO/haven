@@ -211,6 +211,61 @@ export const STYLES = `
     }
   }
 
+  /* ── Why an open kebab menu could render BEHIND the next card ────────
+   *
+   * "transform" (any value other than "none") creates a new stacking context
+   * on the element it is set on — that is a CSS spec rule, not a bug. Above,
+   * ".card:hover, .card:focus-within" sets "transform: translateY(-2px)",
+   * which means a hovered-or-focus-within CARD becomes a stacking context of
+   * its own. ".menu__list" (z-index: 2) is a DESCENDANT of that card, so once
+   * the card is a stacking context, the menu's z-index is compared only
+   * against its OWN siblings inside that context — it can never climb past a
+   * SIBLING CARD, because the z-index of the whole card (the stacking
+   * context's root, effectively auto/0 among its own siblings in the grid) is
+   * what gets compared at the grid level instead. No z-index inside the menu
+   * can escape its ancestor's context. That is also why the bug was
+   * "inconsistent": whichever of two adjacent cards is LATER in DOM order
+   * paints on top of the other by default, so a menu on an earlier card lost
+   * to the next card, and the same menu on the last row had nothing after it
+   * to lose to and looked perfectly fine. Bumping the menu's z-index (already
+   * tried, per the linked task) cannot fix this: the number was never the
+   * problem, the extra stacking context was.
+   *
+   * The fix: while THIS card's menu is open (".card--menu-open", set in
+   * apps-widget.js from the private #openMenuId field — not ":focus-within",
+   * which is also true just from tabbing to the card's link with the menu
+   * closed), cancel the transform so the card does NOT become a stacking
+   * context at the one moment its menu needs to escape it. The menu is then
+   * compared against sibling cards in the GRID's own stacking context, where
+   * its z-index (2) legitimately outranks a plain sibling ".card" (auto), so
+   * it paints above every card regardless of row or DOM order.
+   *
+   * The hover lift itself is NOT removed: border-color, background and
+   * box-shadow above still apply on hover/focus-within even with the menu
+   * open, so the tile still visibly lifts in every way except the transform
+   * translate. Only the one property that creates the trapping stacking
+   * context is neutralised, and only while it would trap something.
+   *
+   * Specificity note: ".card:hover" and ".card:focus-within" are each one
+   * class + one pseudo-class (0,2,0), which beats a bare ".card--menu-open"
+   * (0,1,0) — the override would silently lose while the card is ALSO
+   * hovered, i.e. exactly while the menu is open and the pointer is on it.
+   * These combined selectors match that specificity so the override always
+   * wins, regardless of hover/focus state, whenever the menu is open. */
+  .card--menu-open,
+  .card--menu-open:hover,
+  .card--menu-open:focus-within {
+    transform: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .card--menu-open,
+    .card--menu-open:hover,
+    .card--menu-open:focus-within {
+      transform: none;
+    }
+  }
+
   .card__head {
     display: contents;
   }

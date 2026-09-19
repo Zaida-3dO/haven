@@ -375,7 +375,14 @@ export class AppsWidget extends ElementBase {
 
   #renderCard(card) {
     const el = document.createElement('article');
-    el.className = 'card';
+    // "card--menu-open" while THIS card's kebab menu is open — see the comment
+    // on ".card--menu-open" in styles.js for why this class exists at all
+    // (it neutralises the hover-lift transform, which otherwise traps the
+    // menu inside this card's own stacking context). Driven by `#openMenuId`
+    // directly rather than `:focus-within`, because `:focus-within` is also
+    // true while merely tabbing through the card's link with the menu closed
+    // — a case this fix must not touch.
+    el.className = this.#openMenuId === card.id ? 'card card--menu-open' : 'card';
     el.dataset.appId = card.id;
 
     const head = document.createElement('div');

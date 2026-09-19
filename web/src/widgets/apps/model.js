@@ -15,6 +15,17 @@ export const CATEGORIES = Object.freeze(['personal', 'media', 'home', 'ai', 'too
 /** The pseudo-category for the "everything" tab. */
 export const ALL_CATEGORY = 'all';
 
+/**
+ * The pseudo-category for the "Featured" tab.
+ *
+ * Not a real category — an app's membership is `Boolean(app.featured)`, the
+ * same `featured` block the hero widget reads (migration 003). Reusing that
+ * field rather than adding a `featured: true/false` column is a deliberate
+ * choice (Ope, 2026-09-19): one concept, no schema change, and the hero and
+ * this tab can never drift out of sync with each other.
+ */
+export const FEATURED_CATEGORY = 'featured';
+
 export const SORT = Object.freeze({
   VISITS: 'visits',
   NAME: 'name',
@@ -45,11 +56,29 @@ const STATUS_RANK = {
   [STATUS.UNREACHABLE]: 3,
 };
 
-/** Category tabs, plus "All". Only categories that have apps are offered. */
+/**
+ * Category tabs, plus "All" and — when there is at least one — "Featured".
+ *
+ * Only categories that have apps are offered, and the same rule now covers
+ * Featured: an empty featured set omits the tab entirely rather than
+ * rendering one that opens onto a void. That mirrors exactly how a category
+ * with zero apps is already dropped above, so this is the existing pattern
+ * applied to a second kind of membership, not a new rule.
+ *
+ * Featured is placed FIRST among the real tabs — immediately after "All" but
+ * ahead of every category — because it is a promoted, curated set rather than
+ * a partition of the registry the way the categories are, and the point of
+ * promoting something is that it should be the first thing offered.
+ */
 export function categoryTabs(apps = []) {
   const present = new Set(apps.map((a) => a?.category).filter(Boolean));
+  const featuredCount = apps.filter((a) => Boolean(a?.featured)).length;
+
   return [
     { value: ALL_CATEGORY, label: 'All', count: apps.length },
+    ...(featuredCount > 0
+      ? [{ value: FEATURED_CATEGORY, label: 'Featured', count: featuredCount }]
+      : []),
     ...CATEGORIES.filter((c) => present.has(c)).map((c) => ({
       value: c,
       label: c.charAt(0).toUpperCase() + c.slice(1),
@@ -60,6 +89,7 @@ export function categoryTabs(apps = []) {
 
 export function filterByCategory(apps = [], category = ALL_CATEGORY) {
   if (!category || category === ALL_CATEGORY) return [...apps];
+  if (category === FEATURED_CATEGORY) return apps.filter((app) => Boolean(app?.featured));
   return apps.filter((app) => app?.category === category);
 }
 

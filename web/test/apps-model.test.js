@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 import { STATUS } from '../src/lib/status.js';
 import {
   ALL_CATEGORY,
+  FEATURED_CATEGORY,
   SORT,
   STALE_AFTER_MS,
   buildCard,
@@ -71,6 +72,56 @@ describe('categoryTabs', () => {
       [ALL_CATEGORY, 'personal', 'tools']
     );
   });
+
+  /**
+   * The Featured tab. Membership is `Boolean(app.featured)` — the same block
+   * the hero widget reads — not a separate boolean field (Ope, 2026-09-19).
+   */
+  describe('the Featured tab', () => {
+    test('appears, counting only apps carrying a featured block', () => {
+      const tabs = categoryTabs([
+        appFixture({ id: 'a', category: 'tools', featured: { tagline: 'Great tool' } }),
+        appFixture({ id: 'b', category: 'media' }),
+        appFixture({ id: 'c', category: 'media', featured: { tagline: 'Great media' } }),
+      ]);
+
+      const featured = tabs.find((t) => t.value === FEATURED_CATEGORY);
+      assert.ok(featured, 'expected a Featured tab');
+      assert.equal(featured.count, 2);
+    });
+
+    /**
+     * Placement: right after "All", ahead of every category. Featured is a
+     * promoted, curated set rather than a partition of the registry, so it is
+     * offered first among the real tabs — see the comment on `categoryTabs`.
+     */
+    test('sits first among the real tabs, right after All', () => {
+      const tabs = categoryTabs([
+        appFixture({ id: 'a', category: 'tools', featured: { tagline: 'x' } }),
+        appFixture({ id: 'b', category: 'media' }),
+      ]);
+
+      assert.deepEqual(
+        tabs.map((t) => t.value),
+        [ALL_CATEGORY, FEATURED_CATEGORY, 'media', 'tools']
+      );
+    });
+
+    /**
+     * The empty case: an empty featured set must not render a tab that opens
+     * onto a void. Decision (documented on `categoryTabs`): hide the tab
+     * entirely, exactly like an empty category is already hidden above — this
+     * is the existing pattern, not a new rule invented for this feature.
+     */
+    test('is omitted entirely when no app carries a featured block', () => {
+      const tabs = categoryTabs([
+        appFixture({ id: 'a', category: 'tools' }),
+        appFixture({ id: 'b', category: 'media' }),
+      ]);
+
+      assert.ok(!tabs.some((t) => t.value === FEATURED_CATEGORY));
+    });
+  });
 });
 
 describe('filterByCategory', () => {
@@ -93,6 +144,25 @@ describe('filterByCategory', () => {
     const original = [...apps];
     filterByCategory(apps, 'media');
     assert.deepEqual(apps, original);
+  });
+
+  test('Featured returns only apps carrying a featured block', () => {
+    const withFeatured = [
+      appFixture({ id: 'a', featured: { tagline: 'Featured one' } }),
+      appFixture({ id: 'b' }),
+      appFixture({ id: 'c', featured: { tagline: 'Featured two' } }),
+    ];
+
+    const filtered = filterByCategory(withFeatured, FEATURED_CATEGORY);
+    assert.deepEqual(
+      filtered.map((a) => a.id),
+      ['a', 'c']
+    );
+  });
+
+  test('Featured excludes an app with no featured block', () => {
+    const filtered = filterByCategory([appFixture({ id: 'a' })], FEATURED_CATEGORY);
+    assert.equal(filtered.length, 0);
   });
 });
 
@@ -388,6 +458,28 @@ describe('buildView', () => {
 
     assert.equal(view.empty, true);
     assert.equal(view.tabs.length, 1);
+  });
+
+  test('the Featured tab filters the cards end to end', () => {
+    const withFeatured = [
+      appFixture({ id: 'a', name: 'Alpha', category: 'media', featured: { tagline: 'x' } }),
+      appFixture({ id: 'b', name: 'Bravo', category: 'tools' }),
+    ];
+    const view = buildView(withFeatured, { category: FEATURED_CATEGORY, sort: SORT.NAME });
+
+    assert.deepEqual(
+      view.cards.map((c) => c.id),
+      ['a']
+    );
+    // The tabs still offer everything, same as any other category.
+    assert.ok(view.tabs.some((t) => t.value === FEATURED_CATEGORY));
+  });
+
+  test('selecting Featured with nothing featured reports empty rather than throwing', () => {
+    const view = buildView([appFixture({ id: 'a' })], { category: FEATURED_CATEGORY });
+
+    assert.equal(view.empty, true);
+    assert.equal(view.cards.length, 0);
   });
 });
 

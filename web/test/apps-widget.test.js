@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 import { WidgetRegistry } from '../src/shell/registry.js';
 import { buildFormModel, parseConfig } from '../src/shell/schema.js';
 import { doneData } from '../src/shell/panel-data.js';
-import { ALL_CATEGORY, SORT } from '../src/widgets/apps/model.js';
+import { ALL_CATEGORY, FEATURED_CATEGORY, SORT } from '../src/widgets/apps/model.js';
 import {
   APPS_CONFIG_SCHEMA,
   WIDGET_TYPE,
@@ -78,6 +78,40 @@ describe('apps configSchema', () => {
     const category = model.find((f) => f.key === 'category');
     assert.equal(category.type, 'select');
     assert.ok(category.options.some((o) => o.value === ALL_CATEGORY));
+  });
+
+  /**
+   * Featured is a real, selectable opening tab (Ope, 2026-09-20) — a user
+   * must be able to choose it as the category the widget opens on, not just
+   * land on it by clicking the tab after the fact.
+   */
+  test('offers Featured as an option for which category the widget opens on', () => {
+    const category = APPS_CONFIG_SCHEMA.find((f) => f.key === 'category');
+    assert.ok(category.options.some((o) => o.value === FEATURED_CATEGORY));
+  });
+
+  /**
+   * The setting's options are ordered to match the tab strip itself
+   * (Featured, All, then the categories) so the dropdown reads the same way
+   * the widget itself will.
+   */
+  test('orders the category options to match the tab strip: Featured, then All', () => {
+    const category = APPS_CONFIG_SCHEMA.find((f) => f.key === 'category');
+    assert.deepEqual(
+      category.options.slice(0, 2).map((o) => o.value),
+      [FEATURED_CATEGORY, ALL_CATEGORY]
+    );
+  });
+
+  /**
+   * The DEFAULT stays All even though Featured is now selectable — Ope chose
+   * "add it to the setting, then set it in the UI" over hardcoding a new
+   * default, so which tab a widget opens on stays his decision, not a
+   * developer's (2026-09-20).
+   */
+  test('leaves the default category as All, not Featured', () => {
+    const category = APPS_CONFIG_SCHEMA.find((f) => f.key === 'category');
+    assert.equal(category.default, ALL_CATEGORY);
   });
 
   test('every field is one of the contract types', () => {

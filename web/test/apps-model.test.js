@@ -91,11 +91,11 @@ describe('categoryTabs', () => {
     });
 
     /**
-     * Placement: right after "All", ahead of every category. Featured is a
-     * promoted, curated set rather than a partition of the registry, so it is
-     * offered first among the real tabs — see the comment on `categoryTabs`.
+     * Placement: Featured is first overall, ahead of "All" and every
+     * category — Ope asked for Featured to be the first tab and the default
+     * (2026-09-20). See the comment on `categoryTabs`.
      */
-    test('sits first among the real tabs, right after All', () => {
+    test('sits first overall, ahead of All', () => {
       const tabs = categoryTabs([
         appFixture({ id: 'a', category: 'tools', featured: { tagline: 'x' } }),
         appFixture({ id: 'b', category: 'media' }),
@@ -103,7 +103,7 @@ describe('categoryTabs', () => {
 
       assert.deepEqual(
         tabs.map((t) => t.value),
-        [ALL_CATEGORY, FEATURED_CATEGORY, 'media', 'tools']
+        [FEATURED_CATEGORY, ALL_CATEGORY, 'media', 'tools']
       );
     });
 
@@ -475,11 +475,24 @@ describe('buildView', () => {
     assert.ok(view.tabs.some((t) => t.value === FEATURED_CATEGORY));
   });
 
-  test('selecting Featured with nothing featured reports empty rather than throwing', () => {
-    const view = buildView([appFixture({ id: 'a' })], { category: FEATURED_CATEGORY });
+  /**
+   * A widget can be CONFIGURED to open on Featured while nothing is
+   * currently featured — the Featured tab does not exist in that case (see
+   * `categoryTabs`), so opening onto it would be a blank grid. `buildView`
+   * falls back to All instead, and reports `category: ALL_CATEGORY` so the
+   * widget highlights the tab it actually landed on.
+   */
+  test('configured to open on Featured with nothing featured falls back to All', () => {
+    const apps = [appFixture({ id: 'a' }), appFixture({ id: 'b' })];
+    const view = buildView(apps, { category: FEATURED_CATEGORY, sort: SORT.NAME });
 
-    assert.equal(view.empty, true);
-    assert.equal(view.cards.length, 0);
+    assert.equal(view.category, ALL_CATEGORY);
+    assert.equal(view.empty, false);
+    assert.deepEqual(
+      view.cards.map((c) => c.id),
+      ['a', 'b']
+    );
+    assert.ok(!view.tabs.some((t) => t.value === FEATURED_CATEGORY));
   });
 });
 

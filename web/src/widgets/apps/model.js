@@ -65,20 +65,21 @@ const STATUS_RANK = {
  * with zero apps is already dropped above, so this is the existing pattern
  * applied to a second kind of membership, not a new rule.
  *
- * Featured is placed FIRST among the real tabs — immediately after "All" but
- * ahead of every category — because it is a promoted, curated set rather than
- * a partition of the registry the way the categories are, and the point of
- * promoting something is that it should be the first thing offered.
+ * Featured is placed FIRST overall — ahead of "All" and every category —
+ * because Ope asked for Featured to be the first tab and the default
+ * (2026-09-20): "featured should be the first and the default, then all
+ * apps, then personal ...." So the order is Featured, All, then the
+ * categories.
  */
 export function categoryTabs(apps = []) {
   const present = new Set(apps.map((a) => a?.category).filter(Boolean));
   const featuredCount = apps.filter((a) => Boolean(a?.featured)).length;
 
   return [
-    { value: ALL_CATEGORY, label: 'All', count: apps.length },
     ...(featuredCount > 0
       ? [{ value: FEATURED_CATEGORY, label: 'Featured', count: featuredCount }]
       : []),
+    { value: ALL_CATEGORY, label: 'All', count: apps.length },
     ...CATEGORIES.filter((c) => present.has(c)).map((c) => ({
       value: c,
       label: c.charAt(0).toUpperCase() + c.slice(1),
@@ -332,12 +333,23 @@ export function buildView(
   apps = [],
   { category = ALL_CATEGORY, sort = SORT.VISITS, statuses = new Map(), versions = {} } = {}
 ) {
-  const filtered = filterByCategory(apps, category);
+  const tabs = categoryTabs(apps);
+
+  // A widget can be CONFIGURED to open on Featured while no app is currently
+  // featured — the Featured tab then does not exist (see `categoryTabs`), and
+  // opening onto a tab that isn't there would render a blank grid. Fall back
+  // to All, the same tab a first-time widget opens on.
+  const effectiveCategory =
+    category === FEATURED_CATEGORY && !tabs.some((t) => t.value === FEATURED_CATEGORY)
+      ? ALL_CATEGORY
+      : category;
+
+  const filtered = filterByCategory(apps, effectiveCategory);
   const sorted = sortApps(filtered, sort, statuses);
 
   return {
-    tabs: categoryTabs(apps),
-    category,
+    tabs,
+    category: effectiveCategory,
     sort,
     sortOptions: SORT_OPTIONS,
     cards: sorted.map((app) => buildCard(app, { statuses, versions })),

@@ -33,7 +33,14 @@
 
 import { registry } from '../../shell/registry.js';
 import { STATUS, StatusTracker } from '../../lib/status.js';
-import { ALL_CATEGORY, CATEGORIES, SORT, SORT_OPTIONS, buildView } from './model.js';
+import {
+  ALL_CATEGORY,
+  CATEGORIES,
+  FEATURED_CATEGORY,
+  SORT,
+  SORT_OPTIONS,
+  buildView,
+} from './model.js';
 import { STYLES } from './styles.js';
 import { transparentField, TRANSPARENT_KEY } from '../../shell/transparent.js';
 
@@ -95,12 +102,18 @@ export const APPS_CONFIG_SCHEMA = Object.freeze([
     key: 'category',
     type: 'select',
     label: 'Category',
+    // Left at ALL_CATEGORY deliberately — Ope chose to add Featured to the
+    // setting and set it explicitly in the UI rather than hardcode a new
+    // default, so which tab a widget opens on stays his call (2026-09-20).
     default: ALL_CATEGORY,
+    // Ordered to match the tab strip itself (Featured, All, categories) — see
+    // `categoryTabs` in model.js.
     options: [
+      { value: FEATURED_CATEGORY, label: 'Featured' },
       { value: ALL_CATEGORY, label: 'All' },
       ...CATEGORIES.map((c) => ({ value: c, label: c.charAt(0).toUpperCase() + c.slice(1) })),
     ],
-    help: 'Which category the widget opens on. Tabs still switch between them.',
+    help: 'Which category the widget opens on. Tabs still switch between them. If Featured is chosen but nothing is currently featured, it falls back to All.',
   },
   {
     key: 'sort',

@@ -12,7 +12,7 @@
     "test:tz": "node ../scripts/test-timezones.mjs \"test/calendar-group.test.js\""
   },
   "dependencies": {
-    "gridstack": "^13.2.0"
+    "gridstack": "^13.3.0"
   },
   "devDependencies": {
     "eslint": "^10.10.0",

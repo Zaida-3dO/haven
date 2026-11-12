@@ -128,10 +128,12 @@ describe('the app header', () => {
     const header = build({ title: 'Haven' });
     const mark = find(header, 'haven-header__mark');
 
-    // It is the first letter of the name that is announced right beside it,
-    // so announcing it too would just stutter.
+    // It is the logo for the name that is announced right beside it, so
+    // announcing it too would just stutter.
+    assert.equal(mark.tagName, 'IMG');
+    assert.equal(mark.attributes.src, '/haven-mark.svg');
+    assert.equal(mark.attributes.alt, '');
     assert.equal(mark.attributes['aria-hidden'], 'true');
-    assert.equal(mark.textContent, 'H');
   });
 
   test('destroy() stops the clock interval', () => {

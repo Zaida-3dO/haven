@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Haven logo pack</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        font:
+          12px 'Segoe UI',
+          sans-serif;
+        background: #e6e6ea;
+      }
+      .row {
+        display: flex;
+        gap: 14px;
+        align-items: flex-end;
+        flex-wrap: wrap;
+        padding: 12px;
+        border-radius: 10px;
+        margin-bottom: 10px;
+      }
+      .light {
+        background: #f6f6f8;
+      }
+      .dark {
+        background: #1d1e22;
+        color: #ccc;
+      }
+      figure {
+        margin: 0;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Open this file in a browser to see every asset in the pack on light and dark. -->
+    <script>
+      const sizes = [16, 24, 32, 48, 64, 96, 128];
+      const dpis = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
+      const rows = [
+        [
+          'SVG masters',
+          [
+            'icon',
+            'icon-rounded',
+            'icon-circle',
+            'icon-small',
+            'icon-small-rounded',
+            'icon-mono',
+          ].map((n) => `svg/haven-${n}.svg`),
+          128,
+        ],
+        ['Square PNGs', [...sizes, 180].map((s) => `png/square/haven-icon-${s}.png`)],
+        ['Rounded PNGs', sizes.map((s) => `png/rounded/haven-icon-rounded-${s}.png`)],
+        ['Circle PNGs', sizes.map((s) => `png/circle/haven-icon-circle-${s}.png`)],
+        [
+          'Web',
+          [
+            'favicon.ico',
+            'favicon-16.png',
+            'favicon-32.png',
+            'apple-touch-icon.png',
+            'icon-192.png',
+            'mask-icon.svg',
+          ].map((f) => `web/${f}`),
+        ],
+        [
+          'Android legacy mipmaps',
+          dpis.flatMap((d) =>
+            ['ic_launcher', 'ic_launcher_round'].map(
+              (n) => `android/legacy-mipmaps/mipmap-${d}/${n}.png`
+            )
+          ),
+        ],
+      ];
+      for (const bg of ['light', 'dark']) {
+        for (const [title, files, size] of rows) {
+          const row = document.createElement('div');
+          row.className = `row ${bg}`;
+          row.innerHTML = `<b style="width:100%">${title} (${bg})</b>`;
+          for (const f of files) {
+            const fig = document.createElement('figure');
+            const img = document.createElement('img');
+            img.src = f;
+            if (size) img.width = img.height = size;
+            if (f.endsWith('.ico') || f.endsWith('mask-icon.svg')) img.width = img.height = 32;
+            const cap = document.createElement('figcaption');
+            cap.textContent = f.split('/').pop();
+            fig.append(img, cap);
+            row.append(fig);
+          }
+          document.body.append(row);
+        }
+      }
+    </script>
+  </body>
+</html>

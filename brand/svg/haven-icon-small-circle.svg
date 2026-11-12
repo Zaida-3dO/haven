@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Haven icon: simplified art, circle. -->
+  <defs>
+    <linearGradient id="skyS" x1="0" y1="0" x2="0" y2="330" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#2A2F66"/><stop offset="0.6" stop-color="#8A6497"/><stop offset="1" stop-color="#F4B183"/></linearGradient>
+    <linearGradient id="sunS" x1="0" y1="120" x2="0" y2="330" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFF1CC"/><stop offset="1" stop-color="#FFC07E"/></linearGradient>
+    <clipPath id="shape"><circle cx="256" cy="256" r="256"/></clipPath>
+  </defs>
+  <g clip-path="url(#shape)">
+    <path d="M0 0 H512 V512 H0 Z" fill="url(#skyS)"/>
+    <path d="M106 270 a150 150 0 1 0 300 0 a150 150 0 1 0 -300 0 Z" fill="url(#sunS)"/>
+    <path d="M0 330 H512 V512 H0 Z" fill="#2C3D78"/>
+    <path d="M150 382 H362" fill="none" stroke="#FFC98E" stroke-width="30" stroke-linecap="round"/>
+    <path d="M206 440 H306" fill="none" stroke="#C99693" stroke-width="30" stroke-linecap="round"/>
+    <path d="M40 334 C120 278 190 262 256 262 C322 262 392 278 472 334 Z" fill="#1A3346"/>
+    <path d="M200 272 V206 H182 L256 136 L330 206 H312 V272 Z" fill="#1A3346" stroke="#1A3346" stroke-width="10" stroke-linejoin="round"/>
+    <path d="M236 272 V236 A20 20 0 0 1 276 236 V272 Z" fill="#FFC57A"/>
+  </g>
+</svg>

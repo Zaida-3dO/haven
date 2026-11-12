@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Haven icon: full art, circle. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="96" x2="0" y2="318" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1E2A5C"/><stop offset="0.5" stop-color="#55508F"/><stop offset="0.82" stop-color="#C77F92"/><stop offset="1" stop-color="#F4B183"/></linearGradient>
+    <linearGradient id="sea" x1="0" y1="318" x2="0" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#3B4F8C"/><stop offset="1" stop-color="#18234D"/></linearGradient>
+    <linearGradient id="sun" x1="0" y1="208" x2="0" y2="318" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFF1CC"/><stop offset="1" stop-color="#FFC07E"/></linearGradient>
+    <linearGradient id="isle" x1="0" y1="250" x2="0" y2="320" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#24485A"/><stop offset="1" stop-color="#1A3346"/></linearGradient>
+    <clipPath id="shape"><circle cx="256" cy="256" r="256"/></clipPath>
+  </defs>
+  <g clip-path="url(#shape)">
+    <path d="M0 0 H512 V318 H0 Z" fill="url(#sky)"/>
+    <path d="M0 318 H512 V512 H0 Z" fill="url(#sea)"/>
+    <path d="M164 186 L202 160 L240 176 L272 146 M202 160 L210 126" fill="none" stroke="#E8E6FF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.55"/>
+    <path d="M159 186 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 Z" fill="#F4F2FF"/>
+    <path d="M196 160 a6 6 0 1 0 12 0 a6 6 0 1 0 -12 0 Z" fill="#F4F2FF"/>
+    <path d="M235.5 176 a4.5 4.5 0 1 0 9 0 a4.5 4.5 0 1 0 -9 0 Z" fill="#F4F2FF"/>
+    <path d="M266.5 146 a5.5 5.5 0 1 0 11 0 a5.5 5.5 0 1 0 -11 0 Z" fill="#F4F2FF"/>
+    <path d="M206 126 a4 4 0 1 0 8 0 a4 4 0 1 0 -8 0 Z" fill="#F4F2FF"/>
+    <path d="M349 144 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0 Z" fill="#F4F2FF" fill-opacity="0.7"/>
+    <path d="M381.5 186 a2.5 2.5 0 1 0 5 0 a2.5 2.5 0 1 0 -5 0 Z" fill="#F4F2FF" fill-opacity="0.6"/>
+    <path d="M320 112 a2 2 0 1 0 4 0 a2 2 0 1 0 -4 0 Z" fill="#F4F2FF" fill-opacity="0.6"/>
+    <path d="M170.13 318 A84 84 0 1 1 329.87 318 Z" fill="url(#sun)"/>
+    <path d="M178 340 H272 M290 340 H322" fill="none" stroke="#FFC98E" stroke-width="8" stroke-linecap="round"/>
+    <path d="M196 358 H230 M246 358 H304" fill="none" stroke="#EDB08E" stroke-width="8" stroke-linecap="round"/>
+    <path d="M212 376 H288" fill="none" stroke="#C99693" stroke-width="8" stroke-linecap="round"/>
+    <path d="M226 394 H244 M260 394 H274" fill="none" stroke="#A07F97" stroke-width="8" stroke-linecap="round"/>
+    <path d="M240 412 H260" fill="none" stroke="#7E6C95" stroke-width="8" stroke-linecap="round"/>
+    <path d="M331.5 340 a5.5 5.5 0 1 0 11 0 a5.5 5.5 0 1 0 -11 0 Z" fill="#FFC98E"/>
+    <path d="M176 358 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 Z" fill="#EDB08E"/>
+    <path d="M298.5 376 a4.5 4.5 0 1 0 9 0 a4.5 4.5 0 1 0 -9 0 Z" fill="#C99693"/>
+    <g transform="translate(250 320) scale(1.16) translate(-229 -320)">
+      <path d="M132 322 C160 300 186 286 214 280 C236 274 268 274 292 284 C304 290 316 304 326 322 Z" fill="url(#isle)"/>
+      <path d="M188 286 L188 246 L216 220 L244 246 L244 280 Z" fill="#1A3346"/>
+      <path d="M182 250 L216 218 L250 250" fill="none" stroke="#1A3346" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M206 280 V264 A10 10 0 0 1 226 264 V280 Z" fill="#FFC57A"/>
+      <path d="M210 244 a6 6 0 1 0 12 0 a6 6 0 1 0 -12 0 Z" fill="#FFC57A"/>
+      <path d="M270 282 V264" fill="none" stroke="#1A3346" stroke-width="6" stroke-linecap="round"/>
+      <path d="M270 238 C278 238 284 248 284 256 C284 264 278 268 270 268 C262 268 256 264 256 256 C256 248 262 238 270 238 Z" fill="#1A3346"/>
+    </g>
+  </g>
+</svg>

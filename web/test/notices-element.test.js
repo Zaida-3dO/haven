@@ -154,13 +154,17 @@ test('notices render soonest-due first', (t) => {
 
 test('a due time renders relative, with the absolute time on hover', (t) => {
   // A hair over two days, so Math.round cannot land it on 1 or 3.
-  const w = widget({ notices: [notice({ due: at(2 * DAY + HOUR) })] });
+  const dueAt = at(2 * DAY + HOUR);
+  const w = widget({ notices: [notice({ due: dueAt })] });
   t.after(w.restore);
 
   const [due] = findAll(w.shadow, 'notice__due');
   assert.match(due.textContent, /in 2 days/);
   // The absolute form is what you need when planning, so it is the tooltip.
-  assert.match(due.getAttribute('title'), /September/);
+  // The month comes from the due date itself: the test runs on the live clock,
+  // so a hard-coded month only passed in the month it was written.
+  const month = new Date(dueAt).toLocaleDateString(undefined, { month: 'long' });
+  assert.ok(due.getAttribute('title').includes(month), `expected the tooltip to name ${month}`);
 });
 
 test('an overdue notice says so rather than only reading "2 days ago"', (t) => {

@@ -220,19 +220,13 @@ body {
   flex: 0 0 auto;
 }
 
-/* The mark. A rounded amber tile with the initial — enough to read as a logo
-   without shipping an image the repo would then have to license. */
+/* The mark: Haven's own logo (brand/), drawn for the repo, so there is
+   nothing to license. */
 .haven-header__mark {
-  display: grid;
-  place-items: center;
+  display: block;
   width: 36px;
   height: 36px;
   border-radius: var(--haven-radius-sm);
-  background: var(--haven-accent);
-  color: var(--haven-accent-fg);
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1;
 }
 
 /* The page's one `<h1>`. There was no h1 anywhere before this, which left the

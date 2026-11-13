@@ -82,11 +82,13 @@ export function createHeader({
   const brand = doc.createElement('div');
   brand.className = 'haven-header__brand';
 
-  const mark = doc.createElement('span');
+  // The logo, from the pack in brand/ (the small art, made to read at this size).
+  const mark = doc.createElement('img');
   mark.className = 'haven-header__mark';
+  mark.setAttribute('src', '/haven-mark.svg');
   // Decorative: the product name is the text right beside it.
+  mark.setAttribute('alt', '');
   mark.setAttribute('aria-hidden', 'true');
-  mark.textContent = title.slice(0, 1).toUpperCase();
 
   // The page's one and only `<h1>`. Before this the document had no top-level
   // heading at all, so a screen reader landed on the page with nothing naming

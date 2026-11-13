@@ -165,7 +165,8 @@ const small = [
 // One-colour version (Android themed icons, Safari pinned tab, print, stamps).
 const MONO = '#000000';
 const mono = [
-  { d: 'M168.4 318 A92 92 0 1 1 343.6 318', stroke: MONO, strokeWidth: 14, cap: 'round' },
+  // The ring ends inside the island, so its round caps never poke out below it.
+  { d: 'M166.67 312 A92 92 0 1 1 345.33 312', stroke: MONO, strokeWidth: 14, cap: 'round' },
   { d: 'M140 322 C176 294 214 282 256 282 C298 282 336 294 372 322 Z', fill: MONO },
   {
     d: 'M226 290 V250 H214 L256 208 L298 250 H286 V290 Z M246 290 V268 A10 10 0 0 1 266 268 V290 Z',

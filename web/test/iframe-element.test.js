@@ -33,16 +33,32 @@ globalThis.HTMLElement = class extends FakeElement {
  * back to `'*'`, which is the habit this widget deliberately avoids.
  */
 globalThis.location = { origin: 'https://haven.invalid' };
+/**
+ * The element defers the frame's `src` until the host document has loaded
+ * and the browser hands it an idle callback (the boot-order gate — a
+ * same-site embed booting mid-dashboard-boot freezes the dashboard). The
+ * unit-test host is trivially idle, so the callback runs inline; a real
+ * browser defers by milliseconds, which the e2e specs already tolerate.
+ */
+const realIdle = globalThis.requestIdleCallback;
+globalThis.requestIdleCallback = (cb) => {
+  cb();
+  return 0;
+};
 
 const { HavenIframe, STYLES } = await import('../src/widgets/iframe/element.js');
 const { HOME_3D_URL, iframeWidget } = await import('../src/widgets/iframe/definition.js');
 const { EmbedUrlError, SANDBOX_NOTICE } = await import('../src/widgets/iframe/embed-url.js');
 const { RESIZE_MESSAGE_TYPE } = await import('../src/widgets/iframe/geometry.js');
+const { VISIBILITY_PROTOCOL, VISIBILITY_VERSION } =
+  await import('../src/widgets/iframe/home3d-visibility.js');
 
 after(() => {
   globalThis.document = realDocument;
   globalThis.HTMLElement = realHTMLElement;
   globalThis.location = realLocation;
+  if (realIdle === undefined) delete globalThis.requestIdleCallback;
+  else globalThis.requestIdleCallback = realIdle;
 });
 
 // The real shipped default, imported rather than copied: a test that hardcodes
@@ -200,6 +216,166 @@ test('becoming visible loads the frame', () => {
   assert.equal(el.loaded, true);
   assert.equal(el.frame.getAttribute('src'), HOME_3D_URL);
   assert.equal(el.frame.hidden, false);
+});
+
+// ── The boot-order gate ──────────────────────────────────────────────────
+
+test('a visible embed waits for the host document to finish loading', () => {
+  // The freeze this gate exists to prevent: a 3D-home embed pointing its
+  // frame at its URL while the dashboard is still booting competes for the
+  // one main thread they share, and the board stalls for seconds. The embed
+  // must wait for `load`, and then for idle, before `src` is set.
+  const realDoc = globalThis.document;
+  const realWindow = globalThis.window;
+  const loadListeners = [];
+  const loadingDoc = createFakeDocument();
+  loadingDoc.readyState = 'interactive';
+  globalThis.document = loadingDoc;
+  globalThis.window = {
+    addEventListener: (type, fn) => {
+      if (type === 'load') loadListeners.push(fn);
+    },
+  };
+  try {
+    const el = new HavenIframe();
+    el.setConfig(CONFIG);
+    el.show();
+
+    assert.equal(el.loaded, false, 'src was set while the host document was still loading');
+    assert.equal(el.frame.getAttribute('src'), null);
+    assert.equal(loadListeners.length, 1, 'expected one once-only load listener');
+
+    for (const fn of loadListeners) fn();
+    assert.equal(el.loaded, true, 'src was not set once the document loaded and went idle');
+    assert.equal(el.frame.getAttribute('src'), HOME_3D_URL);
+  } finally {
+    globalThis.document = realDoc;
+    if (realWindow === undefined) delete globalThis.window;
+    else globalThis.window = realWindow;
+  }
+});
+
+// ── The home3d.visibility handshake ──────────────────────────────────────
+
+/**
+ * Drive one `message` event at whatever the element currently has listening,
+ * shaped like a real MessageEvent for the checks the handler runs.
+ */
+function fireMessage({ origin, source, data }) {
+  for (const fn of globalThis.__messageHandlers ?? []) fn({ origin, source, data });
+}
+
+/**
+ * A fake window that records message handlers, so `fireMessage` can reach
+ * the channel the element attached. Must be installed BEFORE the frame gets
+ * its src — the channel registers its listener at attach time.
+ */
+function withMessageWindow(fn) {
+  const realWindow = globalThis.window;
+  const handlers = [];
+  globalThis.__messageHandlers = handlers;
+  globalThis.window = {
+    addEventListener: (type, h) => {
+      if (type === 'message') handlers.push(h);
+    },
+    removeEventListener: (type, h) => {
+      const i = handlers.indexOf(h);
+      if (i >= 0) handlers.splice(i, 1);
+    },
+  };
+  try {
+    return fn();
+  } finally {
+    delete globalThis.__messageHandlers;
+    if (realWindow === undefined) delete globalThis.window;
+    else globalThis.window = realWindow;
+  }
+}
+
+test('the visibility channel answers the frame handshake and nothing else', () => {
+  withMessageWindow(() => {
+    const el = makeEmbed();
+    const posted = attachWindow(el.frame);
+    const origin = new URL(HOME_3D_URL).origin;
+
+    // A message from the wrong origin is dropped without a trace.
+    fireMessage({
+      origin: 'https://evil.invalid',
+      source: el.frame.contentWindow,
+      data: { proto: VISIBILITY_PROTOCOL, v: VISIBILITY_VERSION, type: 'hello-from-frame' },
+    });
+    // A message from the right origin but a borrowed window is dropped too.
+    fireMessage({
+      origin,
+      source: { not: 'the frame' },
+      data: { proto: VISIBILITY_PROTOCOL, v: VISIBILITY_VERSION, type: 'hello-from-frame' },
+    });
+    // An unrelated postMessage (some other script talking to the frame).
+    fireMessage({ origin, source: el.frame.contentWindow, data: { hello: 'world' } });
+    assert.equal(posted.length, 0, 'a malformed or spoofed message must not be answered');
+
+    fireMessage({
+      origin,
+      source: el.frame.contentWindow,
+      data: { proto: VISIBILITY_PROTOCOL, v: VISIBILITY_VERSION, type: 'hello-from-frame' },
+    });
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].message.type, 'hello');
+    assert.equal(posted[0].message.proto, VISIBILITY_PROTOCOL);
+    assert.equal(posted[0].targetOrigin, origin, 'must never post to *');
+
+    // `ready` opens the gate: the current visibility goes out at once.
+    fireMessage({
+      origin,
+      source: el.frame.contentWindow,
+      data: { proto: VISIBILITY_PROTOCOL, v: VISIBILITY_VERSION, type: 'ready' },
+    });
+    const last = posted[posted.length - 1];
+    assert.equal(last.message.type, 'visibility');
+    assert.equal(last.message.visible, true, 'a visible tile must report visible');
+    assert.equal(last.targetOrigin, origin);
+  });
+});
+
+test('scrolling the tile off screen tells the embedded scene to stand down', () => {
+  withMessageWindow(() => {
+    const realIO = globalThis.IntersectionObserver;
+    let ioCallback = null;
+    globalThis.IntersectionObserver = class {
+      constructor(cb) {
+        ioCallback = cb;
+      }
+      observe() {}
+      disconnect() {}
+    };
+    try {
+      const el = makeEmbed();
+      const posted = attachWindow(el.frame);
+      const origin = new URL(HOME_3D_URL).origin;
+
+      // A persistent observer, wired by connectedCallback.
+      el.connectedCallback();
+      assert.ok(ioCallback, 'connectedCallback did not create the visibility observer');
+
+      fireMessage({
+        origin,
+        source: el.frame.contentWindow,
+        data: { proto: VISIBILITY_PROTOCOL, v: VISIBILITY_VERSION, type: 'ready' },
+      });
+
+      ioCallback([{ isIntersecting: false, intersectionRatio: 0 }]);
+      const last = posted[posted.length - 1];
+      assert.equal(last.message.type, 'visibility');
+      assert.equal(last.message.visible, false, 'an off-screen tile kept reporting visible');
+
+      // And back on screen: `show()` stays idempotent, visibility flips true.
+      ioCallback([{ isIntersecting: true, intersectionRatio: 1 }]);
+      assert.equal(posted[posted.length - 1].message.visible, true);
+    } finally {
+      if (realIO === undefined) delete globalThis.IntersectionObserver;
+      else globalThis.IntersectionObserver = realIO;
+    }
+  });
 });
 
 // ── Sandbox surfacing ────────────────────────────────────────────────────

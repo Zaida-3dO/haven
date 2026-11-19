@@ -24,10 +24,15 @@
  * Both are therefore written only when their value actually differs.
  * ─────────────────────────────────────────────────────────────────────────
  *
- * The other two things this widget must get right, both documented at their
- * call sites below: it participates in the grid's pointer-events shim rather
- * than reimplementing it, and it forwards geometry into the frame on resize so
- * an embedded renderer can resize its drawing buffer.
+ * The other things this widget must get right, all documented at their call
+ * sites below: it participates in the grid's pointer-events shim rather than
+ * reimplementing it; it forwards geometry into the frame on resize so an
+ * embedded renderer can resize its drawing buffer; it does not point the
+ * frame at its URL until the dashboard itself has finished booting and gone
+ * idle (measured: a 3D-home embed booting alongside the dashboard froze the
+ * dashboard's own main thread for seconds, because a same-site iframe shares
+ * that thread); and it speaks the `home3d.visibility` protocol so an
+ * embedded WebGL scene can stand down while its tile is off screen.
  */
 
 import {
@@ -37,7 +42,8 @@ import {
   parseEmbedUrl,
   sandboxTokens,
 } from './embed-url.js';
-import { postGeometry } from './geometry.js';
+import { frameOrigin, postGeometry } from './geometry.js';
+import { attachVisibilityHost } from './home3d-visibility.js';
 
 /**
  * Resolved at module load, exactly as `clock.js` does it and for the same
@@ -145,6 +151,18 @@ export class HavenIframe extends ElementBase {
   #observer = null;
   /** Whether the sandbox disclosure's text sibling is currently shown. */
   #warningRevealed = false;
+  /**
+   * Whether the host page has finished loading AND been handed an idle
+   * callback. Until then, a visible embed keeps showing its placeholder:
+   * an iframe that starts fetching — and starts compiling — while the
+   * dashboard is still booting competes with the dashboard for the one
+   * main thread they share, which is how a 3D home used to freeze the
+   * board it sat on for seconds at a time.
+   */
+  #hostSettled = false;
+  #settleScheduled = false;
+  /** The `home3d.visibility` channel, attached when the frame first loads. */
+  #vis = null;
 
   constructor() {
     super();
@@ -260,21 +278,76 @@ export class HavenIframe extends ElementBase {
   }
 
   disconnectedCallback() {
+    // The tile is gone from the document — whatever happens to the frame
+    // next, nobody can see it, so tell an embedded scene to stand down
+    // before we stop listening. (The frame element itself is deliberately
+    // left alone: dropping a page and coming back must not reload it.)
+    this.#vis?.report(false);
     this.#observer?.disconnect?.();
     this.#observer = null;
   }
 
+  /**
+   * The visibility observer is PERSISTENT, not one-shot.
+   *
+   * It started life as the lazy-load trigger and disconnected itself after
+   * the first intersection. It cannot do that any more: the same entries
+   * drive the `home3d.visibility` protocol, and an embedded WebGL scene
+   * needs to be told it went OFF screen, not just that it once arrived.
+   * `show()` stays idempotent, so re-entry is free.
+   */
   #observe() {
     const Observer = globalThis.IntersectionObserver;
     if (!Observer || this.#observer) return;
-    this.#observer = new Observer((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        this.show();
-        this.#observer?.disconnect?.();
-        this.#observer = null;
-      }
-    });
+    this.#observer = new Observer(
+      (entries) => {
+        const entry = entries[entries.length - 1];
+        const visible = !!entry?.isIntersecting && (entry.intersectionRatio ?? 0) > 0.1;
+        if (visible) this.show();
+        this.#vis?.report(visible);
+      },
+      // The thresholds the embed contract's host-side sample asks for, so
+      // partial coverage and a drawer closing over the tile both register.
+      { threshold: [0, 0.1, 0.5] }
+    );
     this.#observer.observe(this);
+  }
+
+  /**
+   * One-shot: wait until the host document is loaded and the browser hands
+   * us an idle callback, then let one gated render through.
+   *
+   * `requestIdleCallback` with a timeout is not a poll and not a widget
+   * timer — it is the browser saying "here is a gap in the work you are
+   * allowed to join". The timeout (3 s) bounds the promise: on a dashboard
+   * that never goes quiet, the embed starts after three seconds rather
+   * than never.
+   */
+  #scheduleHostSettle() {
+    if (this.#hostSettled || this.#settleScheduled) return;
+    this.#settleScheduled = true;
+
+    const doc = globalThis.document;
+    // A document that never states its readiness (a bare test DOM) counts
+    // as loaded; a real one must reach `complete` first.
+    const loaded = !doc?.readyState || doc.readyState === 'complete';
+
+    const settle = () => {
+      const run = () => {
+        this.#hostSettled = true;
+        this.render();
+      };
+      // A browser without `requestIdleCallback` starts as soon as the load
+      // lands — the no-widget-timers rule outranks the politeness.
+      if (typeof globalThis.requestIdleCallback === 'function') {
+        globalThis.requestIdleCallback(run, { timeout: 3000 });
+      } else {
+        run();
+      }
+    };
+
+    if (loaded) settle();
+    else globalThis.window?.addEventListener?.('load', settle, { once: true });
   }
 
   render() {
@@ -339,6 +412,15 @@ export class HavenIframe extends ElementBase {
       return;
     }
 
+    // ── The boot-order gate ─────────────────────────────────────────────
+    // Visible, but the dashboard has not finished booting and gone idle
+    // yet. Keep showing the placeholder and ask once to be woken; the
+    // render that follows the idle callback does the real work.
+    if (!this.#hostSettled) {
+      this.#scheduleHostSettle();
+      return;
+    }
+
     nodes.placeholder.hidden = true;
     nodes.frame.hidden = false;
 
@@ -356,6 +438,14 @@ export class HavenIframe extends ElementBase {
     if (this.#pendingSrc !== this.#currentSrc) {
       nodes.frame.setAttribute('src', this.#pendingSrc);
       this.#currentSrc = this.#pendingSrc;
+      // The frame now has a real document on the way in: attach the
+      // visibility channel exactly once per frame, addressed at the frame's
+      // configured origin.
+      if (!this.#vis) {
+        this.#vis = attachVisibilityHost(nodes.frame, frameOrigin(nodes.frame), {
+          initialVisible: this.#visible,
+        });
+      }
     }
     // ────────────────────────────────────────────────────────────────────
 
@@ -477,7 +567,10 @@ export class HavenIframe extends ElementBase {
     this.#shadow.replaceChildren(style, box);
 
     // The frame is gone, so the next good render rebuilds it — and must
-    // therefore re-apply src and sandbox.
+    // therefore re-apply src and sandbox. Its visibility channel goes with
+    // it; the rebuilt frame's handshake starts fresh.
+    this.#vis?.detach?.();
+    this.#vis = null;
     this.#nodes = null;
     this.#currentSrc = null;
     this.#currentSandbox = null;
@@ -499,6 +592,8 @@ export class HavenIframe extends ElementBase {
   }
 
   destroy() {
+    this.#vis?.detach?.();
+    this.#vis = null;
     this.#observer?.disconnect?.();
     this.#observer = null;
     this.#config = null;
